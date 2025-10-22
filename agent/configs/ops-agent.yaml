@@ -1,0 +1,89 @@
+# ClickHouse Operations Agent Configuration
+
+# Application Information
+app:
+  name: "ClickHouse Operations Agent"
+  version: "1.0.0"
+
+# HTTP Server Configuration
+server:
+  port: 8080
+
+# Database Configuration
+database:
+  postgres:
+    dsn: "postgres://ops:12345@ops_db:5432/public?sslmode=disable"
+  clickhouse:
+    # Cluster configuration with individual node settings
+    nodes:
+      - name: "primary"
+        host: "ops_clickhouse"
+        port: 9000
+        username: "ops"
+        password: "12345"
+        database: "system"
+        weight: 3
+        priority: 1
+      - name: "primary2"
+        host: "ops_clickhouse_2"
+        port: 9000
+        username: "ops"
+        password: "12345"
+        database: "system"
+        weight: 3
+        priority: 2
+      # Example of additional nodes with different credentials:
+      # - name: "replica-1"
+      #   host: "ch-replica-1.example.com"
+      #   port: 9000
+      #   username: "readonly_user"
+      #   password: "readonly_pass"
+      #   database: "analytics"
+      #   secure: true  # Override global secure setting
+      #   weight: 2
+      #   priority: 2
+      # - name: "replica-2"
+      #   host: "ch-replica-2.example.com"
+      #   port: 9000
+      #   username: "admin_user"
+      #   password: "admin_pass"
+      #   database: "default"
+      #   compression: "gzip"  # Override global compression
+      #   weight: 1
+      #   priority: 1
+    
+    # Global settings (applied to all nodes unless overridden)
+    global_settings:
+      # Version constraints
+      min_version: "24.0.0"
+      max_version: "25.9.4"
+      
+      # Connection timeouts
+      dial_timeout: "3s"
+      read_timeout: "10s"
+      write_timeout: "10s"
+      
+      # Connection pooling
+      conn_max_lifetime: "30m"
+      max_open_conns: 16
+      max_idle_conns: 8
+      
+      # Retry configuration
+      retry_max_attempts: 4
+      retry_initial_backoff: "100ms"
+      retry_max_backoff: "2s"
+      retry_jitter: 0.2
+      retry_on_insert: false
+      
+      # Security and compression (defaults for all nodes)
+      secure: false
+      skip_verify: false
+      compression: "lz4"
+      
+      # Query configuration
+      query_id_prefix: "ops-agent"
+
+# Logging Configuration
+logging:
+  level: "info"
+  format: "text"

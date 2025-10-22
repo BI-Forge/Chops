@@ -1,0 +1,66 @@
+services:
+  ops_agent:
+    container_name: ops_agent-dev
+    image: ops_agent-dev
+    build:
+      context: ./agent
+      dockerfile: ./Dockerfile.dev
+      target: development
+    ports:
+      - "8080:8080"
+    depends_on:
+      ops_db:
+        condition: service_healthy
+#      ops_clickhouse:
+#        condition: service_healthy
+    volumes:
+      - ./agent/:/app
+    networks:
+      - ch_ops
+  ops_db:
+    image: postgres:13.11
+    container_name: ops_db
+    environment:
+      - POSTGRES_HOST=ops_db
+      - POSTGRES_PORT=5432
+      - POSTGRES_PASSWORD=12345
+      - POSTGRES_USER=ops
+      - POSTGRES_DB=public
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ops -d public" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - 5436:5432
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - ch_ops
+  ops_clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: ops_clickhouse
+    ports:
+      - "8121:8123"
+      - "9005:9000"
+    volumes:
+      - ./.config/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ./.config/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ./.config/clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./.config/clickhouse/users.d:/etc/clickhouse-server/users.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+#    healthcheck:
+#      test: [ "CMD", "curl", "--fail", "http://localhost:8123/" ]
+#      interval: 30s
+#      timeout: 10s
+#      retries: 3
+    networks:
+      - ch_ops
+networks:
+  ch_ops:
+    name: ch_ops

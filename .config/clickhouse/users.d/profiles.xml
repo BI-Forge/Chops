@@ -1,0 +1,18 @@
+<clickhouse>>
+    <profiles>
+        <default>
+            <totals_mode>before_having</totals_mode>
+            <receive_timeout>600</receive_timeout>
+            <send_timeout>600</send_timeout>
+            <load_balancing>random</load_balancing>
+            <optimize_move_to_prewhere>0</optimize_move_to_prewhere>
+            <max_partitions_per_insert_block>350</max_partitions_per_insert_block>
+            <max_execution_time>6000</max_execution_time>
+            <log_query_threads>0</log_query_threads>
+        </default>
+        <guest>
+            <readonly>1</readonly>
+            <max_memory_usage>100000000</max_memory_usage>
+        </guest>
+    </profiles>
+</clickhouse>

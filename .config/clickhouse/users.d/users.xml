@@ -1,0 +1,12 @@
+<clickhouse>
+    <users>
+        <ops>
+            <password>12345</password>
+            <profile>default</profile>
+            <quota>default</quota>
+            <networks incl="networks" replace="replace">
+                <ip>::/0</ip>
+            </networks>
+        </ops>
+    </users>
+</clickhouse>
