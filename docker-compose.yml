@@ -11,8 +11,10 @@ services:
     depends_on:
       ops_db:
         condition: service_healthy
-#      ops_clickhouse:
-#        condition: service_healthy
+      ops_clickhouse:
+        condition: service_started
+      ops_clickhouse_2:
+        condition: service_started
     networks:
       - ch_ops
   ops_db:

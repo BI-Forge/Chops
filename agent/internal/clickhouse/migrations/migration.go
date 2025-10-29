@@ -115,6 +115,7 @@ func (cm *ClickHouseMigrator) RunMigrations(ctx context.Context) error {
 	}
 
 	// Run migrations on each working connection (node)
+	processedNodes := make(map[int]bool)
 	for i := 0; i < len(nodes); i++ {
 		conn, nodeIndex, err := clusterManager.GetConnection()
 		if err != nil {
@@ -125,6 +126,11 @@ func (cm *ClickHouseMigrator) RunMigrations(ctx context.Context) error {
 		}
 
 		if conn == nil {
+			continue
+		}
+
+		// Skip if we already processed this node
+		if processedNodes[nodeIndex] {
 			continue
 		}
 
@@ -139,6 +145,9 @@ func (cm *ClickHouseMigrator) RunMigrations(ctx context.Context) error {
 			}
 			return fmt.Errorf("failed to run migrations on node %s: %w", node.Name, err)
 		}
+
+		// Mark this node as processed
+		processedNodes[nodeIndex] = true
 	}
 
 	if cm.logger != nil {

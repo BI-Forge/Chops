@@ -12,6 +12,7 @@ import (
 
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/clickhouse/migrations"
+	"clickhouse-ops/internal/clickhouse/sync"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/internal/httpserver"
@@ -110,6 +111,26 @@ var rootCmd = &cobra.Command{
 				appLogger.Warning("Application will continue running, but migrations failed")
 			} else {
 				appLogger.Info("ClickHouse migrations completed successfully")
+				
+				// Wait for system tables to be ready
+				appLogger.Info("Waiting for ClickHouse system tables to be ready...")
+				err = clickhouse.WaitForSystemTablesReady(appLogger)
+				if err != nil {
+					appLogger.Warningf("System tables readiness check failed: %v", err)
+					appLogger.Warning("Table synchronization will start anyway, but may fail initially")
+				} else {
+					appLogger.Info("ClickHouse system tables are ready")
+				}
+				
+				// Initialize table synchronization
+				appLogger.Info("Initializing table synchronization...")
+				err = initializeTableSync(cfg, appLogger)
+				if err != nil {
+					appLogger.Errorf("Failed to initialize table synchronization: %v", err)
+					appLogger.Warning("Application will continue running, but table sync is disabled")
+				} else {
+					appLogger.Info("Table synchronization initialized successfully")
+				}
 			}
 		}
 
@@ -144,6 +165,10 @@ func init() {
 	// Add ClickHouse migration management commands
 	initMigrationCommands()
 	rootCmd.AddCommand(clickhouseMigrationCmd)
+	
+	// Add table synchronization management commands
+	initSyncCommands()
+	rootCmd.AddCommand(syncCmd)
 }
 
 // processInfoFlags processes informational flags and returns true if handled
@@ -587,6 +612,117 @@ func runClickHouseMigrations(cfg *config.Config, logger *logger.Logger) error {
 	defer cancel()
 
 	return migrator.RunMigrations(ctx)
+}
+
+// initializeTableSync initializes table synchronization
+func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
+	// Get ClickHouse manager instance
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	// Get cluster manager
+	clusterManager := chManager.GetClusterManager()
+	if clusterManager == nil {
+		return fmt.Errorf("ClickHouse cluster manager not initialized")
+	}
+
+	// Create sync manager
+	syncManager := sync.NewManager(logger, clusterManager)
+
+	// Create and register syncers
+	factory := sync.NewSyncerFactory()
+	syncers, err := factory.CreateAllDefaultSyncers()
+	if err != nil {
+		return fmt.Errorf("failed to create syncers: %w", err)
+	}
+
+	// Register all syncers
+	for _, syncer := range syncers {
+		if err := syncManager.RegisterSyncer(syncer); err != nil {
+			return fmt.Errorf("failed to register syncer: %w", err)
+		}
+	}
+
+	// Start synchronization
+	ctx := context.Background()
+	if err := syncManager.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start sync manager: %w", err)
+	}
+
+	logger.Info("Table synchronization started successfully")
+	return nil
+}
+
+// Table synchronization management commands
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Manage table synchronization",
+	Long:  "Commands for managing table synchronization",
+}
+
+var syncStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show synchronization status",
+	Long:  "Show the current status of all table synchronizations",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Load configuration
+		cfg := loadConfig(cmd)
+		
+		// Create logger
+		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid log level: %v", err))
+		}
+		
+		appLogger := logger.New(logLevel, cfg.Logging.Format)
+		
+		// Connect to ClickHouse
+		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
+		if err != nil {
+			appLogger.Fatalf("Failed to connect to ClickHouse: %v", err)
+		}
+		
+		// Get cluster manager and create sync manager
+		chManager := clickhouse.GetInstance()
+		clusterManager := chManager.GetClusterManager()
+		syncManager := sync.NewManager(appLogger, clusterManager)
+		
+		// Create and register syncers
+		factory := sync.NewSyncerFactory()
+		syncers, err := factory.CreateAllDefaultSyncers()
+		if err != nil {
+			appLogger.Fatalf("Failed to create syncers: %v", err)
+		}
+		
+		for _, syncer := range syncers {
+			syncManager.RegisterSyncer(syncer)
+		}
+		
+		// Show status
+		status := syncManager.GetStatus()
+		if len(status) == 0 {
+			appLogger.Info("No synchronization status available")
+			return
+		}
+		
+		appLogger.Info("Synchronization Status:")
+		appLogger.Info("======================")
+		for key, result := range status {
+			if result.Error != nil {
+				appLogger.Errorf("  %s: ERROR - %v", key, result.Error)
+			} else {
+				appLogger.Infof("  %s: OK - %d records in %v", 
+					key, result.RecordsProcessed, result.Duration)
+			}
+		}
+	},
+}
+
+func initSyncCommands() {
+	// Add subcommands to sync command
+	syncCmd.AddCommand(syncStatusCmd)
 }
 
 // Execute runs the CLI
