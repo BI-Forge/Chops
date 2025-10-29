@@ -358,6 +358,19 @@ func (cm *ClusterManager) GetConnection() (driver.Conn, int, error) {
 	return conn, nodeIndex, nil
 }
 
+// GetConnectionByNodeName returns a connection for a specific node by name
+func (cm *ClusterManager) GetConnectionByNodeName(nodeName string) (driver.Conn, int, error) {
+	for i, node := range cm.nodes {
+		if node.Name == nodeName {
+			if i < 0 || i >= len(cm.conns) || cm.conns[i] == nil {
+				return nil, -1, fmt.Errorf("node %s is not available", nodeName)
+			}
+			return cm.conns[i], i, nil
+		}
+	}
+	return nil, -1, fmt.Errorf("node %s not found", nodeName)
+}
+
 // selectNode selects a node using weighted round-robin
 func (cm *ClusterManager) selectNode(available []int) int {
 	if len(available) == 1 {

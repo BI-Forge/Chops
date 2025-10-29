@@ -19,6 +19,12 @@ func GetMigrations() []Migration {
 			Up:      createClickHouseMigrationsTable,
 			Down:    dropClickHouseMigrationsTable,
 		},
+		{
+			Version: 3,
+			Name:    "create_sync_status_table",
+			Up:      createSyncStatusTable,
+			Down:    dropSyncStatusTable,
+		},
 	}
 }
 
@@ -92,5 +98,38 @@ func dropClickHouseMigrationsTable(tx *sql.Tx) error {
 	}
 	
 	return executeStatements(tx, statements, "drop clickhouse_migrations table")
+}
+
+// createSyncStatusTable creates the sync_status table for tracking ClickHouse sync status
+func createSyncStatusTable(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS sync_status (
+			id SERIAL PRIMARY KEY,
+			table_name VARCHAR(255) NOT NULL,
+			node_name VARCHAR(255) NOT NULL,
+			status VARCHAR(20) NOT NULL,
+			records_processed BIGINT DEFAULT 0,
+			last_timestamp TIMESTAMP,
+			duration_ms INTEGER,
+			error_message TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_status_table_node ON sync_status(table_name, node_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_status_created_at ON sync_status(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_status_status ON sync_status(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_status_table_name ON sync_status(table_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_status_node_name ON sync_status(node_name)`,
+	}
+	
+	return executeStatements(tx, statements, "create sync_status table")
+}
+
+// dropSyncStatusTable drops the sync_status table
+func dropSyncStatusTable(tx *sql.Tx) error {
+	statements := []string{
+		`DROP TABLE IF EXISTS sync_status CASCADE`,
+	}
+	
+	return executeStatements(tx, statements, "drop sync_status table")
 }
 

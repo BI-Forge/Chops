@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/config"
+	"clickhouse-ops/internal/db"
 	"clickhouse-ops/internal/logger"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
@@ -28,6 +29,7 @@ type ClusterManagerInterface interface {
 	GetAllNodes() []config.ClickHouseNode
 	GetWorkingConnections() int
 	GetConnection() (driver.Conn, int, error)
+	GetConnectionByNodeName(string) (driver.Conn, int, error)
 }
 
 // NewManager creates a new sync manager
@@ -158,8 +160,8 @@ func (m *Manager) runSyncerOnNode(ctx context.Context, tableName string, syncer 
 func (m *Manager) executeSyncOnNode(ctx context.Context, tableName string, syncer TableSyncer, node config.ClickHouseNode) {
 	startTime := time.Now()
 	
-	// Get connection from cluster manager
-	conn, _, err := m.cluster.GetConnection()
+	// Get connection from cluster manager for specific node
+	conn, _, err := m.cluster.GetConnectionByNodeName(node.Name)
 	if err != nil {
 		result := SyncResult{
 			TableName: tableName,
@@ -190,6 +192,36 @@ func (m *Manager) executeSyncOnNode(ctx context.Context, tableName string, synce
 	m.mu.Lock()
 	m.status[fmt.Sprintf("%s_%s", tableName, node.Name)] = result
 	m.mu.Unlock()
+	
+	// Log sync status to PostgreSQL
+	var status string
+	var errorMessage *string
+	var lastTimestamp *time.Time
+	var durationMs *int
+	
+	if result.Error != nil {
+		status = "error"
+		errMsg := result.Error.Error()
+		errorMessage = &errMsg
+	} else {
+		status = "success"
+	}
+	
+	if !result.LastTimestamp.IsZero() {
+		lastTimestamp = &result.LastTimestamp
+	}
+	
+	durationMsInt := int(result.Duration.Milliseconds())
+	durationMs = &durationMsInt
+	
+	// Log to PostgreSQL (async, don't block sync)
+	go func() {
+		if err := db.LogSyncStatus(tableName, node.Name, status, result.RecordsProcessed, lastTimestamp, durationMs, errorMessage); err != nil {
+			if m.logger != nil {
+				m.logger.Errorf("Failed to log sync status to PostgreSQL: %v", err)
+			}
+		}
+	}()
 	
 	if m.logger != nil {
 		if result.Error != nil {

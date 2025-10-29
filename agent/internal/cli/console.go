@@ -579,10 +579,54 @@ var deleteNodeMigrationsCmd = &cobra.Command{
 	},
 }
 
+var forceUpMigrationCmd = &cobra.Command{
+	Use:   "force-up",
+	Short: "Force run ClickHouse migrations on all nodes",
+	Long:  "Force run ClickHouse migrations on all available nodes, even if they were already applied",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Load configuration
+		cfg := loadConfig(cmd)
+		
+		// Create logger
+		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid log level: %v", err))
+		}
+		
+		appLogger := logger.New(logLevel, cfg.Logging.Format)
+		appLogger.Info("Force running ClickHouse migrations...")
+		
+		// Connect to PostgreSQL database
+		appLogger.Info("Connecting to PostgreSQL database...")
+		err = db.Connect(cfg, appLogger)
+		if err != nil {
+			appLogger.Fatalf("Failed to connect to PostgreSQL database: %v", err)
+		}
+		appLogger.Info("PostgreSQL database connected successfully")
+		
+		// Connect to ClickHouse database
+		appLogger.Info("Connecting to ClickHouse database...")
+		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
+		if err != nil {
+			appLogger.Fatalf("Failed to connect to ClickHouse database: %v", err)
+		}
+		appLogger.Info("ClickHouse database connected successfully")
+		
+		// Force run migrations
+		err = runClickHouseMigrations(cfg, appLogger)
+		if err != nil {
+			appLogger.Fatalf("Failed to run ClickHouse migrations: %v", err)
+		}
+		
+		appLogger.Info("ClickHouse migrations completed successfully")
+	},
+}
+
 func initMigrationCommands() {
 	// Add subcommands to clickhouse-migration command
 	clickhouseMigrationCmd.AddCommand(deleteMigrationCmd)
 	clickhouseMigrationCmd.AddCommand(deleteNodeMigrationsCmd)
+	clickhouseMigrationCmd.AddCommand(forceUpMigrationCmd)
 }
 
 // runClickHouseMigrations runs ClickHouse migrations
@@ -632,7 +676,7 @@ func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
 	syncManager := sync.NewManager(logger, clusterManager)
 
 	// Create and register syncers
-	factory := sync.NewSyncerFactory()
+	factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
 	syncers, err := factory.CreateAllDefaultSyncers()
 	if err != nil {
 		return fmt.Errorf("failed to create syncers: %w", err)
@@ -660,6 +704,82 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Manage table synchronization",
 	Long:  "Commands for managing table synchronization",
+}
+
+var syncRunCmd = &cobra.Command{
+	Use:   "run [table_name] [node_name]",
+	Short: "Run synchronization for a specific table on a specific node",
+	Long:  "Force run synchronization for a specific table on a specific node. If node_name is not provided, runs on all nodes",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		// Load configuration
+		cfg := loadConfig(cmd)
+		
+		// Create logger
+		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid log level: %v", err))
+		}
+		
+		appLogger := logger.New(logLevel, cfg.Logging.Format)
+		
+		// Connect to ClickHouse
+		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
+		if err != nil {
+			appLogger.Fatalf("Failed to connect to ClickHouse: %v", err)
+		}
+		
+		// Get cluster manager
+		chManager := clickhouse.GetInstance()
+		clusterManager := chManager.GetClusterManager()
+		
+		// Get table and node names
+		tableName := args[0]
+		nodeName := ""
+		if len(args) > 1 {
+			nodeName = args[1]
+		}
+		
+		// Create factory and syncers
+		factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
+		syncers, err := factory.CreateAllDefaultSyncers()
+		if err != nil {
+			appLogger.Fatalf("Failed to create syncers: %v", err)
+		}
+		
+		// Find and run the syncer
+		found := false
+		for _, syncer := range syncers {
+			if syncer.GetConfig().TableName == tableName {
+				found = true
+				
+				if nodeName != "" {
+					// Run on specific node
+					node := findNodeByName(clusterManager, nodeName)
+					if node.Name == "" {
+						appLogger.Fatalf("Node %s not found", nodeName)
+					}
+					
+					appLogger.Infof("Running sync for table %s on node %s", tableName, nodeName)
+					runSingleSync(cmd.Context(), appLogger, clusterManager, syncer, node)
+				} else {
+					// Run on all nodes
+					nodes := clusterManager.GetAllNodes()
+					for _, node := range nodes {
+						appLogger.Infof("Running sync for table %s on node %s", tableName, node.Name)
+						runSingleSync(cmd.Context(), appLogger, clusterManager, syncer, node)
+					}
+				}
+				break
+			}
+		}
+		
+		if !found {
+			appLogger.Fatalf("Table %s not found in syncers", tableName)
+		}
+		
+		appLogger.Info("Sync completed successfully")
+	},
 }
 
 var syncStatusCmd = &cobra.Command{
@@ -690,7 +810,7 @@ var syncStatusCmd = &cobra.Command{
 		syncManager := sync.NewManager(appLogger, clusterManager)
 		
 		// Create and register syncers
-		factory := sync.NewSyncerFactory()
+		factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
 		syncers, err := factory.CreateAllDefaultSyncers()
 		if err != nil {
 			appLogger.Fatalf("Failed to create syncers: %v", err)
@@ -720,9 +840,119 @@ var syncStatusCmd = &cobra.Command{
 	},
 }
 
+var syncHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "Show synchronization history from PostgreSQL",
+	Long:  "Show the synchronization history stored in PostgreSQL database",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Load configuration
+		cfg := loadConfig(cmd)
+		
+		// Create logger
+		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid log level: %v", err))
+		}
+		
+		appLogger := logger.New(logLevel, cfg.Logging.Format)
+		appLogger.Info("Retrieving sync history from PostgreSQL...")
+		
+		// Connect to PostgreSQL database
+		appLogger.Info("Connecting to PostgreSQL database...")
+		err = db.Connect(cfg, appLogger)
+		if err != nil {
+			appLogger.Fatalf("Failed to connect to PostgreSQL database: %v", err)
+		}
+		appLogger.Info("PostgreSQL database connected successfully")
+		
+		// Get sync history
+		statuses, err := db.GetSyncStatus("", "", 50) // Get last 50 records
+		if err != nil {
+			appLogger.Fatalf("Failed to get sync history: %v", err)
+		}
+		
+		appLogger.Info("Sync History:")
+		appLogger.Info("============")
+		
+		if len(statuses) == 0 {
+			appLogger.Info("No sync history found")
+			return
+		}
+		
+		for _, status := range statuses {
+			statusStr := fmt.Sprintf("Table: %s, Node: %s, Status: %s, Records: %d", 
+				status.TableName, status.NodeName, status.Status, status.RecordsProcessed)
+			
+			if status.DurationMs != nil {
+				statusStr += fmt.Sprintf(", Duration: %dms", *status.DurationMs)
+			}
+			
+			if status.ErrorMessage != nil {
+				statusStr += fmt.Sprintf(", Error: %s", *status.ErrorMessage)
+			}
+			
+			statusStr += fmt.Sprintf(", Time: %s", status.CreatedAt.Format("2006-01-02 15:04:05"))
+			
+			appLogger.Info(statusStr)
+		}
+	},
+}
+
 func initSyncCommands() {
 	// Add subcommands to sync command
+	syncCmd.AddCommand(syncRunCmd)
 	syncCmd.AddCommand(syncStatusCmd)
+	syncCmd.AddCommand(syncHistoryCmd)
+}
+
+// findNodeByName finds a node by name in the cluster manager
+func findNodeByName(clusterManager *clickhouse.ClusterManager, nodeName string) config.ClickHouseNode {
+	nodes := clusterManager.GetAllNodes()
+	for _, node := range nodes {
+		if node.Name == nodeName {
+			return node
+		}
+	}
+	return config.ClickHouseNode{}
+}
+
+// runSingleSync runs a single sync operation
+func runSingleSync(ctx context.Context, logger *logger.Logger, clusterManager *clickhouse.ClusterManager, syncer sync.TableSyncer, node config.ClickHouseNode) {
+	// Get connection for the specific node
+	conn, _, err := clusterManager.GetConnectionByNodeName(node.Name)
+	if err != nil {
+		logger.Errorf("Failed to get connection for node %s: %v", node.Name, err)
+		return
+	}
+	
+	// Run sync
+	result, err := syncer.Sync(ctx, conn)
+	if err != nil {
+		logger.Errorf("Sync failed for table %s on node %s: %v", syncer.GetConfig().TableName, node.Name, err)
+		return
+	}
+	
+	// Log status to PostgreSQL
+	status := "success"
+	if result.Error != nil {
+		status = "error"
+	}
+	
+	var lastTimestamp *time.Time
+	if !result.LastTimestamp.IsZero() {
+		lastTimestamp = &result.LastTimestamp
+	}
+	durationMsInt := int(result.Duration.Milliseconds())
+	durationMs := &durationMsInt
+	var errorMessage *string
+	if result.Error != nil {
+		errMsg := result.Error.Error()
+		errorMessage = &errMsg
+	}
+	
+	db.LogSyncStatus(syncer.GetConfig().TableName, node.Name, status, result.RecordsProcessed, lastTimestamp, durationMs, errorMessage)
+	
+	logger.Infof("Sync completed for table %s on node %s: %d records in %v", syncer.GetConfig().TableName, node.Name, result.RecordsProcessed, result.Duration)
 }
 
 // Execute runs the CLI

@@ -56,6 +56,15 @@ func (bs *BaseSyncer) UpdateLastTimestamp(ctx context.Context, conn driver.Conn,
 
 // ExecuteInsertSelectQuery executes an INSERT INTO ... SELECT query and returns the number of affected rows
 func (bs *BaseSyncer) ExecuteInsertSelectQuery(ctx context.Context, conn driver.Conn, query string) (int64, error) {
+	// Get count before insert
+	countBeforeQuery := fmt.Sprintf("SELECT count() FROM %s", bs.config.TableName)
+	rowBefore := conn.QueryRow(ctx, countBeforeQuery)
+	var countBefore int64
+	if err := rowBefore.Scan(&countBefore); err != nil {
+		// If table doesn't exist or empty, countBefore will be 0
+		countBefore = 0
+	}
+	
 	// For INSERT SELECT queries, we should use Exec instead of Query
 	// since INSERT operations don't return result rows
 	err := conn.Exec(ctx, query)
@@ -65,14 +74,15 @@ func (bs *BaseSyncer) ExecuteInsertSelectQuery(ctx context.Context, conn driver.
 
 	// Get the count of rows in the target table to estimate affected rows
 	// This is a workaround since ClickHouse doesn't return affected row count from INSERT SELECT
-	countQuery := fmt.Sprintf("SELECT count() FROM %s", bs.config.TableName)
-	row := conn.QueryRow(ctx, countQuery)
-	var count int64
-	err = row.Scan(&count)
+	countAfterQuery := fmt.Sprintf("SELECT count() FROM %s", bs.config.TableName)
+	rowAfter := conn.QueryRow(ctx, countAfterQuery)
+	var countAfter int64
+	err = rowAfter.Scan(&countAfter)
 	if err != nil {
 		// If we can't get the count, return 1 to indicate success
 		return 1, nil
 	}
 
-	return count, nil
+	// Calculate the difference
+	return countAfter - countBefore, nil
 }

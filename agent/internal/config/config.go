@@ -48,6 +48,9 @@ type ClickHouseConfig struct {
 	// Cluster configuration - DSN for each node
 	Nodes []ClickHouseNode `yaml:"nodes"`
 	
+	// Cluster name for operations
+	ClusterName string `yaml:"cluster_name"`
+	
 	// Global settings (applied to all nodes unless overridden)
 	GlobalSettings ClickHouseGlobalSettings `yaml:"global_settings"`
 }

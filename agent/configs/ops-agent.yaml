@@ -14,6 +14,9 @@ database:
   postgres:
     dsn: "postgres://ops:12345@ops_db:5432/public?sslmode=disable"
   clickhouse:
+    # Cluster name for operations
+    cluster_name: "ops_cluster"
+    
     # Cluster configuration with individual node settings
     nodes:
       - name: "primary"
