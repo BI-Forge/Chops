@@ -10,8 +10,12 @@ WORKDIR /app
 # Cache and install dependencies
 COPY go.mod go.sum ./
 RUN go mod download
+# Install swag for Swagger documentation generation
+RUN go install github.com/swaggo/swag/cmd/swag@latest
 # Copy app files
 COPY . .
+# Generate Swagger documentation
+RUN swag init -g ./cmd/main.go -o ./internal/api/docs
 # Build app
 RUN go build -o ./ops_agent ./cmd/main.go
 

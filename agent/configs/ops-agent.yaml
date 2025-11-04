@@ -8,6 +8,10 @@ app:
 # HTTP Server Configuration
 server:
   port: 8080
+  jwt_secret_key: "your-secret-key-change-in-production"
+  jwt_token_duration: "24h"  # Token expiration time (e.g., "24h", "1h", "30m")
+  rate_limit_rps: 100        # Requests per second (0 to disable)
+  rate_limit_burst: 200      # Burst size for rate limiting
 
 # Database Configuration
 database:

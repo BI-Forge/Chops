@@ -5,6 +5,8 @@ import (
 
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 var (
@@ -14,9 +16,10 @@ var (
 
 // Manager manages database connection and migrations
 type Manager struct {
-	db     *DB
-	config *config.Config
-	logger *logger.Logger
+	db       *DB
+	gormDB   *gorm.DB
+	config   *config.Config
+	logger   *logger.Logger
 }
 
 // GetInstance returns the singleton database manager
@@ -39,6 +42,16 @@ func Connect(cfg *config.Config, log *logger.Logger) error {
 			return
 		}
 
+		// Initialize GORM
+		instance.gormDB, err = gorm.Open(postgres.New(postgres.Config{
+			Conn: instance.db.GetConnection(),
+		}), &gorm.Config{})
+		if err != nil {
+			log.Errorf("Failed to initialize GORM: %v", err)
+			instance.db.Close()
+			return
+		}
+
 		// Run migrations
 		if err = instance.runMigrations(); err != nil {
 			instance.db.Close()
@@ -52,6 +65,11 @@ func Connect(cfg *config.Config, log *logger.Logger) error {
 // GetDBManager returns the database manager wrapper
 func (m *Manager) GetDBManager() *DB {
 	return m.db
+}
+
+// GetGormDB returns the GORM database instance
+func (m *Manager) GetGormDB() *gorm.DB {
+	return m.gormDB
 }
 
 // Close closes the database connection

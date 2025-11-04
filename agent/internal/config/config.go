@@ -29,7 +29,11 @@ type AppConfig struct {
 
 // ServerConfig holds HTTP server configuration
 type ServerConfig struct {
-	Port string `yaml:"port"`
+	Port              string `yaml:"port"`
+	JWTSecretKey      string `yaml:"jwt_secret_key"`
+	JWTTokenDuration  string `yaml:"jwt_token_duration"` // e.g., "24h", "1h"
+	RateLimitRPS      float64 `yaml:"rate_limit_rps"`    // Requests per second (0 to disable)
+	RateLimitBurst    int     `yaml:"rate_limit_burst"`  // Burst size
 }
 
 // DatabaseConfig holds database connection configuration
