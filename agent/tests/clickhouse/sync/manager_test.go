@@ -9,6 +9,7 @@ import (
 	"clickhouse-ops/internal/config"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -158,20 +159,43 @@ func TestManager_Start_WithSyncers(t *testing.T) {
 	mockConn := new(MockConn)
 	clusterManager.On("GetConnectionByNodeName", "node1").Return(mockConn, 0, nil)
 	
+	// Setup mocks for GetLastTimestamp query (QueryRow)
+	// The query will return zero time indicating no previous data
+	mockRowTimestamp := NewMockRow(time.Time{})
+	mockConn.On("QueryRow", mock.Anything, mock.AnythingOfType("string"), mock.Anything).Return(mockRowTimestamp).Maybe()
+	
+	// Setup mock for Exec (for INSERT INTO SELECT)
+	mockConn.On("Exec", mock.Anything, mock.AnythingOfType("string"), mock.Anything).Return(nil).Maybe()
+	
+	// Setup mock for count queries
+	countRow := NewMockRow(int64(0))
+	mockConn.On("QueryRow", mock.Anything, "SELECT count() FROM ops.query_raw", mock.Anything).Return(countRow).Maybe()
+	
+	// Setup mock for max timestamp query
+	maxTsRow := NewMockRow(time.Time{})
+	mockConn.On("QueryRow", mock.Anything, "SELECT max(event_time) FROM ops.query_raw", mock.Anything).Return(maxTsRow).Maybe()
+	
 	manager := sync.NewManager(log, clusterManager)
 	
 	syncer := sync.NewQueryRawSyncer(1 * time.Minute)
 	manager.RegisterSyncer(syncer)
 	
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use context with timeout to prevent test from hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	
 	err := manager.Start(ctx)
 	
-	// Start should succeed, but we'll stop it immediately
+	// Start should succeed
 	assert.NoError(t, err)
 	
+	// Give a small delay for sync to potentially start
+	time.Sleep(50 * time.Millisecond)
+	
 	// Stop the manager
+	// Note: Stop() might wait for sync to complete, so we use context timeout above
 	err = manager.Stop()
 	assert.NoError(t, err)
+	
+	// Note: We use Maybe() for mocks since goroutines execution timing is unpredictable
 }

@@ -1,6 +1,6 @@
 # ClickHouse Operations Agent - Test Makefile
 
-.PHONY: help build test-all test-version test-config test-flags test-env test-combined test-validation test-server test-custom-port test-db test-migrations test-docker-compose clean
+.PHONY: help build test test-all test-clickhouse test-api test-coverage test-version test-config test-flags test-env test-combined test-validation test-server test-custom-port test-db test-migrations test-docker-compose clean
 
 # Default target
 help:
@@ -9,7 +9,11 @@ help:
 	@echo ""
 	@echo "Available commands:"
 	@echo "  build              - Build Docker image"
-	@echo "  test-all           - Run all tests"
+	@echo "  test               - Run all Go unit/integration tests"
+	@echo "  test-clickhouse    - Run ClickHouse tests only"
+	@echo "  test-api           - Run API functional tests only"
+	@echo "  test-coverage      - Run tests with coverage report"
+	@echo "  test-all           - Run all Docker-based tests"
 	@echo "  test-version       - Test --version flag"
 	@echo "  test-config        - Test --print-config flag"
 	@echo "  test-flags         - Test flag overrides"
@@ -223,3 +227,22 @@ db-test: test-db test-migrations
 # Full integration test
 integration-test: test-docker-compose
 	@echo "✅ Integration test completed"
+
+# Test commands
+test:
+	@echo "Running all tests..."
+	@go test -v ./tests/...
+
+test-clickhouse:
+	@echo "Running ClickHouse tests..."
+	@go test -v ./tests/clickhouse/...
+
+test-api:
+	@echo "Running API tests..."
+	@go test -v ./tests/api/...
+
+test-coverage:
+	@echo "Running tests with coverage..."
+	@go test -v -coverprofile=coverage.out ./tests/...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
