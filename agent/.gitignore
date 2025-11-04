@@ -3,3 +3,16 @@ app
 api.test
 migrations.test
 sync.test
+
+# Test binaries
+*.test
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.out
+
+# Coverage files
+coverage.out
+coverage.html
