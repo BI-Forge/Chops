@@ -1,1 +1,5 @@
 .env
+app
+api.test
+migrations.test
+sync.test

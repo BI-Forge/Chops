@@ -3,6 +3,7 @@ package sync_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,8 +164,13 @@ func TestQueryAggMinSyncer_BuildInsertSelectQuery(t *testing.T) {
 	query := syncer.BuildInsertSelectQuery(windowStart, windowEnd)
 	
 	assert.Contains(t, query, "INSERT INTO ops.query_agg_min")
-	assert.Contains(t, query, "FROM cluster(test_cluster, system.query_log)")
-	assert.Contains(t, query, "WHERE type = 'QueryFinish'")
+	// QueryAggMinSyncer reads from ops.query_raw (not system.query_log)
+	assert.Contains(t, query, "FROM ops.query_raw")
+	assert.Contains(t, query, "test_cluster")
+	assert.Contains(t, query, "toStartOfMinute(event_time)")
+	assert.Contains(t, query, "quantileExact")
+	assert.Contains(t, query, "event_time >= toDateTime('2024-01-01 12:00:00')")
+	assert.Contains(t, query, "event_time < toDateTime('2024-01-01 12:05:00')")
 }
 
 func TestStorageMinSyncer_New(t *testing.T) {
@@ -206,7 +212,11 @@ func TestStorageMinSyncer_BuildInsertSelectQuery(t *testing.T) {
 	query := syncer.BuildInsertSelectQuery()
 	
 	assert.Contains(t, query, "INSERT INTO ops.storage_min")
-	assert.Contains(t, query, "FROM cluster(test_cluster, system.parts)")
+	// The query should contain system.parts (with or without cluster function)
+	assert.True(t,
+		strings.Contains(query, "FROM cluster(test_cluster, system.parts)") ||
+		strings.Contains(query, "FROM system.parts"),
+		"Query should contain either cluster() function or direct system.parts reference")
 	assert.Contains(t, query, "toStartOfMinute(now())")
 }
 

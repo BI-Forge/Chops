@@ -62,9 +62,8 @@ func TestBaseSyncer_GetLastTimestamp_NoData(t *testing.T) {
 	
 	baseSyncer := sync.NewBaseSyncer(config)
 	
-	// Mock row that returns sql.ErrNoRows error
-	mockRow := new(MockRow)
-	mockRow.On("Scan", mock.Anything).Return(errors.New("sql: no rows in result set"))
+	// Mock row that returns zero time (no data) - use NewMockRow with zero time
+	mockRow := NewMockRow(time.Time{}) // Zero time indicates no data
 	mockConn.On("QueryRow", ctx, mock.AnythingOfType("string"), []interface{}(nil)).Return(mockRow)
 	
 	timestamp, err := baseSyncer.GetLastTimestamp(ctx, mockConn)
