@@ -15,11 +15,10 @@ type QueryAggMinSyncer struct {
 }
 
 // NewQueryAggMinSyncer creates a new query_agg_min syncer
-func NewQueryAggMinSyncer(interval time.Duration, batchSize int, cluster string) *QueryAggMinSyncer {
+func NewQueryAggMinSyncer(interval time.Duration, cluster string) *QueryAggMinSyncer {
 	config := SyncConfig{
 		TableName: "ops.query_agg_min",
 		Interval:  interval,
-		BatchSize: batchSize,
 	}
 
 	return &QueryAggMinSyncer{

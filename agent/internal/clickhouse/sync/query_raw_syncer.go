@@ -14,11 +14,10 @@ type QueryRawSyncer struct {
 }
 
 // NewQueryRawSyncer creates a new query_raw syncer
-func NewQueryRawSyncer(interval time.Duration, batchSize int) *QueryRawSyncer {
+func NewQueryRawSyncer(interval time.Duration) *QueryRawSyncer {
 	config := SyncConfig{
 		TableName: "ops.query_raw",
 		Interval:  interval,
-		BatchSize: batchSize,
 	}
 
 	return &QueryRawSyncer{

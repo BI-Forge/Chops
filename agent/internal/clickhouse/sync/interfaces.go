@@ -11,7 +11,6 @@ import (
 type SyncConfig struct {
 	TableName     string        // Target table name (e.g., "ops.query_raw")
 	Interval      time.Duration // Synchronization interval
-	BatchSize     int           // Batch size for data processing
 	LastTimestamp time.Time     // Last processed timestamp
 }
 

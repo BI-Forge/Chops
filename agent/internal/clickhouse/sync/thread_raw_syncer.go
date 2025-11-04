@@ -14,11 +14,10 @@ type ThreadRawSyncer struct {
 }
 
 // NewThreadRawSyncer creates a new thread_raw syncer
-func NewThreadRawSyncer(interval time.Duration, batchSize int) *ThreadRawSyncer {
+func NewThreadRawSyncer(interval time.Duration) *ThreadRawSyncer {
 	config := SyncConfig{
 		TableName: "ops.thread_raw",
 		Interval:  interval,
-		BatchSize: batchSize,
 	}
 
 	return &ThreadRawSyncer{

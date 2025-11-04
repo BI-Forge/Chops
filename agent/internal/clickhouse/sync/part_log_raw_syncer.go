@@ -14,11 +14,10 @@ type PartLogRawSyncer struct {
 }
 
 // NewPartLogRawSyncer creates a new part_log_raw syncer
-func NewPartLogRawSyncer(interval time.Duration, batchSize int) *PartLogRawSyncer {
+func NewPartLogRawSyncer(interval time.Duration) *PartLogRawSyncer {
 	config := SyncConfig{
 		TableName: "ops.part_log_raw",
 		Interval:  interval,
-		BatchSize: batchSize,
 	}
 
 	return &PartLogRawSyncer{
