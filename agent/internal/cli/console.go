@@ -135,7 +135,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		server := httpserver.New(httpserver.Config{
-			Port:   cfg.Server.Port,
+			Config: cfg,
 			Logger: appLogger,
 		})
 
