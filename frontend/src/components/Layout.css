@@ -1,0 +1,41 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #020618 0%, #0f172b 50%, #020618 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.layout__main {
+  flex: 1;
+  margin-left: 256px;
+  padding: 0;
+  background: transparent;
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 150;
+  display: none;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .layout__main {
+    margin-left: 0;
+    padding-top: 77px;
+  }
+
+  .sidebar-overlay {
+    display: block;
+  }
+}
+

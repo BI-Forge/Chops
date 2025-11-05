@@ -1,0 +1,86 @@
+.user-menu {
+  position: absolute;
+  bottom: 80px;
+  left: 16px;
+  width: 224px;
+  background: #0f172b;
+  border: 1px solid #1d293d;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.user-menu__header {
+  padding: 8px 12px;
+}
+
+.user-menu__title {
+  font-family: 'Arimo', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  color: #ffffff;
+  line-height: 20px;
+}
+
+.user-menu__divider {
+  height: 1px;
+  background: #1d293d;
+  margin: 0;
+}
+
+.user-menu__items {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.user-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background-color 0.1s ease;
+}
+
+.user-menu__item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.user-menu__item--logout {
+  color: #ff6467;
+}
+
+.user-menu__item--logout:hover {
+  background: rgba(255, 100, 103, 0.1);
+}
+
+.user-menu__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.user-menu__item-label {
+  font-family: 'Arimo', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  color: #fafafa;
+  line-height: 20px;
+  flex: 1;
+}
+
+.user-menu__item--logout .user-menu__item-label {
+  color: #ff6467;
+}
+
