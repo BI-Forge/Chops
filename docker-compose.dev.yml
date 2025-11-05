@@ -1,4 +1,16 @@
 services:
+  frontend:
+    container_name: frontend-dev
+    image: frontend-dev
+    build:
+      context: ./frontend
+      dockerfile: build/docker/Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - ops_agent
+    networks:
+      - ch_ops
   ops_agent:
     container_name: ops_agent-dev
     image: ops_agent-dev

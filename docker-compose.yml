@@ -1,4 +1,16 @@
 services:
+  frontend:
+    container_name: frontend-prod
+    image: frontend-prod
+    build:
+      context: ./frontend
+      dockerfile: build/docker/Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - ops_agent
+    networks:
+      - ch_ops
   ops_agent:
     container_name: ops_agent-prod
     image: ops_agent-prod
