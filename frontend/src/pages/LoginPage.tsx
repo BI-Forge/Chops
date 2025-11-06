@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../services/AuthContext'
 import { authAPI } from '../services/api'
+import { LogoIcon } from '../components/Icons'
 import './LoginPage.css'
 
 const LoginPage = () => {
@@ -75,7 +76,9 @@ const LoginPage = () => {
       <div className="auth-page__left">
         <div className="auth-page__left-content">
           <div className="auth-page__logo">
-            <div className="auth-page__logo-icon"></div>
+            <div className="auth-page__logo-icon">
+              <LogoIcon />
+            </div>
             <div className="auth-page__logo-text">
               <h1>ClickHouse</h1>
               <p>Operations Panel</p>

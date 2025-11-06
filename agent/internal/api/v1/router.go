@@ -77,6 +77,11 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(jwtManager, userRepo, cfg.Logger)
 	healthHandler := handlers.NewHealthHandler()
+	metricsHandler, err := handlers.NewMetricsHandler(cfg.Logger)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize metrics handler: %v", err)
+		// Continue without metrics handler - endpoints will return errors
+	}
 
 	// Health check endpoint (no auth required)
 	router.GET("/healthz", healthHandler.Healthz)
@@ -96,9 +101,15 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 		protected := v1.Group("/")
 		protected.Use(middleware.AuthMiddleware(jwtManager))
 		{
-			// Add protected routes here
-			// Example:
-			// protected.GET("/users", userHandler.GetUsers)
+			// Metrics routes
+			if metricsHandler != nil {
+				metrics := protected.Group("/metrics")
+				{
+					metrics.GET("/nodes", metricsHandler.GetAvailableNodes)
+					metrics.GET("/current", metricsHandler.GetCurrentMetrics)
+					metrics.GET("/stream", metricsHandler.StreamMetrics)
+				}
+			}
 		}
 	}
 

@@ -1,0 +1,18 @@
+export interface SystemMetrics {
+  node_name: string
+  timestamp: string
+  cpu_load: number
+  memory_usage: number
+  memory_used_gb: number
+  memory_total_gb: number
+  disk_usage: number
+  disk_used_gb: number
+  disk_total_gb: number
+  active_conns: number
+  active_queries: number
+}
+
+export interface NodesResponse {
+  nodes: string[]
+}
+

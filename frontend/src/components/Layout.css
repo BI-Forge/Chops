@@ -1,0 +1,29 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #020618 0%, #0f172b 50%, #020618 100%);
+}
+
+.layout__main {
+  flex: 1;
+  margin-left: 256px;
+  min-height: 100vh;
+  background: linear-gradient(145deg, #020618, #0f172b, #020618);
+}
+
+.layout__overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+}
+
+@media (max-width: 768px) {
+  .layout__main {
+    margin-left: 0;
+  }
+}
+

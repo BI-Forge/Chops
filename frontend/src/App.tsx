@@ -3,6 +3,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import { AuthProvider } from './services/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import Layout from './components/Layout'
 
 function App() {
   return (
@@ -14,7 +15,9 @@ function App() {
             path="/dashboard"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <Layout>
+                  <DashboardPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
