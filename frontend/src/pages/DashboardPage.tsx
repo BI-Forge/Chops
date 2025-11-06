@@ -33,13 +33,14 @@ const DashboardPage = () => {
     const loadNodes = async () => {
       try {
         setLoading(true)
+        setError(null)
         const availableNodes = await metricsAPI.getAvailableNodes()
         setNodes(availableNodes)
         if (availableNodes.length > 0 && !selectedNode) {
           setSelectedNode(availableNodes[0])
         }
       } catch (err) {
-        setError('Failed to load nodes')
+        setError('Failed to load nodes. Please refresh the page.')
         console.error('Failed to load nodes:', err)
       } finally {
         setLoading(false)
@@ -47,7 +48,7 @@ const DashboardPage = () => {
     }
 
     loadNodes()
-  }, [isAuthenticated, selectedNode])
+  }, [isAuthenticated])
 
   // Load initial metrics and setup SSE connection when node is selected
   useEffect(() => {
@@ -63,12 +64,20 @@ const DashboardPage = () => {
     const loadInitialMetrics = async () => {
       try {
         setLoading(true)
+        setError(null)
         const initialMetrics = await metricsAPI.getCurrentMetrics(selectedNode)
         setMetrics(initialMetrics)
         setError(null)
       } catch (err) {
         console.error('Failed to load initial metrics:', err)
-        setError('Failed to load initial metrics')
+        setError('Failed to load initial metrics. Retrying...')
+        // Retry after a short delay
+        setTimeout(() => {
+          if (selectedNode) {
+            loadInitialMetrics()
+          }
+        }, 1000)
+        return
       } finally {
         setLoading(false)
       }
@@ -110,17 +119,17 @@ const DashboardPage = () => {
     eventSource.onerror = (error) => {
       console.error('SSE connection error:', error)
       // Only show error if connection was established and then failed
-      if (eventSource.readyState === EventSource.CLOSED) {
+      if (eventSource.readyState === EventSource.CLOSED || eventSource.readyState === EventSource.CONNECTING) {
         // Try to reconnect after a delay
         setTimeout(() => {
-          if (eventSourceRef.current?.readyState === EventSource.CLOSED) {
+          if (eventSourceRef.current?.readyState === EventSource.CLOSED && selectedNode) {
             setError('Connection lost. Reconnecting...')
             // Trigger reconnection by updating selectedNode
             const currentNode = selectedNode
             setSelectedNode('')
-            setTimeout(() => setSelectedNode(currentNode), 100)
+            setTimeout(() => setSelectedNode(currentNode), 500)
           }
-        }, 2000)
+        }, 1000)
       }
     }
 

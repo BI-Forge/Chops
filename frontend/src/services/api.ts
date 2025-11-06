@@ -6,8 +6,35 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 5000, // 5 second timeout
+  timeout: 10000, // 10 second timeout
 })
+
+// Add retry interceptor for network errors and timeouts
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config || {}
+
+    // Don't retry if already retried or if it's a client error (4xx)
+    if (config._retryCount >= 3 || (error.response && error.response.status >= 400 && error.response.status < 500)) {
+      return Promise.reject(error)
+    }
+
+    // Retry on network errors, timeouts, or server errors (5xx)
+    if (error.code === 'ECONNABORTED' || !error.response || (error.response && error.response.status >= 500)) {
+      config._retryCount = (config._retryCount || 0) + 1
+      config._retry = true
+
+      // Exponential backoff: 500ms, 1000ms, 2000ms
+      const delay = 500 * Math.pow(2, config._retryCount - 1)
+      
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      return api(config)
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')

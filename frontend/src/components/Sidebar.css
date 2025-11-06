@@ -3,7 +3,7 @@
   width: 256px;
   min-width: 256px;
   height: 100vh;
-  background: linear-gradient(281deg, #02071e, #0e162b, #171e37);
+  background: linear-gradient(180deg,#020618,#0f172b,#020618);
   border-right: 1px solid #1d293d;
   display: flex;
   flex-direction: column;
@@ -23,6 +23,7 @@
   right: 0;
   bottom: 0;
   pointer-events: none;
+  background: linear-gradient(180deg,#f0b1001a,#0000,#2b7fff1a);
   z-index: 0;
   opacity: 1;
 }

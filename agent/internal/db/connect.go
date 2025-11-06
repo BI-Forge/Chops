@@ -32,6 +32,12 @@ func New(cfg *config.Config, log *logger.Logger) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
+	// Configure connection pool
+	conn.SetMaxOpenConns(25)                 // Maximum number of open connections
+	conn.SetMaxIdleConns(5)                  // Maximum number of idle connections
+	conn.SetConnMaxLifetime(0)               // Connection lifetime (0 = unlimited)
+	conn.SetConnMaxIdleTime(0)               // Idle connection timeout (0 = unlimited)
+
 	// Test the connection
 	if err := conn.Ping(); err != nil {
 		conn.Close()

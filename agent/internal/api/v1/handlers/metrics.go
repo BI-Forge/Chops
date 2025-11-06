@@ -39,7 +39,10 @@ func NewMetricsHandler(logger *logger.Logger) (*MetricsHandler, error) {
 // @Success      200  {object}  map[string]interface{}
 // @Router       /api/v1/metrics/nodes [get]
 func (h *MetricsHandler) GetAvailableNodes(c *gin.Context) {
-	nodes, err := h.metricsRepo.GetAvailableNodes(c.Request.Context())
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	nodes, err := h.metricsRepo.GetAvailableNodes(ctx)
 	if err != nil {
 		h.logger.Errorf("Failed to get nodes: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get nodes"})
@@ -74,7 +77,7 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // Disable nginx buffering
 
-	// Create a context that can be cancelled
+	// Create a context that can be cancelled (without timeout for the loop)
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 
@@ -94,8 +97,13 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 			h.logger.Infof("SSE connection closed for node: %s", nodeName)
 			return
 		case <-ticker.C:
+			// Create a new context with timeout for each database query
+			queryCtx, queryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			
 			// Get latest metrics
-			metrics, err := h.metricsRepo.GetLatestMetrics(ctx, nodeName)
+			metrics, err := h.metricsRepo.GetLatestMetrics(queryCtx, nodeName)
+			queryCancel() // Cancel the query context immediately after use
+			
 			if err != nil {
 				h.logger.Errorf("Failed to get metrics for node %s: %v", nodeName, err)
 				// Send error event
@@ -133,7 +141,10 @@ func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 		return
 	}
 
-	metrics, err := h.metricsRepo.GetLatestMetrics(c.Request.Context(), nodeName)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	metrics, err := h.metricsRepo.GetLatestMetrics(ctx, nodeName)
 	if err != nil {
 		h.logger.Errorf("Failed to get metrics for node %s: %v", nodeName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get metrics: %v", err)})
