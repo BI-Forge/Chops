@@ -103,34 +103,35 @@ var rootCmd = &cobra.Command{
 		} else {
 			appLogger.Info("ClickHouse database connection initialized successfully")
 			
-			// Run ClickHouse migrations
-			appLogger.Info("Running ClickHouse migrations...")
-			err = runClickHouseMigrations(cfg, appLogger)
+			// ClickHouse migrations are deactivated
+			// // Run ClickHouse migrations
+			// appLogger.Info("Running ClickHouse migrations...")
+			// err = runClickHouseMigrations(cfg, appLogger)
+			// if err != nil {
+			// 	appLogger.Errorf("Failed to run ClickHouse migrations: %v", err)
+			// 	appLogger.Warning("Application will continue running, but migrations failed")
+			// } else {
+			// 	appLogger.Info("ClickHouse migrations completed successfully")
+			// }
+			
+			// Wait for system tables to be ready
+			appLogger.Info("Waiting for ClickHouse system tables to be ready...")
+			err = clickhouse.WaitForSystemTablesReady(appLogger)
 			if err != nil {
-				appLogger.Errorf("Failed to run ClickHouse migrations: %v", err)
-				appLogger.Warning("Application will continue running, but migrations failed")
+				appLogger.Warningf("System tables readiness check failed: %v", err)
+				appLogger.Warning("Table synchronization will start anyway, but may fail initially")
 			} else {
-				appLogger.Info("ClickHouse migrations completed successfully")
-				
-				// Wait for system tables to be ready
-				appLogger.Info("Waiting for ClickHouse system tables to be ready...")
-				err = clickhouse.WaitForSystemTablesReady(appLogger)
-				if err != nil {
-					appLogger.Warningf("System tables readiness check failed: %v", err)
-					appLogger.Warning("Table synchronization will start anyway, but may fail initially")
-				} else {
-					appLogger.Info("ClickHouse system tables are ready")
-				}
-				
-				// Initialize table synchronization
-				appLogger.Info("Initializing table synchronization...")
-				err = initializeTableSync(cfg, appLogger)
-				if err != nil {
-					appLogger.Errorf("Failed to initialize table synchronization: %v", err)
-					appLogger.Warning("Application will continue running, but table sync is disabled")
-				} else {
-					appLogger.Info("Table synchronization initialized successfully")
-				}
+				appLogger.Info("ClickHouse system tables are ready")
+			}
+			
+			// Initialize table synchronization
+			appLogger.Info("Initializing table synchronization...")
+			err = initializeTableSync(cfg, appLogger)
+			if err != nil {
+				appLogger.Errorf("Failed to initialize table synchronization: %v", err)
+				appLogger.Warning("Application will continue running, but table sync is disabled")
+			} else {
+				appLogger.Info("Table synchronization initialized successfully")
 			}
 		}
 
@@ -677,7 +678,19 @@ func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
 
 	// Create and register syncers
 	factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
-	syncers, err := factory.CreateAllDefaultSyncers()
+	
+	// Parse sync frequency from config
+	metricsInterval := 1 * time.Second // Default
+	if cfg.Sync.MetricsFrequency != "" {
+		parsedInterval, err := time.ParseDuration(cfg.Sync.MetricsFrequency)
+		if err != nil {
+			logger.Warningf("Invalid metrics_frequency '%s', using default 1s: %v", cfg.Sync.MetricsFrequency, err)
+		} else {
+			metricsInterval = parsedInterval
+		}
+	}
+	
+	syncers, err := factory.CreateAllDefaultSyncersWithInterval(metricsInterval)
 	if err != nil {
 		return fmt.Errorf("failed to create syncers: %w", err)
 	}
@@ -695,8 +708,41 @@ func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
 		return fmt.Errorf("failed to start sync manager: %w", err)
 	}
 
+	// Start cleanup job for old metrics data
+	retentionDays := 7 // Default
+	if cfg.Sync.RetentionDays > 0 {
+		retentionDays = cfg.Sync.RetentionDays
+	}
+	go startMetricsCleanupJob(ctx, logger, retentionDays)
+
 	logger.Info("Table synchronization started successfully")
 	return nil
+}
+
+// startMetricsCleanupJob starts a background job to clean up old metrics data
+func startMetricsCleanupJob(ctx context.Context, logger *logger.Logger, retentionDays int) {
+	// Run cleanup every hour
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	// Run initial cleanup
+	if err := db.CleanupOldMetrics(retentionDays); err != nil {
+		logger.Errorf("Failed to cleanup old metrics: %v", err)
+	} else {
+		logger.Infof("Metrics cleanup job started (retention: %d days)", retentionDays)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Metrics cleanup job stopped")
+			return
+		case <-ticker.C:
+			if err := db.CleanupOldMetrics(retentionDays); err != nil {
+				logger.Errorf("Failed to cleanup old metrics: %v", err)
+			}
+		}
+	}
 }
 
 // Table synchronization management commands

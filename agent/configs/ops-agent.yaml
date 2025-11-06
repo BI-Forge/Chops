@@ -94,3 +94,8 @@ database:
 logging:
   level: "info"
   format: "text"
+
+# Sync Configuration
+sync:
+  metrics_frequency: "1s"  # Frequency of metrics synchronization (e.g., "1s", "1m", "5s")
+  retention_days: 7        # Number of days to keep metrics data in PostgreSQL

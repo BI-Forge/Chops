@@ -19,6 +19,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	Logging  LoggingConfig  `yaml:"logging"`
+	Sync     SyncConfig     `yaml:"sync"`
 }
 
 // AppConfig holds application information
@@ -116,6 +117,12 @@ type ClickHouseNode struct {
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
+}
+
+// SyncConfig holds synchronization configuration
+type SyncConfig struct {
+	MetricsFrequency string `yaml:"metrics_frequency"` // e.g., "1s", "1m"
+	RetentionDays    int    `yaml:"retention_days"`    // Number of days to keep data
 }
 
 // Load loads configuration from YAML file

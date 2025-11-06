@@ -180,8 +180,11 @@ func (m *Manager) executeSyncOnNode(ctx context.Context, tableName string, synce
 		return
 	}
 	
+	// Add node name to context for syncers that need it
+	syncCtx := context.WithValue(ctx, "node_name", node.Name)
+	
 	// Execute synchronization
-	result, err := syncer.Sync(ctx, conn)
+	result, err := syncer.Sync(syncCtx, conn)
 	if err != nil {
 		result.Error = err
 	}

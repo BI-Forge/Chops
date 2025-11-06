@@ -14,6 +14,7 @@ const (
 	PartLogRawSyncerType  SyncerType = "part_log_raw"
 	QueryAggMinSyncerType SyncerType = "query_agg_min"
 	StorageMinSyncerType  SyncerType = "storage_min"
+	MetricsSyncerType     SyncerType = "metrics"
 )
 
 // SyncerConfig represents configuration for creating a syncer
@@ -48,6 +49,8 @@ func (sf *SyncerFactory) CreateSyncer(config SyncerConfig) (TableSyncer, error) 
 		return NewQueryAggMinSyncer(config.Interval, config.Cluster), nil
 	case StorageMinSyncerType:
 		return NewStorageMinSyncer(config.Interval, config.Cluster), nil
+	case MetricsSyncerType:
+		return NewMetricsSyncer(config.Interval, config.Cluster), nil
 	default:
 		return nil, fmt.Errorf("unknown syncer type: %s", config.Type)
 	}
@@ -56,34 +59,55 @@ func (sf *SyncerFactory) CreateSyncer(config SyncerConfig) (TableSyncer, error) 
 // GetDefaultConfigs returns default configurations for all available syncers
 func (sf *SyncerFactory) GetDefaultConfigs() map[SyncerType]SyncerConfig {
 	return map[SyncerType]SyncerConfig{
-		QueryRawSyncerType: {
-			Type:     QueryRawSyncerType,
-			Interval: 1 * time.Minute, // Sync every minute
-		},
-		//ThreadRawSyncerType: {
-		//	Type:     ThreadRawSyncerType,
-		//	Interval: 1 * time.Minute, // Sync every minute
-		//},
-		PartLogRawSyncerType: {
-			Type:     PartLogRawSyncerType,
-			Interval: 1 * time.Minute, // Sync every minute
-		},
-		QueryAggMinSyncerType: {
-			Type:     QueryAggMinSyncerType,
-			Interval: 5 * time.Minute, // Sync every 5 minutes (aggregation)
-			Cluster:  sf.clusterName,  // Use cluster name from factory
-		},
-		StorageMinSyncerType: {
-			Type:     StorageMinSyncerType,
-			Interval: 1 * time.Minute, // Sync every minute
+		// Other syncers are deactivated for now
+		// QueryRawSyncerType: {
+		// 	Type:     QueryRawSyncerType,
+		// 	Interval: 1 * time.Minute, // Sync every minute
+		// },
+		// ThreadRawSyncerType: {
+		// 	Type:     ThreadRawSyncerType,
+		// 	Interval: 1 * time.Minute, // Sync every minute
+		// },
+		// PartLogRawSyncerType: {
+		// 	Type:     PartLogRawSyncerType,
+		// 	Interval: 1 * time.Minute, // Sync every minute
+		// },
+		// QueryAggMinSyncerType: {
+		// 	Type:     QueryAggMinSyncerType,
+		// 	Interval: 5 * time.Minute, // Sync every 5 minutes (aggregation)
+		// 	Cluster:  sf.clusterName,  // Use cluster name from factory
+		// },
+		// StorageMinSyncerType: {
+		// 	Type:     StorageMinSyncerType,
+		// 	Interval: 1 * time.Minute, // Sync every minute
+		// 	Cluster:  sf.clusterName,  // Use cluster name from factory
+		// },
+		MetricsSyncerType: {
+			Type:     MetricsSyncerType,
+			Interval: 1 * time.Second, // Default: sync every second
 			Cluster:  sf.clusterName,  // Use cluster name from factory
 		},
 	}
 }
 
+// GetDefaultConfigsWithInterval returns default configurations with custom interval for metrics
+func (sf *SyncerFactory) GetDefaultConfigsWithInterval(metricsInterval time.Duration) map[SyncerType]SyncerConfig {
+	configs := sf.GetDefaultConfigs()
+	if metricsConfig, ok := configs[MetricsSyncerType]; ok {
+		metricsConfig.Interval = metricsInterval
+		configs[MetricsSyncerType] = metricsConfig
+	}
+	return configs
+}
+
 // CreateAllDefaultSyncers creates all default syncers
 func (sf *SyncerFactory) CreateAllDefaultSyncers() ([]TableSyncer, error) {
-	configs := sf.GetDefaultConfigs()
+	return sf.CreateAllDefaultSyncersWithInterval(1 * time.Second)
+}
+
+// CreateAllDefaultSyncersWithInterval creates all default syncers with custom metrics interval
+func (sf *SyncerFactory) CreateAllDefaultSyncersWithInterval(metricsInterval time.Duration) ([]TableSyncer, error) {
+	configs := sf.GetDefaultConfigsWithInterval(metricsInterval)
 	syncers := make([]TableSyncer, 0, len(configs))
 
 	for _, config := range configs {

@@ -35,6 +35,9 @@ func (m *MockConn) Select(ctx context.Context, dest interface{}, query string, a
 
 func (m *MockConn) Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
 	mockArgs := m.Called(ctx, query, args)
+	if mockArgs.Get(0) == nil {
+		return nil, mockArgs.Error(1)
+	}
 	return mockArgs.Get(0).(driver.Rows), mockArgs.Error(1)
 }
 
@@ -107,8 +110,18 @@ func (m *MockRow) Scan(dest ...interface{}) error {
 		case *int64:
 			if v, ok := val.(int64); ok {
 				*d = v
+			} else if vf, ok := val.(float64); ok {
+				*d = int64(vf)
 			} else {
 				return errors.New("type mismatch for int64")
+			}
+		case *float64:
+			if v, ok := val.(float64); ok {
+				*d = v
+			} else if vi, ok := val.(int64); ok {
+				*d = float64(vi)
+			} else {
+				return errors.New("type mismatch for float64")
 			}
 		case *time.Time:
 			if v, ok := val.(time.Time); ok {
@@ -166,6 +179,14 @@ func (m *MockRows) Scan(dest ...interface{}) error {
 		case *int64:
 			if v, ok := val.(int64); ok {
 				*d = v
+			} else if vf, ok := val.(float64); ok {
+				*d = int64(vf)
+			}
+		case *float64:
+			if v, ok := val.(float64); ok {
+				*d = v
+			} else if vi, ok := val.(int64); ok {
+				*d = float64(vi)
 			}
 		case *time.Time:
 			if v, ok := val.(time.Time); ok {
@@ -192,7 +213,15 @@ func (m *MockRows) Extremes(dest ...interface{}) error {
 
 func (m *MockRows) Columns() []string {
 	args := m.Called()
+	if args.Get(0) == nil {
+		return []string{}
+	}
 	return args.Get(0).([]string)
+}
+
+func (m *MockRows) ScanStruct(dest interface{}) error {
+	args := m.Called(dest)
+	return args.Error(0)
 }
 
 func (m *MockRows) Close() error {
@@ -203,6 +232,14 @@ func (m *MockRows) Close() error {
 func (m *MockRows) Err() error {
 	args := m.Called()
 	return args.Error(0)
+}
+
+func (m *MockRows) ColumnTypes() []driver.ColumnType {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return []driver.ColumnType{}
+	}
+	return args.Get(0).([]driver.ColumnType)
 }
 
 // MockClusterManager is a mock implementation of cluster manager
