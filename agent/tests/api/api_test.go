@@ -465,7 +465,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
 
-	req, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=1h&step=1s", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=1h&step=1m", nil)
 	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -476,13 +476,13 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, nodeName, series.Node)
 	assert.Equal(t, "cpu_load", series.Metric)
-	assert.Equal(t, "1s", series.Step)
+	assert.Equal(t, "1m", series.Step)
 	if assert.NotEmpty(t, series.Points) {
 		latest := series.Points[len(series.Points)-1]
 		assert.InDelta(t, 0.36, latest.Value, 0.05)
 	}
 
-	reqWide, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=10m", nil)
+	reqWide, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=1h", nil)
 	reqWide.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	wWide := httptest.NewRecorder()
 	router.ServeHTTP(wWide, reqWide)

@@ -15,6 +15,12 @@ export interface MetricChartPoint {
   value: number
 }
 
+interface GradientStop {
+  offset: string
+  color: string
+  opacity: number
+}
+
 interface MetricChartCardProps {
   title: string
   subtitle?: string
@@ -23,6 +29,7 @@ interface MetricChartCardProps {
   colorTo: string
   strokeColor: string
   valueFormatter: (value: number) => string
+  gradientStops?: GradientStop[]
   isLoading?: boolean
   errorMessage?: string | null
   emptyMessage?: string
@@ -36,11 +43,31 @@ const MetricChartCard = ({
   colorTo,
   strokeColor,
   valueFormatter,
+  gradientStops,
   isLoading = false,
   errorMessage,
   emptyMessage = 'No data available for the selected range.',
 }: MetricChartCardProps) => {
-  const gradientId = useMemo(() => `metric-gradient-${title.replace(/\s+/g, '-').toLowerCase()}`, [title])
+  const gradientId = useMemo(() => {
+    const normalized = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+
+    return `metric-gradient-${normalized}`
+  }, [title])
+
+  const resolvedGradientStops = useMemo<GradientStop[]>(() => {
+    if (gradientStops && gradientStops.length > 0) {
+      return gradientStops
+    }
+
+    return [
+      { offset: '0%', color: colorFrom, opacity: 0.42 },
+      { offset: '55%', color: colorTo, opacity: 0.16 },
+      { offset: '95%', color: colorTo, opacity: 0 },
+    ]
+  }, [gradientStops, colorFrom, colorTo])
 
   const formattedData = useMemo(
     () =>
@@ -75,8 +102,9 @@ const MetricChartCard = ({
             <AreaChart data={formattedData} margin={{ top: 16, right: 24, left: 0, bottom: 8 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={colorFrom} stopOpacity={0.45} />
-                  <stop offset="95%" stopColor={colorTo} stopOpacity={0} />
+                  {resolvedGradientStops.map((stop) => (
+                    <stop key={stop.offset} offset={stop.offset} stopColor={stop.color} stopOpacity={stop.opacity} />
+                  ))}
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#1d293d" strokeDasharray="3 3" vertical={false} />
