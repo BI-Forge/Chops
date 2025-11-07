@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../services/AuthContext'
 import { authAPI } from '../services/api'
 import { LogoIcon } from '../components/Icons'
-import './LoginPage.css'
+import '../styles/LoginPage.css'
 
 const LoginPage = () => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login')

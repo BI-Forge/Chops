@@ -16,3 +16,18 @@ export interface NodesResponse {
   nodes: string[]
 }
 
+export interface MetricSeriesPoint {
+  timestamp: string
+  value: number
+}
+
+export interface MetricSeriesResponse {
+  node: string
+  metric: string
+  period: string
+  step: string
+  from: string
+  to: string
+  points: MetricSeriesPoint[]
+}
+

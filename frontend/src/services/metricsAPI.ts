@@ -1,5 +1,5 @@
 import api from './api'
-import type { SystemMetrics, NodesResponse } from '../types/metrics'
+import type { SystemMetrics, NodesResponse, MetricSeriesResponse } from '../types/metrics'
 
 // Retry helper function
 const retryRequest = async <T>(
@@ -101,6 +101,25 @@ export const metricsAPI = {
     }
 
     return eventSource
+  },
+
+  getMetricSeries: async (
+    node: string,
+    metric: string,
+    period: string,
+    step: string
+  ): Promise<MetricSeriesResponse> => {
+    return retryRequest(async () => {
+      const response = await api.get<MetricSeriesResponse>('/metrics/series', {
+        params: {
+          node,
+          metric,
+          period,
+          step,
+        },
+      })
+      return response.data
+    })
   },
 }
 

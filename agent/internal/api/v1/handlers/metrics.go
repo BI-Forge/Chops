@@ -19,6 +19,7 @@ var (
 	allowedMetricTypes = map[string]struct{}{
 		"cpu_load":           {},
 		"memory_load":        {},
+		"memory_used_gb":     {},
 		"storage_used":       {},
 		"active_connections": {},
 		"active_queries":     {},
