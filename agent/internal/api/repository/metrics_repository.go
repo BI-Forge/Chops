@@ -2,42 +2,34 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/db"
+	"gorm.io/gorm"
 )
 
-// MetricsRepository handles metrics data access
+// MetricsRepository mediates metrics reads through the application database.
 type MetricsRepository struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-// NewMetricsRepository creates a new metrics repository
+// NewMetricsRepository attaches to the shared GORM connection and errors when it is unavailable.
 func NewMetricsRepository() (*MetricsRepository, error) {
-	dbManager := db.GetInstance()
-	if dbManager == nil {
-		return nil, fmt.Errorf("database manager not initialized")
+	gormDB, err := db.GetPostgresConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain postgres connection: %w", err)
 	}
 
-	dbConn := dbManager.GetDBManager()
-	if dbConn == nil {
-		return nil, fmt.Errorf("database connection not available")
-	}
-
-	return &MetricsRepository{
-		db: dbConn.GetConnection(),
-	}, nil
+	return &MetricsRepository{db: gormDB}, nil
 }
 
-// GetLatestMetrics retrieves the latest metrics for a specific node
+// GetLatestMetrics returns the most recent metrics row for the node or reports when no data exists.
 func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName string) (*models.SystemMetrics, error) {
 	query := `
 		SELECT 
 			node_name,
-			timestamp,
+			TO_CHAR(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS timestamp,
 			COALESCE(os_user_time_normalized, 0) + 
 			COALESCE(os_system_time_normalized, 0) + 
 			COALESCE(os_io_wait_time_normalized, 0) as cpu_load,
@@ -62,66 +54,35 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName strin
 			COALESCE(postgresql_connection, 0) as active_conns,
 			COALESCE(query, 0) as active_queries
 		FROM ch_metrics
-		WHERE node_name = $1
+		WHERE node_name = ?
 		ORDER BY timestamp DESC
 		LIMIT 1
 	`
 
-	var metrics models.SystemMetrics
-	var timestamp time.Time
+	metrics := &models.SystemMetrics{}
 
-	err := r.db.QueryRowContext(ctx, query, nodeName).Scan(
-		&metrics.NodeName,
-		&timestamp,
-		&metrics.CPULoad,
-		&metrics.MemoryUsage,
-		&metrics.MemoryUsedGB,
-		&metrics.MemoryTotalGB,
-		&metrics.DiskUsage,
-		&metrics.DiskUsedGB,
-		&metrics.DiskTotalGB,
-		&metrics.ActiveConns,
-		&metrics.ActiveQueries,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
-		}
-		return nil, fmt.Errorf("failed to get metrics: %w", err)
+	result := r.db.WithContext(ctx).Raw(query, nodeName).Scan(metrics)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get metrics: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
 	}
 
-	metrics.Timestamp = timestamp.Format(time.RFC3339)
-	return &metrics, nil
+	return metrics, nil
 }
 
-// GetAvailableNodes returns list of available node names
+// GetAvailableNodes lists distinct node names collected in the metrics store.
 func (r *MetricsRepository) GetAvailableNodes(ctx context.Context) ([]string, error) {
-	query := `
-		SELECT DISTINCT node_name
-		FROM ch_metrics
-		ORDER BY node_name
-	`
-
-	rows, err := r.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get nodes: %w", err)
-	}
-	defer rows.Close()
-
 	var nodes []string
-	for rows.Next() {
-		var nodeName string
-		if err := rows.Scan(&nodeName); err != nil {
-			return nil, fmt.Errorf("failed to scan node: %w", err)
-		}
-		nodes = append(nodes, nodeName)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating nodes: %w", err)
+	result := r.db.WithContext(ctx).
+		Table("ch_metrics").
+		Distinct("node_name").
+		Order("node_name").
+		Pluck("node_name", &nodes)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get nodes: %w", result.Error)
 	}
 
 	return nodes, nil
 }
-

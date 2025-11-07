@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,13 +20,18 @@ type AuthHandler struct {
 	logger         *logger.Logger
 }
 
-// NewAuthHandler creates a new auth handler
-func NewAuthHandler(jwtManager *auth.JWTManager, userRepo *repository.UserRepository, appLogger *logger.Logger) *AuthHandler {
+// NewAuthHandler creates a new auth handler backed by the shared user repository.
+func NewAuthHandler(jwtManager *auth.JWTManager, appLogger *logger.Logger) (*AuthHandler, error) {
+	userRepo, err := repository.NewUserRepository()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user repository: %w", err)
+	}
+
 	return &AuthHandler{
 		jwtManager:     jwtManager,
 		userRepository: userRepo,
 		logger:         appLogger,
-	}
+	}, nil
 }
 
 // Login handles user login
