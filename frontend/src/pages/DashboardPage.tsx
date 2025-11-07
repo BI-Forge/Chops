@@ -7,12 +7,10 @@ import { useLayout } from '../components/Layout'
 import { MenuIcon, LogoIcon } from '../components/Icons'
 import MetricCard from '../components/MetricCard'
 import NodeSelectorDropdown from '../components/NodeSelectorDropdown'
+import FilterSelect from '../components/FilterSelect'
 import MetricChartCard, { MetricChartPoint } from '../components/MetricChartCard'
 import type { MetricSeriesPoint } from '../types/metrics'
 import '../styles/DashboardPage.css'
-
-type PeriodOption = '1h' | '6h' | '12h' | '1d' | '3d' | '7d'
-type IntervalOption = '1s' | '10s' | '1m' | '10m' | '1h'
 
 interface MetricChartConfig {
   key: string
@@ -23,32 +21,37 @@ interface MetricChartConfig {
   stroke: string
   formatValue: (value: number) => string
   transform?: (value: number) => number
+  gradientStops?: { offset: string; color: string; opacity: number }[]
 }
 
-const STEP_DURATION_MS: Record<IntervalOption, number> = {
-  '1s': 1_000,
-  '10s': 10_000,
-  '1m': 60_000,
-  '10m': 600_000,
-  '1h': 3_600_000,
+// Adjusted period and interval options
+type PeriodOption = '10m' | '30m' | '1h' | '6h' | '12h' | '1d' | '3d' | '7d'
+type IntervalOption = '1s' | '5s' | '10s' | '30s' | '1m' | '5m' | '30m' | '1h'
+
+const STEP_INFO: Record<IntervalOption, { label: string; durationMs: number }> = {
+  '1s': { label: '1 second', durationMs: 1_000 },
+  '5s': { label: '5 seconds', durationMs: 5_000 },
+  '10s': { label: '10 seconds', durationMs: 10_000 },
+  '30s': { label: '30 seconds', durationMs: 30_000 },
+  '1m': { label: '1 minute', durationMs: 60_000 },
+  '5m': { label: '5 minutes', durationMs: 300_000 },
+  '30m': { label: '30 minutes', durationMs: 1_800_000 },
+  '1h': { label: '1 hour', durationMs: 3_600_000 },
 }
 
-const STEP_OPTIONS: Array<{ value: IntervalOption; label: string; durationMs: number }> = [
-  { value: '1s', label: '1 second', durationMs: STEP_DURATION_MS['1s'] },
-  { value: '10s', label: '10 seconds', durationMs: STEP_DURATION_MS['10s'] },
-  { value: '1m', label: '1 minute', durationMs: STEP_DURATION_MS['1m'] },
-  { value: '10m', label: '10 minutes', durationMs: STEP_DURATION_MS['10m'] },
-  { value: '1h', label: '1 hour', durationMs: STEP_DURATION_MS['1h'] },
-]
-
-const PERIOD_CONFIG: Record<PeriodOption, { label: string; minStep: IntervalOption; durationMs: number }> = {
-  '1h': { label: 'Last 1 hour', minStep: '1s', durationMs: 1 * 60 * 60 * 1000 },
-  '6h': { label: 'Last 6 hours', minStep: '10s', durationMs: 6 * 60 * 60 * 1000 },
-  '12h': { label: 'Last 12 hours', minStep: '1m', durationMs: 12 * 60 * 60 * 1000 },
-  '1d': { label: 'Last 1 day', minStep: '1m', durationMs: 24 * 60 * 60 * 1000 },
-  '3d': { label: 'Last 3 days', minStep: '1h', durationMs: 3 * 24 * 60 * 60 * 1000 },
-  '7d': { label: 'Last 7 days', minStep: '1h', durationMs: 7 * 24 * 60 * 60 * 1000 },
+const PERIOD_CONFIG: Record<PeriodOption, { label: string; step: IntervalOption; durationMs: number }> = {
+  '10m': { label: 'Last 10 minutes', step: '1s', durationMs: 10 * 60 * 1000 },
+  '30m': { label: 'Last 30 minutes', step: '10s', durationMs: 30 * 60 * 1000 },
+  '1h': { label: 'Last 1 hour', step: '1m', durationMs: 1 * 60 * 60 * 1000 },
+  '6h': { label: 'Last 6 hours', step: '5m', durationMs: 6 * 60 * 60 * 1000 },
+  '12h': { label: 'Last 12 hours', step: '5m', durationMs: 12 * 60 * 60 * 1000 },
+  '1d': { label: 'Last 1 day', step: '30m', durationMs: 24 * 60 * 60 * 1000 },
+  '3d': { label: 'Last 3 days', step: '1h', durationMs: 3 * 24 * 60 * 60 * 1000 },
+  '7d': { label: 'Last 7 days', step: '1h', durationMs: 7 * 24 * 60 * 60 * 1000 },
 }
+
+const PERIOD_ORDER: PeriodOption[] = ['10m', '30m', '1h', '6h', '12h', '1d', '3d', '7d']
+const PERIOD_OPTIONS = PERIOD_ORDER.map((value) => ({ value, label: PERIOD_CONFIG[value].label }))
 
 const METRIC_CHART_CONFIGS: MetricChartConfig[] = [
   {
@@ -56,42 +59,59 @@ const METRIC_CHART_CONFIGS: MetricChartConfig[] = [
     title: 'CPU Usage (%)',
     subtitle: 'Average CPU load over time',
     colorFrom: '#3b82f6',
-    colorTo: '#06b6d4',
+    colorTo: '#60a5fa',
     stroke: '#3b82f6',
-    formatValue: (value) => `${value.toFixed(0)}%`,
-    transform: (value) => value * 100,
+    formatValue: (value: number) => `${value.toFixed(0)}%`,
+    transform: (value: number) => value * 100,
+    gradientStops: [
+      { offset: '0%', color: '#3b82f6', opacity: 0.42 },
+      { offset: '55%', color: '#60a5fa', opacity: 0.18 },
+      { offset: '95%', color: '#60a5fa', opacity: 0 },
+    ],
   },
   {
     key: 'memory_used_gb',
     title: 'Memory Usage (GB)',
     subtitle: 'Total memory consumption',
     colorFrom: '#a855f7',
-    colorTo: '#ec4899',
+    colorTo: '#c084fc',
     stroke: '#a855f7',
-    formatValue: (value) => `${value.toFixed(1)} GB`,
+    formatValue: (value: number) => `${value.toFixed(1)} GB`,
+    gradientStops: [
+      { offset: '0%', color: '#a855f7', opacity: 0.42 },
+      { offset: '55%', color: '#c084fc', opacity: 0.18 },
+      { offset: '95%', color: '#c084fc', opacity: 0 },
+    ],
   },
   {
     key: 'storage_used',
     title: 'Storage Used (GB)',
     subtitle: 'Allocated disk usage',
     colorFrom: '#f97316',
-    colorTo: '#ef4444',
-    stroke: '#f97316',
-    formatValue: (value) => `${value.toFixed(1)} GB`,
+    colorTo: '#fbbf24',
+    stroke: '#fb923c',
+    formatValue: (value: number) => `${value.toFixed(1)} GB`,
+    gradientStops: [
+      { offset: '0%', color: '#f97316', opacity: 0.46 },
+      { offset: '45%', color: '#fbbf24', opacity: 0.24 },
+      { offset: '95%', color: '#fbbf24', opacity: 0 },
+    ],
   },
   {
     key: 'active_queries',
     title: 'Active Queries',
     subtitle: 'Running queries count',
     colorFrom: '#eab308',
-    colorTo: '#f59e0b',
+    colorTo: '#facc15',
     stroke: '#eab308',
-    formatValue: (value) => Math.round(value).toLocaleString(),
+    formatValue: (value: number) => Math.round(value).toLocaleString(),
+    gradientStops: [
+      { offset: '0%', color: '#eab308', opacity: 0.42 },
+      { offset: '55%', color: '#facc15', opacity: 0.18 },
+      { offset: '95%', color: '#facc15', opacity: 0 },
+    ],
   },
 ]
-
-const PERIOD_ORDER: PeriodOption[] = ['1h', '6h', '12h', '1d', '3d', '7d']
-const PERIOD_OPTIONS = PERIOD_ORDER.map((value) => ({ value, label: PERIOD_CONFIG[value].label }))
 
 const DashboardPage = () => {
   const { isAuthenticated } = useAuth()
@@ -103,7 +123,8 @@ const DashboardPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('1h')
-  const [selectedInterval, setSelectedInterval] = useState<IntervalOption>('1s')
+  const currentInterval = useMemo(() => PERIOD_CONFIG[selectedPeriod].step, [selectedPeriod])
+  const currentIntervalLabel = useMemo(() => STEP_INFO[currentInterval].label, [currentInterval])
   const [seriesData, setSeriesData] = useState<Record<string, MetricChartPoint[]>>(() =>
     METRIC_CHART_CONFIGS.reduce((acc, config) => {
       acc[config.key] = []
@@ -114,19 +135,10 @@ const DashboardPage = () => {
   const [seriesError, setSeriesError] = useState<string | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
 
-  const allowedStepOptions = useMemo(() => {
-    const minStep = PERIOD_CONFIG[selectedPeriod].minStep
-    const minDuration = STEP_DURATION_MS[minStep]
-    return STEP_OPTIONS.filter((option) => option.durationMs >= minDuration)
-  }, [selectedPeriod])
-
-  useEffect(() => {
-    if (!allowedStepOptions.some((option) => option.value === selectedInterval)) {
-      if (allowedStepOptions.length > 0) {
-        setSelectedInterval(allowedStepOptions[0].value)
-      }
-    }
-  }, [allowedStepOptions, selectedInterval])
+  const activeStepOption = useMemo(
+    () => ({ value: currentInterval, label: currentIntervalLabel }),
+    [currentInterval, currentIntervalLabel]
+  )
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -265,7 +277,7 @@ const DashboardPage = () => {
       try {
         const responses = await Promise.all(
           METRIC_CHART_CONFIGS.map((config) =>
-            metricsAPI.getMetricSeries(selectedNode, config.key, selectedPeriod, selectedInterval)
+            metricsAPI.getMetricSeries(selectedNode, config.key, selectedPeriod, currentInterval)
           )
         )
 
@@ -273,15 +285,14 @@ const DashboardPage = () => {
           return
         }
 
-        const nextData = responses.reduce((acc, response, index) => {
+        const nextData = responses.reduce<Record<string, MetricChartPoint[]>>((acc, response, index) => {
           const config = METRIC_CHART_CONFIGS[index]
           acc[config.key] = response.points.map((point: MetricSeriesPoint) => ({
             timestamp: point.timestamp,
             value: config.transform ? config.transform(point.value) : point.value,
           }))
           return acc
-        }, {} as Record<string, MetricChartPoint[]>)
-
+        }, {})
         setSeriesData(nextData)
       } catch (err) {
         if (!cancelled) {
@@ -300,7 +311,7 @@ const DashboardPage = () => {
     return () => {
       cancelled = true
     }
-  }, [selectedNode, selectedPeriod, selectedInterval, isAuthenticated])
+  }, [selectedNode, selectedPeriod, currentInterval, isAuthenticated])
 
   const formatGB = (gb: number): string => {
     return gb.toFixed(0) + ' GB'
@@ -381,38 +392,29 @@ const DashboardPage = () => {
           <>
             <div className="dashboard-page__filters-card">
               <div className="dashboard-page__filters-group">
-                <label className="dashboard-page__filters-label" htmlFor="interval-select">
+                <label className="dashboard-page__filters-label" htmlFor="interval-filter">
                   Interval
                 </label>
-                <select
-                  id="interval-select"
-                  className="dashboard-page__filters-select"
-                  value={selectedInterval}
-                  onChange={(event) => setSelectedInterval(event.target.value as IntervalOption)}
-                >
-                  {allowedStepOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={activeStepOption.value}
+                  options={[activeStepOption]}
+                  onChange={() => {}}
+                  disabled
+                  ariaLabel="Interval filter"
+                  id="interval-filter"
+                />
               </div>
               <div className="dashboard-page__filters-group">
-                <label className="dashboard-page__filters-label" htmlFor="period-select">
+                <label className="dashboard-page__filters-label" htmlFor="period-filter">
                   Period
                 </label>
-                <select
-                  id="period-select"
-                  className="dashboard-page__filters-select"
+                <FilterSelect
                   value={selectedPeriod}
-                  onChange={(event) => setSelectedPeriod(event.target.value as PeriodOption)}
-                >
-                  {PERIOD_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  options={PERIOD_OPTIONS}
+                  onChange={(nextValue) => setSelectedPeriod(nextValue as PeriodOption)}
+                  ariaLabel="Period filter"
+                  id="period-filter"
+                />
               </div>
             </div>
 
@@ -426,6 +428,7 @@ const DashboardPage = () => {
                   colorFrom={config.colorFrom}
                   colorTo={config.colorTo}
                   strokeColor={config.stroke}
+                  gradientStops={config.gradientStops}
                   valueFormatter={config.formatValue}
                   isLoading={seriesLoading}
                   errorMessage={seriesError}

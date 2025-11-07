@@ -27,29 +27,37 @@ var (
 
 	periodConfigurations = map[string]struct {
 		duration time.Duration
-		minStep  time.Duration
+		step     time.Duration
 	}{
-		"1h":  {duration: time.Hour, minStep: time.Second},
-		"6h":  {duration: 6 * time.Hour, minStep: 10 * time.Second},
-		"12h": {duration: 12 * time.Hour, minStep: time.Minute},
-		"1d":  {duration: 24 * time.Hour, minStep: time.Minute},
-		"3d":  {duration: 72 * time.Hour, minStep: time.Hour},
-		"7d":  {duration: 168 * time.Hour, minStep: time.Hour},
+		"10m": {duration: 10 * time.Minute, step: time.Second},
+		"30m": {duration: 30 * time.Minute, step: 10 * time.Second},
+		"1h":  {duration: time.Hour, step: time.Minute},
+		"6h":  {duration: 6 * time.Hour, step: 5 * time.Minute},
+		"12h": {duration: 12 * time.Hour, step: 5 * time.Minute},
+		"1d":  {duration: 24 * time.Hour, step: 30 * time.Minute},
+		"3d":  {duration: 72 * time.Hour, step: time.Hour},
+		"7d":  {duration: 168 * time.Hour, step: time.Hour},
 	}
 
 	stepDurations = map[string]time.Duration{
 		"1s":  time.Second,
+		"5s":  5 * time.Second,
 		"10s": 10 * time.Second,
+		"30s": 30 * time.Second,
 		"1m":  time.Minute,
-		"10m": 10 * time.Minute,
+		"5m":  5 * time.Minute,
+		"30m": 30 * time.Minute,
 		"1h":  time.Hour,
 	}
 
 	stepStrings = map[time.Duration]string{
 		time.Second:      "1s",
+		5 * time.Second:  "5s",
 		10 * time.Second: "10s",
+		30 * time.Second: "30s",
 		time.Minute:      "1m",
-		10 * time.Minute: "10m",
+		5 * time.Minute:  "5m",
+		30 * time.Minute: "30m",
 		time.Hour:        "1h",
 	}
 )
@@ -234,8 +242,14 @@ func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 		return
 	}
 
-	stepKey := c.DefaultQuery("step", "1s")
-	stepDuration, effectiveStep, err := normalizeStep(stepKey, periodCfg.minStep)
+	defaultStep, hasDefault := stepStrings[periodCfg.step]
+	if !hasDefault {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("unsupported configured step duration: %s", periodCfg.step)})
+		return
+	}
+
+	stepKey := c.DefaultQuery("step", defaultStep)
+	stepDuration, effectiveStep, err := normalizeStep(stepKey, periodCfg.step)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -275,14 +289,18 @@ func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-func normalizeStep(stepKey string, minStep time.Duration) (time.Duration, string, error) {
+func normalizeStep(stepKey string, expectedStep time.Duration) (time.Duration, string, error) {
 	stepDuration, ok := stepDurations[stepKey]
 	if !ok {
 		return 0, "", fmt.Errorf("unsupported step: %s", stepKey)
 	}
 
-	if stepDuration < minStep {
-		stepDuration = minStep
+	if stepDuration != expectedStep {
+		expectedKey, hasExpected := stepStrings[expectedStep]
+		if !hasExpected {
+			return 0, "", fmt.Errorf("unsupported configured step duration: %s", expectedStep)
+		}
+		return 0, "", fmt.Errorf("step %s is not allowed for the selected period; expected %s", stepKey, expectedKey)
 	}
 
 	effectiveStep, ok := stepStrings[stepDuration]
