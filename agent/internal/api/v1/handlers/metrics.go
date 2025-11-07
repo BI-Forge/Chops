@@ -9,8 +9,48 @@ import (
 
 	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/stream"
+	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 	"github.com/gin-gonic/gin"
+)
+
+var (
+	allowedMetricTypes = map[string]struct{}{
+		"cpu_load":           {},
+		"memory_load":        {},
+		"storage_used":       {},
+		"active_connections": {},
+		"active_queries":     {},
+	}
+
+	periodConfigurations = map[string]struct {
+		duration time.Duration
+		minStep  time.Duration
+	}{
+		"1h":  {duration: time.Hour, minStep: time.Second},
+		"6h":  {duration: 6 * time.Hour, minStep: 10 * time.Second},
+		"12h": {duration: 12 * time.Hour, minStep: time.Minute},
+		"1d":  {duration: 24 * time.Hour, minStep: time.Minute},
+		"3d":  {duration: 72 * time.Hour, minStep: time.Hour},
+		"7d":  {duration: 168 * time.Hour, minStep: time.Hour},
+	}
+
+	stepDurations = map[string]time.Duration{
+		"1s":  time.Second,
+		"10s": 10 * time.Second,
+		"1m":  time.Minute,
+		"10m": 10 * time.Minute,
+		"1h":  time.Hour,
+	}
+
+	stepStrings = map[time.Duration]string{
+		time.Second:      "1s",
+		10 * time.Second: "10s",
+		time.Minute:      "1m",
+		10 * time.Minute: "10m",
+		time.Hour:        "1h",
+	}
 )
 
 // MetricsHandler handles metrics endpoints
@@ -19,13 +59,19 @@ type MetricsHandler struct {
 	broadcaster      *stream.Broadcaster
 	metricsPublisher *stream.MetricsPublisher
 	logger           *logger.Logger
+	retentionDays    int
 }
 
 // NewMetricsHandler creates a new metrics handler
-func NewMetricsHandler(logger *logger.Logger) (*MetricsHandler, error) {
+func NewMetricsHandler(logger *logger.Logger, cfg *config.Config) (*MetricsHandler, error) {
 	metricsRepo, err := repository.NewMetricsRepository()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics repository: %w", err)
+	}
+
+	retentionDays := 0
+	if cfg != nil && cfg.Sync.RetentionDays > 0 {
+		retentionDays = cfg.Sync.RetentionDays
 	}
 
 	broadcaster := stream.NewBroadcaster(logger)
@@ -36,6 +82,7 @@ func NewMetricsHandler(logger *logger.Logger) (*MetricsHandler, error) {
 		broadcaster:      broadcaster,
 		metricsPublisher: metricsPublisher,
 		logger:           logger,
+		retentionDays:    retentionDays,
 	}, nil
 }
 
@@ -163,4 +210,84 @@ func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, metrics)
+}
+
+// GetMetricSeries returns aggregated metrics for a period and step suitable for charting.
+func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
+	nodeName := c.Query("node")
+	if nodeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "node parameter is required"})
+		return
+	}
+
+	metricType := c.DefaultQuery("metric", "cpu_load")
+	if _, ok := allowedMetricTypes[metricType]; !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported metric type: %s", metricType)})
+		return
+	}
+
+	periodKey := c.DefaultQuery("period", "1h")
+	periodCfg, ok := periodConfigurations[periodKey]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported period: %s", periodKey)})
+		return
+	}
+
+	stepKey := c.DefaultQuery("step", "1s")
+	stepDuration, effectiveStep, err := normalizeStep(stepKey, periodCfg.minStep)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if h.retentionDays > 0 {
+		maxPeriod := time.Duration(h.retentionDays) * 24 * time.Hour
+		if periodCfg.duration > maxPeriod {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("period %s exceeds retention window of %dd", periodKey, h.retentionDays)})
+			return
+		}
+	}
+
+	now := time.Now().UTC()
+	from := now.Add(-periodCfg.duration)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	points, err := h.metricsRepo.GetMetricSeries(ctx, nodeName, metricType, from, now, stepDuration)
+	if err != nil {
+		h.logger.Errorf("Failed to load metric series: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load metric series"})
+		return
+	}
+
+	response := models.MetricSeriesResponse{
+		Node:   nodeName,
+		Metric: metricType,
+		Period: periodKey,
+		Step:   effectiveStep,
+		From:   from.Format(time.RFC3339),
+		To:     now.Format(time.RFC3339),
+		Points: points,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func normalizeStep(stepKey string, minStep time.Duration) (time.Duration, string, error) {
+	stepDuration, ok := stepDurations[stepKey]
+	if !ok {
+		return 0, "", fmt.Errorf("unsupported step: %s", stepKey)
+	}
+
+	if stepDuration < minStep {
+		stepDuration = minStep
+	}
+
+	effectiveStep, ok := stepStrings[stepDuration]
+	if !ok {
+		return 0, "", fmt.Errorf("unsupported effective step duration: %s", stepDuration)
+	}
+
+	return stepDuration, effectiveStep, nil
 }

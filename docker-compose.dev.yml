@@ -23,8 +23,8 @@ services:
     depends_on:
       ops_db:
         condition: service_healthy
-#      ops_clickhouse:
-#        condition: service_healthy
+    #      ops_clickhouse:
+    #        condition: service_healthy
     volumes:
       - ./agent/:/app
     networks:
@@ -66,11 +66,11 @@ services:
       nofile:
         soft: 262144
         hard: 262144
-#    healthcheck:
-#      test: [ "CMD", "curl", "--fail", "http://localhost:8123/" ]
-#      interval: 30s
-#      timeout: 10s
-#      retries: 3
+    #    healthcheck:
+    #      test: [ "CMD", "curl", "--fail", "http://localhost:8123/" ]
+    #      interval: 30s
+    #      timeout: 10s
+    #      retries: 3
     networks:
       - ch_ops
 networks:

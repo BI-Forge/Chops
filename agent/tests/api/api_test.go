@@ -49,10 +49,11 @@ func setupTestDB(t *testing.T) (*gorm.DB, *sql.DB) {
 // cleanupTestData cleans up test data
 func cleanupTestData(t *testing.T, gormDB *gorm.DB) {
 	gormDB.Exec("DELETE FROM users WHERE username LIKE 'test_%'")
+	gormDB.Exec("DELETE FROM ch_metrics WHERE node_name LIKE 'test_%'")
 }
 
 // setupTestRouter creates a test router
-func setupTestRouter(t *testing.T, gormDB *gorm.DB, sqlDB *sql.DB) *gin.Engine {
+func setupTestRouter(t *testing.T, gormDB *gorm.DB, sqlDB *sql.DB, appCfg *config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 
 	cfg := v1.RouterConfig{
@@ -61,6 +62,7 @@ func setupTestRouter(t *testing.T, gormDB *gorm.DB, sqlDB *sql.DB) *gin.Engine {
 		RateLimitRPS:     0, // Disable rate limiting for tests
 		RateLimitBurst:   0,
 		Logger:           logger.New(logger.InfoLevel, "text"),
+		Config:           appCfg,
 	}
 
 	// Setup router - it will use db.GetInstance() from setupTestEnvironment
@@ -83,6 +85,9 @@ func setupTestEnvironment(t *testing.T) (*gorm.DB, *gin.Engine) {
 				DSN: "postgres://ops:12345@localhost:5436/public?sslmode=disable",
 			},
 		},
+		Sync: config.SyncConfig{
+			RetentionDays: 10,
+		},
 	}
 
 	log := logger.New(logger.InfoLevel, "text")
@@ -94,7 +99,7 @@ func setupTestEnvironment(t *testing.T) (*gorm.DB, *gin.Engine) {
 		return nil, nil
 	}
 
-	router := setupTestRouter(t, gormDB, sqlDB)
+	router := setupTestRouter(t, gormDB, sqlDB, cfg)
 	return gormDB, router
 }
 
@@ -403,6 +408,90 @@ func TestMeEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMetricsSeriesEndpoint tests the GET /api/v1/metrics/series endpoint
+func TestMetricsSeriesEndpoint(t *testing.T) {
+	dbConn, router := setupTestEnvironment(t)
+	if router == nil {
+		return
+	}
+	defer cleanupTestData(t, dbConn)
+
+	nodeName := "test_node_series"
+	now := time.Now().UTC().Truncate(time.Second)
+
+	insertSample := func(ts time.Time, cpu float64) {
+		memoryTotal := int64(16 * 1024 * 1024 * 1024)
+		memoryAvailable := int64(8 * 1024 * 1024 * 1024)
+		diskTotal := int64(10 * 1024 * 1024 * 1024)
+		diskFree := int64(3 * 1024 * 1024 * 1024)
+
+		req := dbConn.Exec(`
+			INSERT INTO ch_metrics (
+				"timestamp", node_name,
+				os_user_time_normalized, os_system_time_normalized, os_io_wait_time_normalized,
+				os_memory_total, os_memory_available,
+				disk_total_space, disk_free_space,
+				tcp_connection, mysql_connection, http_connection, interserver_connection, postgresql_connection,
+				query
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, ts, nodeName, cpu/3, cpu/3, cpu/3, memoryTotal, memoryAvailable, diskTotal, diskFree, 2, 1, 3, 0, 4, 5)
+		require.NoError(t, req.Error)
+	}
+
+	insertSample(now.Add(-2*time.Minute), 0.3)
+	insertSample(now.Add(-time.Minute), 0.33)
+	insertSample(now, 0.36)
+
+	username := "test_metrics_user_" + time.Now().Format("20060102150405")
+	password := "securepass123"
+	email := "metrics_test@example.com"
+
+	registerPayload, _ := json.Marshal(models.RegisterRequest{
+		Username: username,
+		Email:    email,
+		Password: password,
+	})
+
+	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
+	registerReq.Header.Set("Content-Type", "application/json")
+	registerW := httptest.NewRecorder()
+	router.ServeHTTP(registerW, registerReq)
+	require.Equal(t, http.StatusCreated, registerW.Code)
+
+	var registerResponse models.TokenResponse
+	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
+	require.NoError(t, err)
+	require.NotEmpty(t, registerResponse.Token)
+
+	req, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=1h&step=1s", nil)
+	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var series models.MetricSeriesResponse
+	err = json.Unmarshal(w.Body.Bytes(), &series)
+	require.NoError(t, err)
+	assert.Equal(t, nodeName, series.Node)
+	assert.Equal(t, "cpu_load", series.Metric)
+	assert.Equal(t, "1s", series.Step)
+	if assert.NotEmpty(t, series.Points) {
+		latest := series.Points[len(series.Points)-1]
+		assert.InDelta(t, 0.36, latest.Value, 0.05)
+	}
+
+	reqWide, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=10m", nil)
+	reqWide.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	wWide := httptest.NewRecorder()
+	router.ServeHTTP(wWide, reqWide)
+	require.Equal(t, http.StatusOK, wWide.Code)
+
+	var wideSeries models.MetricSeriesResponse
+	err = json.Unmarshal(wWide.Body.Bytes(), &wideSeries)
+	require.NoError(t, err)
+	assert.Equal(t, "1h", wideSeries.Step)
 }
 
 // TestSwaggerEndpoint tests Swagger documentation availability
