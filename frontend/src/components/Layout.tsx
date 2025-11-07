@@ -1,6 +1,6 @@
 import { ReactNode, useState, createContext, useContext } from 'react'
 import Sidebar from './Sidebar'
-import './Layout.css'
+import '../styles/Layout.css'
 
 interface LayoutContextType {
   openMobileMenu: () => void

@@ -13,7 +13,7 @@ import {
   LogoIcon,
 } from './Icons'
 import ProfileContextMenu from './ProfileContextMenu'
-import './Sidebar.css'
+import '../styles/Sidebar.css'
 
 interface SidebarProps {
   isMobile?: boolean

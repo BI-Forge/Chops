@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../services/AuthContext'
 import { ProfileIcon, SettingsIcon, LightModeIcon, LogoutIcon } from './Icons'
-import './ProfileContextMenu.css'
+import '../styles/ProfileContextMenu.css'
 
 interface ProfileContextMenuProps {
   isOpen: boolean

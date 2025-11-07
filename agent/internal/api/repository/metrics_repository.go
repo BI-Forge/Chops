@@ -13,6 +13,7 @@ import (
 var metricSeriesExpressions = map[string]string{
 	"cpu_load":           `(COALESCE(os_user_time_normalized, 0) + COALESCE(os_system_time_normalized, 0) + COALESCE(os_io_wait_time_normalized, 0))::float8`,
 	"memory_load":        `(CASE WHEN os_memory_total > 0 THEN ((os_memory_total - COALESCE(os_memory_available, 0))::float / os_memory_total::float) * 100 ELSE 0 END)::float8`,
+	"memory_used_gb":     `((COALESCE(os_memory_total, 0) - COALESCE(os_memory_available, 0))::float / (1024.0 * 1024.0 * 1024.0))::float8`,
 	"storage_used":       `((COALESCE(disk_total_space, 0) - COALESCE(disk_free_space, 0))::float / (1024.0 * 1024.0 * 1024.0))::float8`,
 	"active_connections": `(COALESCE(tcp_connection, 0) + COALESCE(mysql_connection, 0) + COALESCE(http_connection, 0) + COALESCE(interserver_connection, 0) + COALESCE(postgresql_connection, 0))::float8`,
 	"active_queries":     `COALESCE(query, 0)::float8`,
