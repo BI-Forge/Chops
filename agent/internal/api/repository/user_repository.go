@@ -3,49 +3,42 @@ package repository
 import (
 	"errors"
 	"fmt"
-	"time"
 
+	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/db"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
-
-// User represents a user in the database
-type User struct {
-	ID           int       `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username     string    `gorm:"uniqueIndex;not null;size:50" json:"username"`
-	Email        string    `gorm:"uniqueIndex;not null;size:100" json:"email"`
-	PasswordHash string    `gorm:"column:password_hash;not null;size:255" json:"-"`
-	FirstName    *string   `gorm:"size:50" json:"first_name,omitempty"`
-	LastName     *string   `gorm:"size:50" json:"last_name,omitempty"`
-	IsActive     bool      `gorm:"default:true" json:"is_active"`
-	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
-}
-
-// TableName specifies the table name for User model
-func (User) TableName() string {
-	return "users"
-}
 
 // UserRepository handles database operations for users
 type UserRepository struct {
 	db *gorm.DB
 }
 
-// NewUserRepository creates a new user repository
-func NewUserRepository(db *gorm.DB) *UserRepository {
-	return &UserRepository{db: db}
+// NewUserRepository creates a new user repository using the shared PostgreSQL connection.
+func NewUserRepository() (*UserRepository, error) {
+	gormDB, err := db.GetPostgresConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain postgres connection: %w", err)
+	}
+
+	return &UserRepository{db: gormDB}, nil
+}
+
+// NewUserRepositoryWithDB creates a user repository with a custom database connection (primarily for tests).
+func NewUserRepositoryWithDB(database *gorm.DB) *UserRepository {
+	return &UserRepository{db: database}
 }
 
 // CreateUser creates a new user in the database
-func (r *UserRepository) CreateUser(username, email, password string) (*User, error) {
+func (r *UserRepository) CreateUser(username, email, password string) (*models.User, error) {
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	user := &User{
+	user := &models.User{
 		Username:     username,
 		Email:        email,
 		PasswordHash: string(hashedPassword),
@@ -60,8 +53,8 @@ func (r *UserRepository) CreateUser(username, email, password string) (*User, er
 }
 
 // GetUserByUsername retrieves a user by username
-func (r *UserRepository) GetUserByUsername(username string) (*User, error) {
-	var user User
+func (r *UserRepository) GetUserByUsername(username string) (*models.User, error) {
+	var user models.User
 	if err := r.db.Where("username = ?", username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
@@ -72,8 +65,8 @@ func (r *UserRepository) GetUserByUsername(username string) (*User, error) {
 }
 
 // GetUserByID retrieves a user by ID
-func (r *UserRepository) GetUserByID(id int) (*User, error) {
-	var user User
+func (r *UserRepository) GetUserByID(id int) (*models.User, error) {
+	var user models.User
 	if err := r.db.First(&user, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
@@ -84,7 +77,7 @@ func (r *UserRepository) GetUserByID(id int) (*User, error) {
 }
 
 // VerifyPassword verifies a password against the stored hash
-func (r *UserRepository) VerifyPassword(user *User, password string) bool {
+func (r *UserRepository) VerifyPassword(user *models.User, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	return err == nil
 }
@@ -92,7 +85,7 @@ func (r *UserRepository) VerifyPassword(user *User, password string) bool {
 // UserExists checks if a user with the given username or email exists
 func (r *UserRepository) UserExists(username, email string) (bool, error) {
 	var count int64
-	if err := r.db.Model(&User{}).
+	if err := r.db.Model(&models.User{}).
 		Where("username = ? OR email = ?", username, email).
 		Count(&count).Error; err != nil {
 		return false, fmt.Errorf("failed to check user existence: %w", err)

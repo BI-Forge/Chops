@@ -8,14 +8,17 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/repository"
+	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/logger"
 	"github.com/gin-gonic/gin"
 )
 
 // MetricsHandler handles metrics endpoints
 type MetricsHandler struct {
-	metricsRepo *repository.MetricsRepository
-	logger      *logger.Logger
+	metricsRepo      *repository.MetricsRepository
+	broadcaster      *stream.Broadcaster
+	metricsPublisher *stream.MetricsPublisher
+	logger           *logger.Logger
 }
 
 // NewMetricsHandler creates a new metrics handler
@@ -25,9 +28,14 @@ func NewMetricsHandler(logger *logger.Logger) (*MetricsHandler, error) {
 		return nil, fmt.Errorf("failed to create metrics repository: %w", err)
 	}
 
+	broadcaster := stream.NewBroadcaster(logger)
+	metricsPublisher := stream.NewMetricsPublisher(metricsRepo, broadcaster, logger, time.Second)
+
 	return &MetricsHandler{
-		metricsRepo: metricsRepo,
-		logger:      logger,
+		metricsRepo:      metricsRepo,
+		broadcaster:      broadcaster,
+		metricsPublisher: metricsPublisher,
+		logger:           logger,
 	}, nil
 }
 
@@ -68,6 +76,15 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 		return
 	}
 
+	var userID string
+	if v, exists := c.Get("user_id"); exists {
+		if s, ok := v.(string); ok {
+			userID = s
+		} else if v != nil {
+			userID = fmt.Sprint(v)
+		}
+	}
+
 	// Note: SSE doesn't support custom headers, so token can be passed via query parameter
 	// The middleware will check Authorization header first, then fall back to token query param
 
@@ -77,49 +94,43 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // Disable nginx buffering
 
-	// Create a context that can be cancelled (without timeout for the loop)
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 
-	// Create a ticker for 1 second intervals
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	h.metricsPublisher.EnsureNodePublisher(nodeName)
+	updates, unsubscribe := h.broadcaster.Subscribe(ctx, stream.MetricsTopic(nodeName), userID)
+	defer unsubscribe()
 
 	// Send initial connection message
 	c.SSEvent("message", gin.H{"status": "connected", "node": nodeName})
 	c.Writer.Flush()
 
-	// Stream metrics every second
 	for {
 		select {
 		case <-ctx.Done():
-			// Client disconnected
 			h.logger.Infof("SSE connection closed for node: %s", nodeName)
 			return
-		case <-ticker.C:
-			// Create a new context with timeout for each database query
-			queryCtx, queryCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			
-			// Get latest metrics
-			metrics, err := h.metricsRepo.GetLatestMetrics(queryCtx, nodeName)
-			queryCancel() // Cancel the query context immediately after use
-			
-			if err != nil {
-				h.logger.Errorf("Failed to get metrics for node %s: %v", nodeName, err)
-				// Send error event
-				c.SSEvent("error", gin.H{"error": fmt.Sprintf("Failed to get metrics: %v", err)})
+		case event, ok := <-updates:
+			if !ok {
+				h.logger.Infof("Metrics stream closed for node: %s", nodeName)
+				return
+			}
+			if event.Err != nil {
+				c.SSEvent("error", gin.H{"error": fmt.Sprintf("Failed to get metrics: %v", event.Err)})
 				c.Writer.Flush()
 				continue
 			}
+			metrics, ok := stream.DecodeMetricsPayload(event)
+			if !ok || metrics == nil {
+				continue
+			}
 
-			// Send metrics as JSON
 			metricsJSON, err := json.Marshal(metrics)
 			if err != nil {
 				h.logger.Errorf("Failed to marshal metrics: %v", err)
 				continue
 			}
 
-			// Send SSE event
 			c.SSEvent("metrics", string(metricsJSON))
 			c.Writer.Flush()
 		}
@@ -153,4 +164,3 @@ func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 
 	c.JSON(http.StatusOK, metrics)
 }
-

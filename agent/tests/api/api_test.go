@@ -17,9 +17,9 @@ import (
 	"clickhouse-ops/internal/logger"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	_ "github.com/lib/pq"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -28,21 +28,21 @@ import (
 func setupTestDB(t *testing.T) (*gorm.DB, *sql.DB) {
 	// Use test database
 	dsn := "postgres://ops:12345@localhost:5436/public?sslmode=disable"
-	
+
 	gormDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Skipf("Skipping test: cannot connect to test database: %v", err)
 		return nil, nil
 	}
-	
+
 	// Get underlying sql.DB
 	sqlDB, err := gormDB.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Ping())
-	
+
 	// Clean up test data
 	cleanupTestData(t, gormDB)
-	
+
 	return gormDB, sqlDB
 }
 
@@ -54,7 +54,7 @@ func cleanupTestData(t *testing.T, gormDB *gorm.DB) {
 // setupTestRouter creates a test router
 func setupTestRouter(t *testing.T, gormDB *gorm.DB, sqlDB *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	
+
 	cfg := v1.RouterConfig{
 		JWTSecretKey:     "test-secret-key-for-testing-only",
 		JWTTokenDuration: 24 * time.Hour,
@@ -62,10 +62,10 @@ func setupTestRouter(t *testing.T, gormDB *gorm.DB, sqlDB *sql.DB) *gin.Engine {
 		RateLimitBurst:   0,
 		Logger:           logger.New(logger.InfoLevel, "text"),
 	}
-	
+
 	// Setup router - it will use db.GetInstance() from setupTestEnvironment
 	router := v1.SetupRouter(cfg)
-	
+
 	return router
 }
 
@@ -75,7 +75,7 @@ func setupTestEnvironment(t *testing.T) (*gorm.DB, *gin.Engine) {
 	if gormDB == nil {
 		return nil, nil
 	}
-	
+
 	// Initialize database instance for handlers
 	cfg := &config.Config{
 		Database: config.DatabaseConfig{
@@ -84,16 +84,16 @@ func setupTestEnvironment(t *testing.T) (*gorm.DB, *gin.Engine) {
 			},
 		},
 	}
-	
+
 	log := logger.New(logger.InfoLevel, "text")
-	
+
 	// Create database manager properly
 	err := db.Connect(cfg, log)
 	if err != nil {
 		t.Skipf("Skipping test: failed to initialize database manager: %v", err)
 		return nil, nil
 	}
-	
+
 	router := setupTestRouter(t, gormDB, sqlDB)
 	return gormDB, router
 }
@@ -104,17 +104,17 @@ func TestHealthEndpoint(t *testing.T) {
 	if router == nil {
 		return
 	}
-	
+
 	req, _ := http.NewRequest("GET", "/healthz", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	
+
 	assert.Equal(t, http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, "ok", response["status"])
 	assert.NotNil(t, response["timestamp"])
 	assert.NotNil(t, response["services"])
@@ -127,7 +127,7 @@ func TestRegisterEndpoint(t *testing.T) {
 		return
 	}
 	defer cleanupTestData(t, dbConn)
-	
+
 	tests := []struct {
 		name           string
 		payload        models.RegisterRequest
@@ -194,7 +194,7 @@ func TestRegisterEndpoint(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
-	
+
 	// Register first user for duplicate test
 	if len(tests) > 1 {
 		firstPayload, _ := json.Marshal(tests[1].payload)
@@ -206,16 +206,16 @@ func TestRegisterEndpoint(t *testing.T) {
 			// User created, now test duplicate scenario
 		}
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			payload, _ := json.Marshal(tt.payload)
 			req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(payload))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			
+
 			router.ServeHTTP(w, req)
-			
+
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.checkResponse != nil {
 				tt.checkResponse(t, w)
@@ -231,22 +231,22 @@ func TestLoginEndpoint(t *testing.T) {
 		return
 	}
 	defer cleanupTestData(t, dbConn)
-	
+
 	// Create test user for login
 	username := "test_login_user_" + time.Now().Format("20060102150405")
 	password := "securepass123"
 	email := "login_test@example.com"
-	
+
 	// Create user directly via repository for testing
 	dbInstance := db.GetInstance()
 	if dbInstance != nil {
-		userRepo := repository.NewUserRepository(dbInstance.GetGormDB())
+		userRepo := repository.NewUserRepositoryWithDB(dbInstance.GetGormDB())
 		_, err := userRepo.CreateUser(username, email, password)
 		if err != nil {
 			t.Fatalf("Failed to create test user: %v", err)
 		}
 	}
-	
+
 	tests := []struct {
 		name           string
 		payload        models.LoginRequest
@@ -306,16 +306,16 @@ func TestLoginEndpoint(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			payload, _ := json.Marshal(tt.payload)
 			req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(payload))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			
+
 			router.ServeHTTP(w, req)
-			
+
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.checkResponse != nil {
 				tt.checkResponse(t, w)
@@ -331,31 +331,31 @@ func TestMeEndpoint(t *testing.T) {
 		return
 	}
 	defer cleanupTestData(t, dbConn)
-	
+
 	// Create user and get token
 	username := "test_me_user_" + time.Now().Format("20060102150405")
 	password := "securepass123"
 	email := "me_test@example.com"
-	
+
 	// Create user and get token via register endpoint
 	registerPayload, _ := json.Marshal(models.RegisterRequest{
 		Username: username,
 		Email:    email,
 		Password: password,
 	})
-	
+
 	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
 	registerReq.Header.Set("Content-Type", "application/json")
 	registerW := httptest.NewRecorder()
 	router.ServeHTTP(registerW, registerReq)
-	
+
 	require.Equal(t, http.StatusCreated, registerW.Code)
-	
+
 	var registerResponse models.TokenResponse
 	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
-	
+
 	tests := []struct {
 		name           string
 		token          string
@@ -386,7 +386,7 @@ func TestMeEndpoint(t *testing.T) {
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req, _ := http.NewRequest("GET", "/api/v1/auth/me", nil)
@@ -394,9 +394,9 @@ func TestMeEndpoint(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer "+tt.token)
 			}
 			w := httptest.NewRecorder()
-			
+
 			router.ServeHTTP(w, req)
-			
+
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.checkResponse != nil {
 				tt.checkResponse(t, w)
@@ -411,11 +411,11 @@ func TestSwaggerEndpoint(t *testing.T) {
 	if router == nil {
 		return
 	}
-	
+
 	req, _ := http.NewRequest("GET", "/swagger/index.html", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	
+
 	// Swagger endpoint may not be available in test router setup
 	// Check if it exists (200) or if it's not configured (404)
 	// Both are acceptable in test environment
@@ -428,12 +428,12 @@ func TestCORSHeaders(t *testing.T) {
 	if router == nil {
 		return
 	}
-	
+
 	req, _ := http.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	
+
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "GET, POST, PUT, DELETE, OPTIONS", w.Header().Get("Access-Control-Allow-Methods"))

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"sync"
 
 	"clickhouse-ops/internal/config"
@@ -16,10 +17,10 @@ var (
 
 // Manager manages database connection and migrations
 type Manager struct {
-	db       *DB
-	gormDB   *gorm.DB
-	config   *config.Config
-	logger   *logger.Logger
+	db     *DB
+	gormDB *gorm.DB
+	config *config.Config
+	logger *logger.Logger
 }
 
 // GetInstance returns the singleton database manager
@@ -72,6 +73,37 @@ func (m *Manager) GetGormDB() *gorm.DB {
 	return m.gormDB
 }
 
+// GetPostgresConnection returns a singleton GORM connection to PostgreSQL.
+func GetPostgresConnection() (*gorm.DB, error) {
+	if instance == nil {
+		return nil, fmt.Errorf("database manager not initialized")
+	}
+
+	if instance.gormDB != nil {
+		return instance.gormDB, nil
+	}
+
+	if instance.db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+
+	sqlConn := instance.db.GetConnection()
+	if sqlConn == nil {
+		return nil, fmt.Errorf("postgres connection handle not available")
+	}
+
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlConn}), &gorm.Config{})
+	if err != nil {
+		if instance.logger != nil {
+			instance.logger.Errorf("Failed to initialize GORM: %v", err)
+		}
+		return nil, fmt.Errorf("failed to initialize gorm: %w", err)
+	}
+
+	instance.gormDB = gormDB
+	return instance.gormDB, nil
+}
+
 // Close closes the database connection
 func (m *Manager) Close() error {
 	if m.db != nil {
@@ -101,4 +133,3 @@ func (m *Manager) runMigrations() error {
 
 	return nil
 }
-
