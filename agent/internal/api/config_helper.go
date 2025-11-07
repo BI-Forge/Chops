@@ -43,6 +43,7 @@ func ConvertToRouterConfig(cfg *config.Config, appLogger *logger.Logger) (v1.Rou
 		RateLimitRPS:     rateLimitRPS,
 		RateLimitBurst:   rateLimitBurst,
 		Logger:           appLogger,
+		Config:           cfg,
 	}, nil
 }
 

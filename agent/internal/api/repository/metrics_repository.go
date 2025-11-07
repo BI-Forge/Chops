@@ -3,11 +3,20 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/db"
 	"gorm.io/gorm"
 )
+
+var metricSeriesExpressions = map[string]string{
+	"cpu_load":           `(COALESCE(os_user_time_normalized, 0) + COALESCE(os_system_time_normalized, 0) + COALESCE(os_io_wait_time_normalized, 0))::float8`,
+	"memory_load":        `(CASE WHEN os_memory_total > 0 THEN ((os_memory_total - COALESCE(os_memory_available, 0))::float / os_memory_total::float) * 100 ELSE 0 END)::float8`,
+	"storage_used":       `((COALESCE(disk_total_space, 0) - COALESCE(disk_free_space, 0))::float / (1024.0 * 1024.0 * 1024.0))::float8`,
+	"active_connections": `(COALESCE(tcp_connection, 0) + COALESCE(mysql_connection, 0) + COALESCE(http_connection, 0) + COALESCE(interserver_connection, 0) + COALESCE(postgresql_connection, 0))::float8`,
+	"active_queries":     `COALESCE(query, 0)::float8`,
+}
 
 // MetricsRepository mediates metrics reads through the application database.
 type MetricsRepository struct {
@@ -85,4 +94,46 @@ func (r *MetricsRepository) GetAvailableNodes(ctx context.Context) ([]string, er
 	}
 
 	return nodes, nil
+}
+
+// GetMetricSeries returns aggregated metric values for the requested time range and step.
+func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string, metricType string, from, to time.Time, step time.Duration) ([]models.MetricSeriesPoint, error) {
+	expr, ok := metricSeriesExpressions[metricType]
+	if !ok {
+		return nil, fmt.Errorf("unsupported metric type: %s", metricType)
+	}
+
+	if step <= 0 {
+		return nil, fmt.Errorf("step must be positive")
+	}
+
+	stepSeconds := step.Seconds()
+
+	query := fmt.Sprintf(`
+WITH samples AS (
+    SELECT timestamp, %s AS metric_value
+    FROM ch_metrics
+    WHERE node_name = ?
+      AND timestamp BETWEEN ? AND ?
+),
+ bucketed AS (
+    SELECT to_timestamp(floor(extract(epoch FROM timestamp)::numeric / ?) * ?) AT TIME ZONE 'UTC' AS bucket,
+           metric_value
+    FROM samples
+ )
+SELECT
+    to_char(bucket, 'YYYY-MM-DD"T"HH24:MI:SSZ') AS timestamp,
+    AVG(metric_value)::float8 AS value
+FROM bucketed
+GROUP BY bucket
+ORDER BY bucket
+`, expr)
+
+	var points []models.MetricSeriesPoint
+	result := r.db.WithContext(ctx).Raw(query, nodeName, from, to, stepSeconds, stepSeconds).Scan(&points)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to load metric series: %w", result.Error)
+	}
+
+	return points, nil
 }
