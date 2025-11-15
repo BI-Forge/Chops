@@ -53,6 +53,15 @@ const PERIOD_CONFIG: Record<PeriodOption, { label: string; step: IntervalOption;
 const PERIOD_ORDER: PeriodOption[] = ['10m', '30m', '1h', '6h', '12h', '1d', '3d', '7d']
 const PERIOD_OPTIONS = PERIOD_ORDER.map((value) => ({ value, label: PERIOD_CONFIG[value].label }))
 
+const MIN_REFRESH_INTERVAL_MS = 10_000
+const MAX_REFRESH_INTERVAL_MS = 15 * 60 * 1000
+
+const getRefreshIntervalMs = (period: PeriodOption): number => {
+  const step = PERIOD_CONFIG[period].step
+  const stepDuration = STEP_INFO[step].durationMs
+  return Math.min(Math.max(stepDuration, MIN_REFRESH_INTERVAL_MS), MAX_REFRESH_INTERVAL_MS)
+}
+
 const METRIC_CHART_CONFIGS: MetricChartConfig[] = [
   {
     key: 'cpu_load',
@@ -123,6 +132,7 @@ const DashboardPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('1h')
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
   const currentInterval = useMemo(() => PERIOD_CONFIG[selectedPeriod].step, [selectedPeriod])
   const currentIntervalLabel = useMemo(() => STEP_INFO[currentInterval].label, [currentInterval])
   const [seriesData, setSeriesData] = useState<Record<string, MetricChartPoint[]>>(() =>
@@ -270,10 +280,18 @@ const DashboardPage = () => {
     }
 
     let cancelled = false
-    setSeriesLoading(true)
-    setSeriesError(null)
+    let refreshTimer: ReturnType<typeof window.setTimeout> | null = null
 
-    const loadSeries = async () => {
+    const loadSeries = async (showLoader: boolean) => {
+      if (cancelled) {
+        return
+      }
+
+      if (showLoader) {
+        setSeriesLoading(true)
+      }
+      setSeriesError(null)
+
       try {
         const responses = await Promise.all(
           METRIC_CHART_CONFIGS.map((config) =>
@@ -292,29 +310,65 @@ const DashboardPage = () => {
             value: config.transform ? config.transform(point.value) : point.value,
           }))
           return acc
-        }, {})
+        }, {} as Record<string, MetricChartPoint[]>)
+
         setSeriesData(nextData)
+        setSeriesError(null)
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to load metric series:', err)
           setSeriesError('Failed to load chart data. Please try again.')
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && showLoader) {
           setSeriesLoading(false)
         }
       }
     }
 
-    loadSeries()
+    const scheduleRefresh = () => {
+      if (cancelled) {
+        return
+      }
+
+      const intervalMs = getRefreshIntervalMs(selectedPeriod)
+      refreshTimer = window.setTimeout(async () => {
+        if (cancelled) {
+          return
+        }
+
+        try {
+          await loadSeries(false)
+        } finally {
+          scheduleRefresh()
+        }
+      }, intervalMs)
+    }
+
+    loadSeries(true).finally(() => {
+      if (!cancelled) {
+        scheduleRefresh()
+      }
+    })
 
     return () => {
       cancelled = true
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer)
+      }
+      setSeriesLoading(false)
     }
-  }, [selectedNode, selectedPeriod, currentInterval, isAuthenticated])
+  }, [selectedNode, selectedPeriod, currentInterval, isAuthenticated, refreshTrigger])
 
   const formatGB = (gb: number): string => {
     return gb.toFixed(0) + ' GB'
+  }
+
+  const handleManualRefresh = () => {
+    if (!selectedNode || !isAuthenticated || seriesLoading) {
+      return
+    }
+    setRefreshTrigger((prev) => prev + 1)
   }
 
   if (!isAuthenticated) {
@@ -415,6 +469,58 @@ const DashboardPage = () => {
                   ariaLabel="Period filter"
                   id="period-filter"
                 />
+              </div>
+              <div className="dashboard-page__filters-actions">
+                <button
+                  type="button"
+                  className="dashboard-page__refresh-button"
+                  onClick={handleManualRefresh}
+                  disabled={seriesLoading || !selectedNode}
+                >
+                  {seriesLoading ? (
+                    <span className="dashboard-page__refresh-spinner" aria-hidden="true" />
+                  ) : (
+                    <svg
+                      className="dashboard-page__refresh-icon"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M4.93 4.93C7.78 2.08 12.22 2.08 15.07 4.93C17.04 6.9 17.83 9.66 17.27 12.23"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M19 5V11H13"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M19.07 19.07C16.22 21.92 11.78 21.92 8.93 19.07C6.96 17.1 6.17 14.34 6.73 11.77"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M5 19V13H11"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                  <span>Refresh</span>
+                </button>
               </div>
             </div>
 

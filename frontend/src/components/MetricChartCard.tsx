@@ -81,6 +81,21 @@ const MetricChartCard = ({
     [data]
   )
 
+  const xTicks = useMemo(() => {
+    const seenMinutes = new Set<number>()
+    const ticks: string[] = []
+
+    formattedData.forEach((point) => {
+      const minuteBucket = Math.floor(new Date(point.timestamp).getTime() / 60_000)
+      if (!seenMinutes.has(minuteBucket)) {
+        seenMinutes.add(minuteBucket)
+        ticks.push(point.label)
+      }
+    })
+
+    return ticks
+  }, [formattedData])
+
   return (
     <div className="metric-chart-card">
       <div className="metric-chart-card__header">
@@ -110,6 +125,7 @@ const MetricChartCard = ({
               <CartesianGrid stroke="#1d293d" strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="label"
+                ticks={xTicks}
                 tick={{ fill: '#64748b', fontSize: 12 }}
                 stroke="#1d293d"
                 tickLine={false}

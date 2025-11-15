@@ -144,12 +144,71 @@
   border-radius: 14px;
   padding: 20px 24px;
   margin-bottom: 24px;
+  --filter-input-bg: rgba(18, 26, 44, 0.95);
+  --filter-input-border: rgba(92, 118, 170, 0.55);
+  --filter-input-hover-border: rgba(134, 167, 235, 0.85);
+  --filter-input-shadow: 0 12px 28px rgba(4, 8, 16, 0.45);
 }
 
 .dashboard-page__filters-group {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.dashboard-page__filters-actions {
+  display: flex;
+  align-items: center;
+}
+
+.dashboard-page__refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  min-height: 44px;
+  background: var(--filter-input-bg);
+  border: 1px solid var(--filter-input-border);
+  border-radius: 10px;
+  color: #ffffff;
+  font-family: 'Arimo', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  box-shadow: var(--filter-input-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, border-color 0.2s ease;
+}
+
+.dashboard-page__refresh-button:not(:disabled):hover {
+  transform: translateY(-2px);
+  border-color: var(--filter-input-hover-border);
+  box-shadow: 0 16px 34px rgba(8, 14, 26, 0.55);
+}
+
+.dashboard-page__refresh-button:focus-visible {
+  outline: 2px solid rgba(72, 140, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.dashboard-page__refresh-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+  box-shadow: none;
+  border-color: rgba(90, 110, 150, 0.4);
+}
+
+.dashboard-page__refresh-icon {
+  display: block;
+}
+
+.dashboard-page__refresh-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(240, 244, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 .dashboard-page__filters-label {
@@ -287,6 +346,15 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .dashboard-page__filters-actions {
+    width: 100%;
+  }
+
+  .dashboard-page__refresh-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .dashboard-page__filters-select {
