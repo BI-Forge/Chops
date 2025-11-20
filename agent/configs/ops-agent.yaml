@@ -97,5 +97,6 @@ logging:
 
 # Sync Configuration
 sync:
-  metrics_frequency: "1s"  # Frequency of metrics synchronization (e.g., "1s", "1m", "5s")
-  retention_days: 7        # Number of days to keep metrics data in PostgreSQL
+  metrics_frequency: "1s"        # Frequency of metrics synchronization (e.g., "1s", "1m", "5s")
+  retention_days: 7               # Number of days to keep metrics data in PostgreSQL
+  processes_poll_interval: "2s"  # Interval for polling system.processes (e.g., "2s", "5s")

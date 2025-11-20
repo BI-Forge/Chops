@@ -9,6 +9,26 @@ definitions:
         example: The provided username or password is incorrect
         type: string
     type: object
+  models.KillProcessRequest:
+    properties:
+      node:
+        example: primary
+        type: string
+      query_id:
+        example: abc-123-def
+        type: string
+    required:
+    - query_id
+    type: object
+  models.KillProcessResponse:
+    properties:
+      message:
+        example: Query killed successfully
+        type: string
+      success:
+        example: true
+        type: boolean
+    type: object
   models.LoginRequest:
     properties:
       password:
@@ -20,6 +40,69 @@ definitions:
     required:
     - password
     - username
+    type: object
+  models.Process:
+    properties:
+      address:
+        type: string
+      client_name:
+        type: string
+      client_version:
+        type: string
+      current_database:
+        type: string
+      elapsed:
+        description: seconds
+        type: number
+      memory_usage:
+        type: integer
+      node:
+        type: string
+      os_user:
+        type: string
+      profile_events:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      query:
+        type: string
+      query_duration_ms:
+        type: integer
+      query_id:
+        type: string
+      query_start_time:
+        description: RFC3339
+        type: string
+      read_bytes:
+        type: integer
+      read_rows:
+        type: integer
+      settings:
+        additionalProperties:
+          type: string
+        type: object
+      thread_ids:
+        items:
+          type: integer
+        type: array
+      total_rows_approx:
+        type: integer
+      user:
+        type: string
+      written_bytes:
+        type: integer
+      written_rows:
+        type: integer
+    type: object
+  models.ProcessListResponse:
+    properties:
+      node:
+        type: string
+      processes:
+        items:
+          $ref: '#/definitions/models.Process'
+        type: array
     type: object
   models.QueryLogEntry:
     properties:
@@ -326,6 +409,91 @@ paths:
       summary: Stream metrics via SSE
       tags:
       - metrics
+  /api/v1/processes:
+    get:
+      description: Returns currently running queries from system.processes for a specific
+        node
+      parameters:
+      - description: ClickHouse node hostname
+        in: query
+        name: node
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ProcessListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current processes
+      tags:
+      - processes
+  /api/v1/processes/kill:
+    post:
+      consumes:
+      - application/json
+      description: Kills a running query by query_id
+      parameters:
+      - description: Kill process request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.KillProcessRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.KillProcessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Kill a process
+      tags:
+      - processes
+  /api/v1/processes/stream:
+    get:
+      description: Streams current running queries from system.processes for a specific
+        node
+      parameters:
+      - description: Node name
+        in: query
+        name: node
+        required: true
+        type: string
+      - description: JWT token (alternative to Authorization header for SSE)
+        in: query
+        name: token
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Stream processes via SSE
+      tags:
+      - processes
   /api/v1/query-log:
     get:
       description: Returns ClickHouse system.query_log entries filtered by time range,

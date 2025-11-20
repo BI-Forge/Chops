@@ -231,6 +231,137 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/processes": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns currently running queries from system.processes for a specific node",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "processes"
+                ],
+                "summary": "Get current processes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ClickHouse node hostname",
+                        "name": "node",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ProcessListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/processes/kill": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Kills a running query by query_id",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "processes"
+                ],
+                "summary": "Kill a process",
+                "parameters": [
+                    {
+                        "description": "Kill process request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.KillProcessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.KillProcessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/processes/stream": {
+            "get": {
+                "description": "Streams current running queries from system.processes for a specific node",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "processes"
+                ],
+                "summary": "Stream processes via SSE",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Node name",
+                        "name": "node",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "JWT token (alternative to Authorization header for SSE)",
+                        "name": "token",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/query-log": {
             "get": {
                 "security": [
@@ -348,6 +479,35 @@ const docTemplate = `{
                 }
             }
         },
+        "models.KillProcessRequest": {
+            "type": "object",
+            "required": [
+                "query_id"
+            ],
+            "properties": {
+                "node": {
+                    "type": "string",
+                    "example": "primary"
+                },
+                "query_id": {
+                    "type": "string",
+                    "example": "abc-123-def"
+                }
+            }
+        },
+        "models.KillProcessResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "Query killed successfully"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "models.LoginRequest": {
             "type": "object",
             "required": [
@@ -362,6 +522,100 @@ const docTemplate = `{
                 "username": {
                     "type": "string",
                     "example": "admin"
+                }
+            }
+        },
+        "models.Process": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "client_name": {
+                    "type": "string"
+                },
+                "client_version": {
+                    "type": "string"
+                },
+                "current_database": {
+                    "type": "string"
+                },
+                "elapsed": {
+                    "description": "seconds",
+                    "type": "number"
+                },
+                "memory_usage": {
+                    "type": "integer"
+                },
+                "node": {
+                    "type": "string"
+                },
+                "os_user": {
+                    "type": "string"
+                },
+                "profile_events": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "query_duration_ms": {
+                    "type": "integer"
+                },
+                "query_id": {
+                    "type": "string"
+                },
+                "query_start_time": {
+                    "description": "RFC3339",
+                    "type": "string"
+                },
+                "read_bytes": {
+                    "type": "integer"
+                },
+                "read_rows": {
+                    "type": "integer"
+                },
+                "settings": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "thread_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "total_rows_approx": {
+                    "type": "integer"
+                },
+                "user": {
+                    "type": "string"
+                },
+                "written_bytes": {
+                    "type": "integer"
+                },
+                "written_rows": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.ProcessListResponse": {
+            "type": "object",
+            "properties": {
+                "node": {
+                    "type": "string"
+                },
+                "processes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.Process"
+                    }
                 }
             }
         },

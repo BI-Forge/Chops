@@ -73,6 +73,10 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 	if err != nil {
 		cfg.Logger.Errorf("Failed to initialize query log handler: %v", err)
 	}
+	processHandler, err := handlers.NewProcessHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize process handler: %v", err)
+	}
 
 	// Health check endpoint (no auth required)
 	router.GET("/healthz", healthHandler.Healthz)
@@ -106,6 +110,14 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 			}
 			if queryLogHandler != nil {
 				protected.GET("/query-log", queryLogHandler.ListQueryLog)
+			}
+			if processHandler != nil {
+				processes := protected.Group("/processes")
+				{
+					processes.GET("", processHandler.GetCurrentProcesses)
+					processes.GET("/stream", processHandler.StreamProcesses)
+					processes.POST("/kill", processHandler.KillProcess)
+				}
 			}
 		}
 	}

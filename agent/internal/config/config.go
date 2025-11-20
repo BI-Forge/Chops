@@ -30,16 +30,16 @@ type AppConfig struct {
 
 // ServerConfig holds HTTP server configuration
 type ServerConfig struct {
-	Port              string `yaml:"port"`
-	JWTSecretKey      string `yaml:"jwt_secret_key"`
-	JWTTokenDuration  string `yaml:"jwt_token_duration"` // e.g., "24h", "1h"
-	RateLimitRPS      float64 `yaml:"rate_limit_rps"`    // Requests per second (0 to disable)
-	RateLimitBurst    int     `yaml:"rate_limit_burst"`  // Burst size
+	Port             string  `yaml:"port"`
+	JWTSecretKey     string  `yaml:"jwt_secret_key"`
+	JWTTokenDuration string  `yaml:"jwt_token_duration"` // e.g., "24h", "1h"
+	RateLimitRPS     float64 `yaml:"rate_limit_rps"`     // Requests per second (0 to disable)
+	RateLimitBurst   int     `yaml:"rate_limit_burst"`   // Burst size
 }
 
 // DatabaseConfig holds database connection configuration
 type DatabaseConfig struct {
-	Postgres   DatabaseDSN     `yaml:"postgres"`
+	Postgres   DatabaseDSN      `yaml:"postgres"`
 	ClickHouse ClickHouseConfig `yaml:"clickhouse"`
 }
 
@@ -52,10 +52,10 @@ type DatabaseDSN struct {
 type ClickHouseConfig struct {
 	// Cluster configuration - DSN for each node
 	Nodes []ClickHouseNode `yaml:"nodes"`
-	
+
 	// Cluster name for operations
 	ClusterName string `yaml:"cluster_name"`
-	
+
 	// Global settings (applied to all nodes unless overridden)
 	GlobalSettings ClickHouseGlobalSettings `yaml:"global_settings"`
 }
@@ -65,29 +65,29 @@ type ClickHouseGlobalSettings struct {
 	// Version constraints
 	MinVersion string `yaml:"min_version"`
 	MaxVersion string `yaml:"max_version"`
-	
+
 	// Connection timeouts
 	DialTimeout  string `yaml:"dial_timeout"`
 	ReadTimeout  string `yaml:"read_timeout"`
 	WriteTimeout string `yaml:"write_timeout"`
-	
+
 	// Connection pooling
 	ConnMaxLifetime string `yaml:"conn_max_lifetime"`
 	MaxOpenConns    int    `yaml:"max_open_conns"`
 	MaxIdleConns    int    `yaml:"max_idle_conns"`
-	
+
 	// Retry configuration
-	RetryMaxAttempts     int     `yaml:"retry_max_attempts"`
-	RetryInitialBackoff  string  `yaml:"retry_initial_backoff"`
-	RetryMaxBackoff      string  `yaml:"retry_max_backoff"`
-	RetryJitter          float64 `yaml:"retry_jitter"`
-	RetryOnInsert        bool    `yaml:"retry_on_insert"`
-	
+	RetryMaxAttempts    int     `yaml:"retry_max_attempts"`
+	RetryInitialBackoff string  `yaml:"retry_initial_backoff"`
+	RetryMaxBackoff     string  `yaml:"retry_max_backoff"`
+	RetryJitter         float64 `yaml:"retry_jitter"`
+	RetryOnInsert       bool    `yaml:"retry_on_insert"`
+
 	// Security and compression
-	Secure     bool   `yaml:"secure"`
-	SkipVerify bool   `yaml:"skip_verify"`
+	Secure      bool   `yaml:"secure"`
+	SkipVerify  bool   `yaml:"skip_verify"`
 	Compression string `yaml:"compression"`
-	
+
 	// Query configuration
 	QueryIDPrefix string `yaml:"query_id_prefix"`
 }
@@ -96,18 +96,18 @@ type ClickHouseGlobalSettings struct {
 type ClickHouseNode struct {
 	// Node identification
 	Name string `yaml:"name"` // Unique node name for identification
-	
+
 	// Connection settings
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	Database string `yaml:"database"`
-	
+
 	// Node-specific overrides (optional)
-	Secure     *bool  `yaml:"secure,omitempty"`     // Override global secure setting
+	Secure      *bool  `yaml:"secure,omitempty"`      // Override global secure setting
 	Compression string `yaml:"compression,omitempty"` // Override global compression
-	
+
 	// Load balancing settings
 	Weight   int `yaml:"weight"`   // Load balancing weight
 	Priority int `yaml:"priority"` // Connection priority
@@ -121,8 +121,9 @@ type LoggingConfig struct {
 
 // SyncConfig holds synchronization configuration
 type SyncConfig struct {
-	MetricsFrequency string `yaml:"metrics_frequency"` // e.g., "1s", "1m"
-	RetentionDays    int    `yaml:"retention_days"`    // Number of days to keep data
+	MetricsFrequency      string `yaml:"metrics_frequency"`       // e.g., "1s", "1m"
+	RetentionDays         int    `yaml:"retention_days"`          // Number of days to keep data
+	ProcessesPollInterval string `yaml:"processes_poll_interval"` // e.g., "2s", "5s" - interval for polling system.processes
 }
 
 // Load loads configuration from YAML file
@@ -156,7 +157,7 @@ func Load(configPath string) (*Config, error) {
 func (c *Config) OverrideWithFlags(flags map[string]string, flagConfigs []interface{}) {
 	// Get all config paths from the flag configs
 	configPaths := c.getAllConfigPaths(flagConfigs)
-	
+
 	// Override config values with flags
 	for flagName, flagValue := range flags {
 		if flagValue != "" {
@@ -234,7 +235,6 @@ func (c *Config) Validate() error {
 
 	return nil
 }
-
 
 // validateServer validates server configuration
 func (c *Config) validateServer() error {
@@ -328,7 +328,7 @@ func (c *Config) validateClickHouseConfig() error {
 		if node.Database == "" {
 			return fmt.Errorf("clickhouse node %d (%s): database cannot be empty", i, node.Name)
 		}
-		
+
 		// Validate host:port format
 		hostPort := fmt.Sprintf("%s:%d", node.Host, node.Port)
 		if err := c.validateHostPort(hostPort); err != nil {
@@ -427,7 +427,7 @@ func (c *Config) validateLogging() error {
 			if format == "" {
 				continue
 			}
-			
+
 			found := false
 			for _, validFormat := range validFormats {
 				if strings.ToLower(format) == validFormat {
