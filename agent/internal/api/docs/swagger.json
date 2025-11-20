@@ -140,6 +140,172 @@
                 }
             }
         },
+        "/api/v1/metrics/current": {
+            "get": {
+                "description": "Returns current system metrics for a specific node",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Get current metrics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Node name",
+                        "name": "node",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.SystemMetrics"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/metrics/nodes": {
+            "get": {
+                "description": "Returns list of node names that have metrics data",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Get available nodes",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/metrics/stream": {
+            "get": {
+                "description": "Streams current system metrics for a specific node every second",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Stream metrics via SSE",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Node name",
+                        "name": "node",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "JWT token (alternative to Authorization header for SSE)",
+                        "name": "token",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/query-log": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns ClickHouse system.query_log entries filtered by time range, user, and node",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "query-log"
+                ],
+                "summary": "List query log entries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Relative window (10s|30s|1m|5m|15m)",
+                        "name": "last",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start timestamp (RFC3339 or 2006-01-02 15:04:05)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End timestamp (RFC3339 or 2006-01-02 15:04:05)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Initial or effective ClickHouse user",
+                        "name": "user",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ClickHouse node hostname",
+                        "name": "node",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.QueryLogResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/healthz": {
             "get": {
                 "description": "Check if the service is healthy",
@@ -193,6 +359,125 @@
                 }
             }
         },
+        "models.QueryLogEntry": {
+            "type": "object",
+            "properties": {
+                "client_hostname": {
+                    "type": "string"
+                },
+                "databases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "event_time": {
+                    "type": "string"
+                },
+                "event_time_microseconds": {
+                    "type": "string"
+                },
+                "exception": {
+                    "type": "string"
+                },
+                "exception_code": {
+                    "type": "integer"
+                },
+                "initial_user": {
+                    "type": "string"
+                },
+                "memory_usage": {
+                    "type": "integer"
+                },
+                "node": {
+                    "type": "string"
+                },
+                "query_id": {
+                    "type": "string"
+                },
+                "query_kind": {
+                    "type": "string"
+                },
+                "query_text": {
+                    "type": "string"
+                },
+                "read_bytes": {
+                    "type": "integer"
+                },
+                "read_rows": {
+                    "type": "integer"
+                },
+                "result_bytes": {
+                    "type": "integer"
+                },
+                "result_rows": {
+                    "type": "integer"
+                },
+                "tables": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "user": {
+                    "type": "string"
+                },
+                "written_bytes": {
+                    "type": "integer"
+                },
+                "written_rows": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.QueryLogPagination": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "range": {
+                    "$ref": "#/definitions/models.QueryLogRange"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.QueryLogRange": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "preset": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QueryLogResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.QueryLogEntry"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/models.QueryLogPagination"
+                }
+            }
+        },
         "models.RegisterRequest": {
             "type": "object",
             "required": [
@@ -215,6 +500,53 @@
                     "maxLength": 50,
                     "minLength": 3,
                     "example": "newuser"
+                }
+            }
+        },
+        "models.SystemMetrics": {
+            "type": "object",
+            "properties": {
+                "active_conns": {
+                    "description": "Total active connections (tcp + mysql + http + interserver + postgresql)",
+                    "type": "integer"
+                },
+                "active_queries": {
+                    "description": "Active queries count",
+                    "type": "integer"
+                },
+                "cpu_load": {
+                    "description": "Percentage (os_user_time_normalized + os_system_time_normalized + os_io_wait_time_normalized)",
+                    "type": "number"
+                },
+                "disk_total_gb": {
+                    "description": "Total disk space in GB",
+                    "type": "number"
+                },
+                "disk_usage": {
+                    "description": "Percentage",
+                    "type": "number"
+                },
+                "disk_used_gb": {
+                    "description": "Absolute value in GB",
+                    "type": "number"
+                },
+                "memory_total_gb": {
+                    "description": "Total memory in GB",
+                    "type": "number"
+                },
+                "memory_usage": {
+                    "description": "Percentage",
+                    "type": "number"
+                },
+                "memory_used_gb": {
+                    "description": "Absolute value in GB",
+                    "type": "number"
+                },
+                "node_name": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
                 }
             }
         },

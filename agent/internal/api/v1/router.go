@@ -9,6 +9,7 @@ import (
 	"clickhouse-ops/internal/api/v1/handlers"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -68,6 +69,10 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 		cfg.Logger.Errorf("Failed to initialize metrics handler: %v", err)
 		// Continue without metrics handler - endpoints will return errors
 	}
+	queryLogHandler, err := handlers.NewQueryLogHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize query log handler: %v", err)
+	}
 
 	// Health check endpoint (no auth required)
 	router.GET("/healthz", healthHandler.Healthz)
@@ -98,6 +103,9 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 					metrics.GET("/stream", metricsHandler.StreamMetrics)
 					metrics.GET("/series", metricsHandler.GetMetricSeries)
 				}
+			}
+			if queryLogHandler != nil {
+				protected.GET("/query-log", queryLogHandler.ListQueryLog)
 			}
 		}
 	}

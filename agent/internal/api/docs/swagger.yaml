@@ -21,6 +21,84 @@ definitions:
     - password
     - username
     type: object
+  models.QueryLogEntry:
+    properties:
+      client_hostname:
+        type: string
+      databases:
+        items:
+          type: string
+        type: array
+      duration_ms:
+        type: integer
+      event_time:
+        type: string
+      event_time_microseconds:
+        type: string
+      exception:
+        type: string
+      exception_code:
+        type: integer
+      initial_user:
+        type: string
+      memory_usage:
+        type: integer
+      node:
+        type: string
+      query_id:
+        type: string
+      query_kind:
+        type: string
+      query_text:
+        type: string
+      read_bytes:
+        type: integer
+      read_rows:
+        type: integer
+      result_bytes:
+        type: integer
+      result_rows:
+        type: integer
+      tables:
+        items:
+          type: string
+        type: array
+      user:
+        type: string
+      written_bytes:
+        type: integer
+      written_rows:
+        type: integer
+    type: object
+  models.QueryLogPagination:
+    properties:
+      limit:
+        type: integer
+      offset:
+        type: integer
+      range:
+        $ref: '#/definitions/models.QueryLogRange'
+      total:
+        type: integer
+    type: object
+  models.QueryLogRange:
+    properties:
+      from:
+        type: string
+      preset:
+        type: string
+      to:
+        type: string
+    type: object
+  models.QueryLogResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/models.QueryLogEntry'
+        type: array
+      pagination:
+        $ref: '#/definitions/models.QueryLogPagination'
+    type: object
   models.RegisterRequest:
     properties:
       email:
@@ -39,6 +117,42 @@ definitions:
     - email
     - password
     - username
+    type: object
+  models.SystemMetrics:
+    properties:
+      active_conns:
+        description: Total active connections (tcp + mysql + http + interserver +
+          postgresql)
+        type: integer
+      active_queries:
+        description: Active queries count
+        type: integer
+      cpu_load:
+        description: Percentage (os_user_time_normalized + os_system_time_normalized
+          + os_io_wait_time_normalized)
+        type: number
+      disk_total_gb:
+        description: Total disk space in GB
+        type: number
+      disk_usage:
+        description: Percentage
+        type: number
+      disk_used_gb:
+        description: Absolute value in GB
+        type: number
+      memory_total_gb:
+        description: Total memory in GB
+        type: number
+      memory_usage:
+        description: Percentage
+        type: number
+      memory_used_gb:
+        description: Absolute value in GB
+        type: number
+      node_name:
+        type: string
+      timestamp:
+        type: string
     type: object
   models.TokenResponse:
     properties:
@@ -156,6 +270,115 @@ paths:
       summary: User registration
       tags:
       - auth
+  /api/v1/metrics/current:
+    get:
+      description: Returns current system metrics for a specific node
+      parameters:
+      - description: Node name
+        in: query
+        name: node
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SystemMetrics'
+      summary: Get current metrics
+      tags:
+      - metrics
+  /api/v1/metrics/nodes:
+    get:
+      description: Returns list of node names that have metrics data
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get available nodes
+      tags:
+      - metrics
+  /api/v1/metrics/stream:
+    get:
+      description: Streams current system metrics for a specific node every second
+      parameters:
+      - description: Node name
+        in: query
+        name: node
+        required: true
+        type: string
+      - description: JWT token (alternative to Authorization header for SSE)
+        in: query
+        name: token
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Stream metrics via SSE
+      tags:
+      - metrics
+  /api/v1/query-log:
+    get:
+      description: Returns ClickHouse system.query_log entries filtered by time range,
+        user, and node
+      parameters:
+      - description: Relative window (10s|30s|1m|5m|15m)
+        in: query
+        name: last
+        type: string
+      - description: Start timestamp (RFC3339 or 2006-01-02 15:04:05)
+        in: query
+        name: from
+        type: string
+      - description: End timestamp (RFC3339 or 2006-01-02 15:04:05)
+        in: query
+        name: to
+        type: string
+      - description: Initial or effective ClickHouse user
+        in: query
+        name: user
+        type: string
+      - description: ClickHouse node hostname
+        in: query
+        name: node
+        type: string
+      - description: Items per page (max 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.QueryLogResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List query log entries
+      tags:
+      - query-log
   /healthz:
     get:
       description: Check if the service is healthy
