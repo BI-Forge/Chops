@@ -3,6 +3,7 @@ app
 api.test
 migrations.test
 sync.test
+__wsl.localhost_*
 
 # Test binaries
 *.test

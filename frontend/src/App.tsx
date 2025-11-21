@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
+import QueryHistoryPage from './pages/QueryHistoryPage'
 import { AuthProvider } from './services/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import Layout from './components/Layout'
@@ -17,6 +18,16 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <DashboardPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/query-history"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <QueryHistoryPage />
                 </Layout>
               </ProtectedRoute>
             }

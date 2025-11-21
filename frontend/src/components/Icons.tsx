@@ -1,33 +1,45 @@
-import Icon1 from '../icons/icon_1.svg?react'
-import Icon2 from '../icons/icon_2.svg?react'
-import Icon3 from '../icons/icon_3.svg?react'
-import Icon4 from '../icons/icon_4.svg?react'
-import Icon5 from '../icons/icon_5.svg?react'
-import Icon6 from '../icons/icon_6.svg?react'
-import Icon7 from '../icons/icon_7.svg?react'
-import Icon8 from '../icons/icon_8.svg?react'
-import Icon9 from '../icons/icon_9.svg?react'
-import Icon10 from '../icons/icon_10.svg?react'
-import Icon11 from '../icons/icon_11.svg?react'
-import Icon12 from '../icons/icon_12.svg?react'
-import Icon13 from '../icons/icon_13.svg?react'
-import Icon14 from '../icons/icon_14.svg?react'
-import Icon15 from '../icons/icon_15.svg?react'
-import Icon16 from '../icons/icon_16.svg?react'
-import Icon17 from '../icons/icon_17.svg?react'
-import Icon18 from '../icons/icon_18.svg?react'
+import DashboardGrayIcon from '../icons/dashboard_gray.svg?react'
+import QueryHistoryWhiteIcon from '../icons/query_history_white.svg?react'
+import TableWhiteIcon from '../icons/table_white.svg?react'
+import BackupGrayIcon from '../icons/backup_gray.svg?react'
+import ConfigGrayIcon from '../icons/config_gray.svg?react'
+import DbGrayIcon from '../icons/db_gray.svg?react'
+import ProfileGrayIcon from '../icons/profile_gray.svg?react'
+import ExitGrayIcon from '../icons/exit_gray.svg?react'
+import SunYellowIcon from '../icons/sun_yelow.svg?react'
+import MenuWhiteIcon from '../icons/menu_white.svg?react'
 
-// Sidebar navigation icons
-export const DashboardIcon = () => <Icon18 width={20} height={20} />
-export const QueryConsoleIcon = () => <Icon6 width={20} height={20} />
-export const QueryHistoryIcon = () => <Icon16 width={20} height={20} />
-export const TablesIcon = () => <Icon7 width={20} height={20} />
-export const BackupsIcon = () => <Icon8 width={20} height={20} />
-export const ClusterMonitorIcon = () => <Icon9 width={20} height={20} />
-export const ConfigurationIcon = () => <Icon10 width={20} height={20} />
+import CpuWhiteIcon from '../icons/cpu_white.svg?react'
+import MemWhiteIcon from '../icons/mem_white.svg?react'
+import DiskWhiteIcon from '../icons/disk_white.svg?react'
+import DbWhiteIcon from '../icons/db_white.svg?react'
+import FlashWhiteIcon from '../icons/flash_white.svg?react'
+import NodeWhiteIcon from '../icons/node_white.svg?react'
+import CompletedGreenIcon from '../icons/completed_green.svg?react'
+import FailedWhiteIcon from '../icons/failed_white.svg?react'
+
+// Sidebar navigation icons - accept isActive prop to switch between gray/white
+export const DashboardIcon = ({ isActive = false }: { isActive?: boolean }) => (
+  <DashboardGrayIcon width={20} height={20} style={{ filter: isActive ? 'brightness(0) invert(1)' : 'none' }} />
+)
+export const QueryHistoryIcon = ({ isActive = false }: { isActive?: boolean }) => (
+  <QueryHistoryWhiteIcon width={20} height={20} style={{ filter: isActive ? 'none' : 'brightness(0) saturate(100%) invert(59%) sepia(8%) saturate(738%) hue-rotate(173deg) brightness(93%) contrast(87%)' }} />
+)
+export const TablesIcon = ({ isActive = false }: { isActive?: boolean }) => (
+  <TableWhiteIcon width={20} height={20} style={{ filter: isActive ? 'brightness(0) invert(1)' : 'none' }} />
+)
+export const BackupsIcon = ({ isActive = false }: { isActive?: boolean }) => (
+  <BackupGrayIcon width={20} height={20} style={{ filter: isActive ? 'brightness(0) invert(1)' : 'none' }} />
+)
+export const ClusterMonitorIcon = ({ isActive = false }: { isActive?: boolean }) => (
+  <DbGrayIcon width={20} height={20} style={{ filter: isActive ? 'brightness(0) invert(1)' : 'none' }} />
+)
+export const ConfigurationIcon = ({ isActive = false }: { isActive?: boolean }) => (
+  <ConfigGrayIcon width={20} height={20} style={{ filter: isActive ? 'brightness(0) invert(1)' : 'none' }} />
+)
 
 // UI icons
-export const MenuIcon = () => <Icon15 width={20} height={20} />
+export const MenuIcon = () => <MenuWhiteIcon width={20} height={20} />
 export const ChevronDownIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -37,25 +49,41 @@ export const ChevronDownIcon = () => (
 // Metric card icons (with gradients from Figma)
 export const MetricsIcon = ({ gradient }: { gradient: 'blue' | 'orange' | 'purple' | 'green' | 'yellow' }) => {
   const iconMap = {
-    blue: Icon5,    // CPU Load - blue gradient
-    purple: Icon1,  // Memory Load - purple gradient
-    orange: Icon2,  // Storage Used - orange gradient
-    green: Icon3,   // Active Connections - green gradient
-    yellow: Icon4,  // Active Queries - yellow gradient
+    blue: CpuWhiteIcon,    // CPU Load - blue gradient
+    purple: MemWhiteIcon,  // Memory Load - purple gradient
+    orange: DiskWhiteIcon,  // Storage Used - orange gradient
+    green: DbWhiteIcon,   // Active Connections - green gradient
+    yellow: FlashWhiteIcon,  // Active Queries - yellow gradient
   }
   const IconComponent = iconMap[gradient]
-  return <IconComponent width={64} height={64} />
+  return <IconComponent width={24} height={24} />
 }
 
 // Profile menu icons
-export const ProfileIcon = () => <Icon12 width={16} height={16} />
-export const SettingsIcon = () => <Icon13 width={16} height={16} />
-export const LightModeIcon = () => <Icon14 width={16} height={16} />
-export const LogoutIcon = () => <Icon15 width={16} height={16} />
+export const ProfileIcon = () => <ProfileGrayIcon width={16} height={16} />
+export const SettingsIcon = () => <ConfigGrayIcon width={16} height={16} />
+export const LightModeIcon = () => <SunYellowIcon width={16} height={16} />
+export const LogoutIcon = () => <ExitGrayIcon width={16} height={16} />
 
-// Logo icon (icon_17 - возле названия)
-export const LogoIcon = () => <Icon17 width={40} height={40} />
+// Logo icon - using node icon as placeholder, should be replaced with actual logo icon
+export const LogoIcon = () => <NodeWhiteIcon width={24} height={24} />
 
-// Node selector icon (icon_11 - селектор нод)
-export const NodeIcon = ({ width = 16, height = 16 }: { width?: number; height?: number }) => <Icon11 width={width} height={height} />
+// Node selector icon
+export const NodeIcon = ({ width = 16, height = 16 }: { width?: number; height?: number }) => <NodeWhiteIcon width={width} height={height} />
+
+// Query History metric icons
+export const CompletedIcon = ({ width = 24, height = 24 }: { width?: number; height?: number }) => (
+  <CompletedGreenIcon width={width} height={height} style={{ filter: 'brightness(0) invert(1)' }} />
+)
+export const FailedIcon = ({ width = 24, height = 24 }: { width?: number; height?: number }) => (
+  <FailedWhiteIcon width={width} height={height} />
+)
+
+// Spinner icon component (animated)
+export const SpinnerIcon = ({ width = 24, height = 24 }: { width?: number; height?: number }) => (
+  <svg width={width} height={height} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="spinner-icon">
+    <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2" strokeLinecap="round" strokeDasharray="62.83" strokeDashoffset="62.83" opacity="0.3" fill="none"/>
+    <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2" strokeLinecap="round" strokeDasharray="62.83" strokeDashoffset="47.12" opacity="0.9" fill="none" transform="rotate(-90 12 12)"/>
+  </svg>
+)
 

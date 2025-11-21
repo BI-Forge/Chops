@@ -10,6 +10,8 @@ import (
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
+
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 const microsecondLayout = "2006-01-02T15:04:05.000000Z07:00"
@@ -27,21 +29,16 @@ type QueryLogFilter struct {
 
 // QueryLogRepository executes filtered reads against ClickHouse system.query_log.
 type QueryLogRepository struct {
-	executor    *clickhouse.QueryExecutor
+	manager     *clickhouse.Manager
 	logger      *logger.Logger
 	clusterName string
 }
 
-// NewQueryLogRepository creates a repository backed by the shared ClickHouse executor.
+// NewQueryLogRepository creates a repository backed by the shared ClickHouse manager.
 func NewQueryLogRepository(cfg *config.Config, log *logger.Logger) (*QueryLogRepository, error) {
 	manager := clickhouse.GetInstance()
 	if manager == nil {
 		return nil, fmt.Errorf("clickhouse manager not initialized")
-	}
-
-	exec := manager.GetExecutor()
-	if exec == nil {
-		return nil, fmt.Errorf("clickhouse executor not available")
 	}
 
 	cluster := ""
@@ -50,7 +47,7 @@ func NewQueryLogRepository(cfg *config.Config, log *logger.Logger) (*QueryLogRep
 	}
 
 	return &QueryLogRepository{
-		executor:    exec,
+		manager:     manager,
 		logger:      log,
 		clusterName: cluster,
 	}, nil
@@ -58,6 +55,27 @@ func NewQueryLogRepository(cfg *config.Config, log *logger.Logger) (*QueryLogRep
 
 // List returns paginated query log entries and the total count for the applied filters.
 func (r *QueryLogRepository) List(ctx context.Context, filter QueryLogFilter) ([]models.QueryLogEntry, int64, error) {
+	// Get connection to specific node
+	clusterManager := r.manager.GetClusterManager()
+	if clusterManager == nil {
+		return nil, 0, fmt.Errorf("cluster manager not available")
+	}
+
+	var conn driver.Conn
+	var err error
+	if filter.Node != "" {
+		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
+		}
+	} else {
+		// Use default connection if no node specified
+		conn, _, err = clusterManager.GetConnection()
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get connection: %w", err)
+		}
+	}
+
 	whereClause, args := r.buildWhereClause(filter)
 
 	dataQuery := fmt.Sprintf(`
@@ -84,15 +102,15 @@ SELECT
 	client_hostname,
 	databases,
 	tables
-FROM %s
+FROM system.query_log
 WHERE %s
 ORDER BY event_time DESC
 LIMIT ?
-OFFSET ?`, r.dataSource(), whereClause)
+OFFSET ?`, whereClause)
 
 	argsWithPagination := append(append([]any{}, args...), filter.Limit, filter.Offset)
 
-	rows, err := r.executor.Query(ctx, dataQuery, argsWithPagination...)
+	rows, err := conn.Query(ctx, dataQuery, argsWithPagination...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query ClickHouse: %w", err)
 	}
@@ -115,7 +133,7 @@ OFFSET ?`, r.dataSource(), whereClause)
 			writtenBytes          uint64
 			resultRows            uint64
 			resultBytes           uint64
-			memoryUsage           uint64
+			memoryUsage           uint64 // UInt64 in system.query_log
 			durationMs            uint64
 			exceptionCode         int32
 			exceptionText         string
@@ -181,7 +199,7 @@ OFFSET ?`, r.dataSource(), whereClause)
 		return nil, 0, fmt.Errorf("query log iteration failed: %w", err)
 	}
 
-	total, err := r.count(ctx, whereClause, args)
+	total, err := r.count(ctx, filter, whereClause, args)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -189,20 +207,41 @@ OFFSET ?`, r.dataSource(), whereClause)
 	return entries, total, nil
 }
 
-func (r *QueryLogRepository) count(ctx context.Context, whereClause string, args []any) (int64, error) {
+func (r *QueryLogRepository) count(ctx context.Context, filter QueryLogFilter, whereClause string, args []any) (int64, error) {
+	// Get connection to specific node
+	clusterManager := r.manager.GetClusterManager()
+	if clusterManager == nil {
+		return 0, fmt.Errorf("cluster manager not available")
+	}
+
+	var conn driver.Conn
+	var err error
+	if filter.Node != "" {
+		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
+		}
+	} else {
+		// Use default connection if no node specified
+		conn, _, err = clusterManager.GetConnection()
+		if err != nil {
+			return 0, fmt.Errorf("failed to get connection: %w", err)
+		}
+	}
+
 	countQuery := fmt.Sprintf(`
 WITH hostName() AS node
 SELECT count()
-FROM %s
-WHERE %s`, r.dataSource(), whereClause)
+FROM system.query_log
+WHERE %s`, whereClause)
 
-	rows, err := r.executor.Query(ctx, countQuery, args...)
+	rows, err := conn.Query(ctx, countQuery, args...)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count query logs: %w", err)
 	}
 	defer rows.Close()
 
-	var total int64
+	var total uint64
 	if rows.Next() {
 		if err := rows.Scan(&total); err != nil {
 			return 0, fmt.Errorf("failed to scan count: %w", err)
@@ -213,14 +252,7 @@ WHERE %s`, r.dataSource(), whereClause)
 		return 0, fmt.Errorf("count iteration failed: %w", err)
 	}
 
-	return total, nil
-}
-
-func (r *QueryLogRepository) dataSource() string {
-	if r.clusterName != "" {
-		return fmt.Sprintf("clusterAllReplicas('%s', system.query_log)", r.clusterName)
-	}
-	return "system.query_log"
+	return int64(total), nil
 }
 
 func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []any) {
@@ -235,11 +267,6 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 	if filter.User != "" {
 		conditions = append(conditions, "(initial_user = ? OR user = ?)")
 		args = append(args, filter.User, filter.User)
-	}
-
-	if filter.Node != "" {
-		conditions = append(conditions, "node = ?")
-		args = append(args, filter.Node)
 	}
 
 	return strings.Join(conditions, " AND "), args

@@ -9,25 +9,22 @@ import (
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
+
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 // ProcessRepository executes queries against ClickHouse system.processes
 type ProcessRepository struct {
-	executor    *clickhouse.QueryExecutor
+	manager     *clickhouse.Manager
 	logger      *logger.Logger
 	clusterName string
 }
 
-// NewProcessRepository creates a repository backed by the shared ClickHouse executor
+// NewProcessRepository creates a repository backed by the shared ClickHouse manager
 func NewProcessRepository(cfg *config.Config, log *logger.Logger) (*ProcessRepository, error) {
 	manager := clickhouse.GetInstance()
 	if manager == nil {
 		return nil, fmt.Errorf("clickhouse manager not initialized")
-	}
-
-	exec := manager.GetExecutor()
-	if exec == nil {
-		return nil, fmt.Errorf("clickhouse executor not available")
 	}
 
 	cluster := ""
@@ -36,7 +33,7 @@ func NewProcessRepository(cfg *config.Config, log *logger.Logger) (*ProcessRepos
 	}
 
 	return &ProcessRepository{
-		executor:    exec,
+		manager:     manager,
 		logger:      log,
 		clusterName: cluster,
 	}, nil
@@ -44,6 +41,27 @@ func NewProcessRepository(cfg *config.Config, log *logger.Logger) (*ProcessRepos
 
 // GetCurrentProcesses returns all currently running queries from system.processes
 func (r *ProcessRepository) GetCurrentProcesses(ctx context.Context, nodeName string) ([]models.Process, error) {
+	// Get connection to specific node
+	clusterManager := r.manager.GetClusterManager()
+	if clusterManager == nil {
+		return nil, fmt.Errorf("cluster manager not available")
+	}
+
+	var conn driver.Conn
+	var err error
+	if nodeName != "" {
+		conn, _, err = clusterManager.GetConnectionByNodeName(nodeName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
+		}
+	} else {
+		// Use default connection if no node specified
+		conn, _, err = clusterManager.GetConnection()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+	}
+
 	whereClause, args := r.buildWhereClause(nodeName)
 
 	query := fmt.Sprintf(`
@@ -61,8 +79,8 @@ SELECT
 	written_bytes,
 	memory_usage,
 	query,
-	query_start_time,
-	query_duration_ms,
+	now() - toIntervalSecond(elapsed) AS query_start_time,
+	elapsed * 1000 AS query_duration_ms,
 	current_database,
 	client_name,
 	client_version_major,
@@ -74,9 +92,9 @@ SELECT
 	ProfileEvents.Values AS profile_event_values,
 	Settings.Names AS setting_names,
 	Settings.Values AS setting_values
-FROM %s
+FROM system.processes
 WHERE %s
-ORDER BY query_start_time DESC`, r.dataSource(), whereClause)
+ORDER BY elapsed DESC`, whereClause)
 
 	var rows interface {
 		Next() bool
@@ -84,11 +102,10 @@ ORDER BY query_start_time DESC`, r.dataSource(), whereClause)
 		Close() error
 		Err() error
 	}
-	var err error
 	if len(args) > 0 {
-		rows, err = r.executor.Query(ctx, query, args...)
+		rows, err = conn.Query(ctx, query, args...)
 	} else {
-		rows, err = r.executor.Query(ctx, query)
+		rows, err = conn.Query(ctx, query)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query ClickHouse: %w", err)
@@ -108,10 +125,10 @@ ORDER BY query_start_time DESC`, r.dataSource(), whereClause)
 			totalRowsApprox    uint64
 			writtenRows        uint64
 			writtenBytes       uint64
-			memoryUsage        uint64
+			memoryUsage        int64 // Changed to int64 to match ClickHouse Int64 type
 			queryText          string
 			queryStartTime     time.Time
-			queryDurationMs    uint64
+			queryDurationMs    float64 // Read as float64, then convert to uint64
 			currentDatabase    string
 			clientName         string
 			clientVersionMajor uint64
@@ -180,6 +197,18 @@ ORDER BY query_start_time DESC`, r.dataSource(), whereClause)
 			clientVersion = fmt.Sprintf("%d.%d.%d", clientVersionMajor, clientVersionMinor, clientVersionPatch)
 		}
 
+		// Convert memoryUsage from int64 to uint64 (handle negative values as 0)
+		memoryUsageUint := uint64(0)
+		if memoryUsage > 0 {
+			memoryUsageUint = uint64(memoryUsage)
+		}
+
+		// Convert queryDurationMs from float64 to uint64
+		queryDurationMsUint := uint64(0)
+		if queryDurationMs > 0 {
+			queryDurationMsUint = uint64(queryDurationMs)
+		}
+
 		process := models.Process{
 			QueryID:         queryID,
 			User:            user,
@@ -190,10 +219,10 @@ ORDER BY query_start_time DESC`, r.dataSource(), whereClause)
 			TotalRowsApprox: totalRowsApprox,
 			WrittenRows:     writtenRows,
 			WrittenBytes:    writtenBytes,
-			MemoryUsage:     memoryUsage,
+			MemoryUsage:     memoryUsageUint,
 			Query:           queryText,
 			QueryStartTime:  queryStartTime.UTC().Format(time.RFC3339),
-			QueryDurationMs: queryDurationMs,
+			QueryDurationMs: queryDurationMsUint,
 			CurrentDatabase: currentDatabase,
 			Node:            node,
 			ClientName:      clientName,
@@ -216,15 +245,31 @@ ORDER BY query_start_time DESC`, r.dataSource(), whereClause)
 
 // KillQuery kills a query by query_id
 func (r *ProcessRepository) KillQuery(ctx context.Context, queryID string, nodeName string) error {
-	// Build KILL QUERY statement
-	killQuery := fmt.Sprintf("KILL QUERY WHERE query_id = '%s'", queryID)
-
-	// If cluster is configured, use ON CLUSTER
-	if r.clusterName != "" {
-		killQuery = fmt.Sprintf("KILL QUERY ON CLUSTER '%s' WHERE query_id = '%s'", r.clusterName, queryID)
+	// Get connection to specific node
+	clusterManager := r.manager.GetClusterManager()
+	if clusterManager == nil {
+		return fmt.Errorf("cluster manager not available")
 	}
 
-	err := r.executor.Exec(ctx, killQuery)
+	var conn driver.Conn
+	var err error
+	if nodeName != "" {
+		conn, _, err = clusterManager.GetConnectionByNodeName(nodeName)
+		if err != nil {
+			return fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
+		}
+	} else {
+		// Use default connection if no node specified
+		conn, _, err = clusterManager.GetConnection()
+		if err != nil {
+			return fmt.Errorf("failed to get connection: %w", err)
+		}
+	}
+
+	// Build KILL QUERY statement (no cluster, direct query to node)
+	killQuery := fmt.Sprintf("KILL QUERY WHERE query_id = '%s'", queryID)
+
+	err = conn.Exec(ctx, killQuery)
 	if err != nil {
 		return fmt.Errorf("failed to kill query: %w", err)
 	}
@@ -232,16 +277,9 @@ func (r *ProcessRepository) KillQuery(ctx context.Context, queryID string, nodeN
 	return nil
 }
 
-func (r *ProcessRepository) dataSource() string {
-	if r.clusterName != "" {
-		return fmt.Sprintf("clusterAllReplicas('%s', system.processes)", r.clusterName)
-	}
-	return "system.processes"
-}
-
 func (r *ProcessRepository) buildWhereClause(nodeName string) (string, []interface{}) {
-	if nodeName != "" {
-		return "node = ?", []interface{}{nodeName}
-	}
+	// When querying specific node, we don't need WHERE clause for node filtering
+	// since we're querying that specific node directly
+	// The node will be returned by hostName() function
 	return "1=1", []interface{}{}
 }

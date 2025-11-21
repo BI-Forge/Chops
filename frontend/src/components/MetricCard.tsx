@@ -14,8 +14,10 @@ const MetricCard = ({ title, value, subtitle, iconGradient }: MetricCardProps) =
       <div className={`metric-card__gradient-bg metric-card__gradient-bg--${iconGradient}`}></div>
       <div className="metric-card__content">
         <div className="metric-card__header">
-          <div className={`metric-card__icon metric-card__icon--${iconGradient}`}>
-            <MetricsIcon gradient={iconGradient} />
+          <div className={`metric-card__icon-wrapper metric-card__icon-wrapper--${iconGradient}`}>
+            <div className="metric-card__icon">
+              <MetricsIcon gradient={iconGradient} />
+            </div>
           </div>
         </div>
         <div className="metric-card__value">{value}</div>

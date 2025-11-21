@@ -63,7 +63,7 @@ database:
     global_settings:
       # Version constraints
       min_version: "24.0.0"
-      max_version: "25.9.4"
+      max_version: "25.10.6"
       
       # Connection timeouts
       dial_timeout: "3s"

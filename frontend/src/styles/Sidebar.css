@@ -56,10 +56,20 @@
   border-bottom: 1px solid #1d293d;
 }
 
-.sidebar__logo-icon {
+.sidebar__logo-icon-wrapper {
   width: 40px;
   height: 40px;
   flex-shrink: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f0b100 0%, #f54900 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__logo-icon {
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -113,6 +123,11 @@
   position: relative;
 }
 
+.sidebar__nav-item .sidebar__nav-icon svg path {
+  stroke: #90a1b9;
+  transition: stroke 0.2s ease;
+}
+
 .sidebar__nav-item::before {
   content: '';
   position: absolute;
@@ -132,22 +147,34 @@
   transform: translateX(2px);
 }
 
+.sidebar__nav-item:hover .sidebar__nav-icon svg path {
+  stroke: #ffffff;
+}
+
+.sidebar__nav-item:hover .sidebar__nav-icon svg {
+  filter: brightness(0) invert(1) !important;
+}
+
+.sidebar__nav-item:hover .sidebar__nav-icon--query-history svg {
+  filter: none !important;
+}
+
+.sidebar__nav-item:hover .sidebar__nav-icon--query-history svg path {
+  stroke: #ffffff;
+}
+
 .sidebar__nav-item--active {
   background: linear-gradient(90deg, rgba(240, 177, 0, 0.2) 0%, rgba(245, 73, 0, 0.2) 100%);
   border: 1px solid rgba(240, 177, 0, 0.3);
   color: #ffffff;
 }
 
-.sidebar__nav-item--active .sidebar__nav-icon {
-  color: #ffffff;
+.sidebar__nav-item--active .sidebar__nav-icon svg path {
+  stroke: #ffffff;
 }
 
 .sidebar__nav-item--active .sidebar__nav-icon svg {
-  color: #ffffff;
-}
-
-.sidebar__nav-item--active .sidebar__nav-icon svg path {
-  stroke: #ffffff;
+  filter: brightness(0) invert(1);
 }
 
 .sidebar__nav-item--active::before {

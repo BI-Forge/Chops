@@ -1,7 +1,6 @@
 .filter-select {
   position: relative;
   display: inline-flex;
-  width: 220px;
   max-width: 100%;
 }
 

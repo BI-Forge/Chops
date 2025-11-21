@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../services/AuthContext'
 import {
   DashboardIcon,
-  QueryConsoleIcon,
   QueryHistoryIcon,
   TablesIcon,
   BackupsIcon,
@@ -29,7 +28,6 @@ const Sidebar = ({ isMobile = false, onMobileClose }: SidebarProps) => {
 
   const menuItems = [
     { path: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
-    { path: '/query-console', label: 'Query Console', icon: QueryConsoleIcon },
     { path: '/query-history', label: 'Query History', icon: QueryHistoryIcon },
     { path: '/tables', label: 'Tables', icon: TablesIcon },
     { path: '/backups', label: 'Backups', icon: BackupsIcon },
@@ -58,8 +56,10 @@ const Sidebar = ({ isMobile = false, onMobileClose }: SidebarProps) => {
     <aside className={`sidebar ${isMobile ? 'sidebar--mobile' : ''}`}>
       <div className="sidebar__container">
         <div className="sidebar__logo">
-          <div className="sidebar__logo-icon">
-            <LogoIcon />
+          <div className="sidebar__logo-icon-wrapper">
+            <div className="sidebar__logo-icon">
+              <LogoIcon />
+            </div>
           </div>
           <div className="sidebar__logo-text">
             <h1>ClickHouse</h1>
@@ -70,16 +70,17 @@ const Sidebar = ({ isMobile = false, onMobileClose }: SidebarProps) => {
         <nav className="sidebar__navigation">
           {menuItems.map((item) => {
             const IconComponent = item.icon
+            const isActive = location.pathname === item.path
             return (
               <button
                 key={item.path}
                 className={`sidebar__nav-item ${
-                  location.pathname === item.path ? 'sidebar__nav-item--active' : ''
+                  isActive ? 'sidebar__nav-item--active' : ''
                 }`}
                 onClick={() => handleNavigation(item.path)}
               >
-                <span className="sidebar__nav-icon">
-                  <IconComponent />
+                <span className={`sidebar__nav-icon ${item.path === '/query-history' ? 'sidebar__nav-icon--query-history' : ''}`}>
+                  <IconComponent isActive={isActive} />
                 </span>
                 <span className="sidebar__nav-label">{item.label}</span>
               </button>
