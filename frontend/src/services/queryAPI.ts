@@ -51,6 +51,12 @@ export interface QueryLogFilter {
   offset?: number
 }
 
+export interface QueryLogStatsResponse {
+  running: number
+  finished: number
+  error: number
+}
+
 // Types for current processes
 export interface Process {
   query_id: string
@@ -206,6 +212,20 @@ export const queryAPI = {
   killProcess: async (request: KillProcessRequest): Promise<KillProcessResponse> => {
     return retryRequest(async () => {
       const response = await api.post<KillProcessResponse>('/processes/kill', request)
+      return response.data
+    })
+  },
+
+  getQueryLogStats: async (filter: Omit<QueryLogFilter, 'limit' | 'offset'>): Promise<QueryLogStatsResponse> => {
+    return retryRequest(async () => {
+      const params = new URLSearchParams()
+      if (filter.last) params.append('last', filter.last)
+      if (filter.from) params.append('from', filter.from)
+      if (filter.to) params.append('to', filter.to)
+      if (filter.user) params.append('user', filter.user)
+      if (filter.node) params.append('node', filter.node)
+
+      const response = await api.get<QueryLogStatsResponse>(`/query-log/stats?${params.toString()}`)
       return response.data
     })
   },

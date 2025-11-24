@@ -1,6 +1,6 @@
 # ClickHouse Operations Agent - Test Makefile
 
-.PHONY: help build test test-all test-clickhouse test-api test-coverage test-version test-config test-flags test-env test-combined test-validation test-server test-custom-port test-db test-migrations test-docker-compose clean
+.PHONY: help build test test-all test-clickhouse test-api test-coverage test-version test-config test-flags test-env test-combined test-validation test-server test-custom-port test-db test-migrations test-docker-compose clean swagger
 
 # Default target
 help:
@@ -25,6 +25,7 @@ help:
 	@echo "  test-db            - Test database connection"
 	@echo "  test-migrations    - Test database migrations"
 	@echo "  test-docker-compose- Test full docker-compose setup"
+	@echo "  swagger            - Generate Swagger documentation using Docker"
 	@echo "  clean              - Stop all running containers"
 	@echo ""
 
@@ -246,3 +247,17 @@ test-coverage:
 	@go test -v -coverprofile=coverage.out ./tests/...
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
+
+# Generate Swagger documentation using Docker
+swagger:
+	@echo "Generating Swagger documentation..."
+	@mkdir -p ./internal/api/docs
+	@echo "Building builder stage..."
+	@docker build --target builder -t ops_agent-builder:temp -f Dockerfile . > /dev/null 2>&1
+	@echo "Running swag init in container..."
+	@docker run --name swagger-gen ops_agent-builder:temp swag init -g ./cmd/main.go -o ./internal/api/docs
+	@echo "Copying generated files from container..."
+	@docker cp swagger-gen:/app/internal/api/docs/. ./internal/api/docs/
+	@docker rm swagger-gen > /dev/null 2>&1
+	@echo "✅ Swagger documentation generated at internal/api/docs/"
+	@echo "Files: docs.go, swagger.json, swagger.yaml"

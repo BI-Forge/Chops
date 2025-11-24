@@ -42,6 +42,7 @@ var acceptedTimeFormats = []string{
 // QueryLogRepository defines the subset of repository methods required by the handler.
 type QueryLogRepository interface {
 	List(ctx context.Context, filter repository.QueryLogFilter) ([]models.QueryLogEntry, int64, error)
+	GetStats(ctx context.Context, filter repository.QueryLogFilter) (models.QueryLogStatsResponse, error)
 }
 
 // QueryLogHandler handles ClickHouse query log endpoints.
@@ -127,6 +128,50 @@ func (h *QueryLogHandler) ListQueryLog(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// GetQueryLogStats returns query count statistics by status (running, finished, error).
+// @Summary      Get query log statistics
+// @Description  Returns count of running, finished, and error queries filtered by time range, user, and node
+// @Tags         query-log
+// @Security     BearerAuth
+// @Produce      json
+// @Param        last  query     string  false  "Relative window (10s|30s|1m|5m|15m)"
+// @Param        from  query     string  false  "Start timestamp (RFC3339 or 2006-01-02 15:04:05)"
+// @Param        to    query     string  false  "End timestamp (RFC3339 or 2006-01-02 15:04:05)"
+// @Param        user  query     string  false  "Initial or effective ClickHouse user"
+// @Param        node  query     string  false  "ClickHouse node hostname"
+// @Success      200   {object}  models.QueryLogStatsResponse
+// @Failure      400   {object}  models.ErrorResponse
+// @Failure      500   {object}  models.ErrorResponse
+// @Router       /api/v1/query-log/stats [get]
+func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
+	// Parse filter without pagination (limit/offset are ignored)
+	filter, err := h.parseFilterForStats(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid filter",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), queryLogTimeout)
+	defer cancel()
+
+	stats, err := h.repo.GetStats(ctx, filter)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Errorf("Failed to get query log stats: %v", err)
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Failed to load query log statistics",
+			Message: "ClickHouse query failed",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
 
 func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter, error) {
@@ -229,4 +274,25 @@ func parseTimestamp(value string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("expected RFC3339 or %s format", isoNoTZLayout)
+}
+
+// parseFilterForStats parses filter parameters for stats endpoint (without pagination).
+func (h *QueryLogHandler) parseFilterForStats(c *gin.Context) (repository.QueryLogFilter, error) {
+	user := strings.TrimSpace(c.Query("user"))
+	node := strings.TrimSpace(c.Query("node"))
+
+	from, to, preset, err := parseTimeRange(c.Query("last"), c.Query("from"), c.Query("to"))
+	if err != nil {
+		return repository.QueryLogFilter{}, err
+	}
+
+	return repository.QueryLogFilter{
+		From:        from,
+		To:          to,
+		User:        user,
+		Node:        node,
+		Limit:       0, // Not used for stats
+		Offset:      0, // Not used for stats
+		RangePreset: preset,
+	}, nil
 }

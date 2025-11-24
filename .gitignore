@@ -1,2 +1,11 @@
 .idea
 .cursor
+# WSL-specific paths and directories
+*wsl.localhost*
+**/\\wsl.localhost*
+**/\\wsl*
+# Paths with backslashes (Windows/WSL paths)
+**/\\*
+# WSL mount points
+**/mnt/**
+**/wsl/**

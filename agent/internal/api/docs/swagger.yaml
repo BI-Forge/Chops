@@ -182,6 +182,19 @@ definitions:
       pagination:
         $ref: '#/definitions/models.QueryLogPagination'
     type: object
+  models.QueryLogStatsResponse:
+    properties:
+      error:
+        description: Count of queries with errors (QueryFinish with exception_code
+          != 0)
+        type: integer
+      finished:
+        description: Count of finished queries (QueryFinish)
+        type: integer
+      running:
+        description: Count of running queries (QueryStart without QueryFinish)
+        type: integer
+    type: object
   models.RegisterRequest:
     properties:
       email:
@@ -545,6 +558,51 @@ paths:
       security:
       - BearerAuth: []
       summary: List query log entries
+      tags:
+      - query-log
+  /api/v1/query-log/stats:
+    get:
+      description: Returns count of running, finished, and error queries filtered
+        by time range, user, and node
+      parameters:
+      - description: Relative window (10s|30s|1m|5m|15m)
+        in: query
+        name: last
+        type: string
+      - description: Start timestamp (RFC3339 or 2006-01-02 15:04:05)
+        in: query
+        name: from
+        type: string
+      - description: End timestamp (RFC3339 or 2006-01-02 15:04:05)
+        in: query
+        name: to
+        type: string
+      - description: Initial or effective ClickHouse user
+        in: query
+        name: user
+        type: string
+      - description: ClickHouse node hostname
+        in: query
+        name: node
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.QueryLogStatsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get query log statistics
       tags:
       - query-log
   /healthz:

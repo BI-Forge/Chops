@@ -255,6 +255,101 @@ WHERE %s`, whereClause)
 	return int64(total), nil
 }
 
+// GetStats returns query count statistics by status (running, finished, error).
+func (r *QueryLogRepository) GetStats(ctx context.Context, filter QueryLogFilter) (models.QueryLogStatsResponse, error) {
+	clusterManager := r.manager.GetClusterManager()
+	if clusterManager == nil {
+		return models.QueryLogStatsResponse{}, fmt.Errorf("cluster manager not available")
+	}
+
+	var conn driver.Conn
+	var err error
+	if filter.Node != "" {
+		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
+		if err != nil {
+			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
+		}
+	} else {
+		conn, _, err = clusterManager.GetConnection()
+		if err != nil {
+			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to get connection: %w", err)
+		}
+	}
+
+	// Build base WHERE clause without type filter for query_log
+	baseWhere, baseArgs := r.buildStatsWhereClause(filter)
+
+	stats := models.QueryLogStatsResponse{}
+
+	// Count running queries from system.processes (faster than query_log)
+	runningWhere, runningArgs := r.buildProcessesWhereClause(filter)
+	runningQuery := fmt.Sprintf(`
+SELECT count()
+FROM system.processes
+WHERE %s`, runningWhere)
+
+	rows, err := conn.Query(ctx, runningQuery, runningArgs...)
+	if err != nil {
+		return models.QueryLogStatsResponse{}, fmt.Errorf("failed to count running queries: %w", err)
+	}
+	if rows.Next() {
+		var count uint64
+		if err := rows.Scan(&count); err != nil {
+			rows.Close()
+			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to scan running count: %w", err)
+		}
+		stats.Running = int64(count)
+	}
+	rows.Close()
+
+	// Count finished queries: QueryFinish
+	finishedQuery := fmt.Sprintf(`
+SELECT count()
+FROM system.query_log
+WHERE type = 'QueryFinish'
+	AND %s`, baseWhere)
+
+	// Count error queries: QueryFinish with exception_code != 0
+	errorQuery := fmt.Sprintf(`
+SELECT count()
+FROM system.query_log
+WHERE type = 'QueryFinish'
+	AND exception_code != 0
+	AND %s`, baseWhere)
+
+	// Execute finished count
+	rows, err = conn.Query(ctx, finishedQuery, baseArgs...)
+	if err != nil {
+		return models.QueryLogStatsResponse{}, fmt.Errorf("failed to count finished queries: %w", err)
+	}
+	if rows.Next() {
+		var count uint64
+		if err := rows.Scan(&count); err != nil {
+			rows.Close()
+			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to scan finished count: %w", err)
+		}
+		stats.Finished = int64(count)
+	}
+	rows.Close()
+
+	// Execute error count
+	rows, err = conn.Query(ctx, errorQuery, baseArgs...)
+	if err != nil {
+		return models.QueryLogStatsResponse{}, fmt.Errorf("failed to count error queries: %w", err)
+	}
+	if rows.Next() {
+		var count uint64
+		if err := rows.Scan(&count); err != nil {
+			rows.Close()
+			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to scan error count: %w", err)
+		}
+		stats.Error = int64(count)
+	}
+	rows.Close()
+
+	return stats, nil
+}
+
 func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []any) {
 	conditions := []string{
 		"type = 'QueryFinish'",
@@ -268,6 +363,46 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 		conditions = append(conditions, "(initial_user = ? OR user = ?)")
 		args = append(args, filter.User, filter.User)
 	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+// buildStatsWhereClause builds WHERE clause for stats queries (without type filter).
+// Note: Node filtering is handled by connection selection, not WHERE clause.
+func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (string, []any) {
+	conditions := []string{
+		"event_time >= ?",
+		"event_time <= ?",
+	}
+
+	args := []any{filter.From, filter.To}
+
+	if filter.User != "" {
+		conditions = append(conditions, "(initial_user = ? OR user = ?)")
+		args = append(args, filter.User, filter.User)
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+// buildProcessesWhereClause builds WHERE clause for system.processes queries.
+// Filters by query_start_time (computed as now() - toIntervalSecond(elapsed)) and user.
+// Note: Node filtering is handled by connection selection, not WHERE clause.
+func (r *QueryLogRepository) buildProcessesWhereClause(filter QueryLogFilter) (string, []any) {
+	conditions := []string{
+		"(now() - toIntervalSecond(elapsed)) >= ?",
+		"(now() - toIntervalSecond(elapsed)) <= ?",
+	}
+
+	args := []any{filter.From, filter.To}
+
+	if filter.User != "" {
+		conditions = append(conditions, "user = ?")
+		args = append(args, filter.User)
+	}
+
+	// Filter out internal queries from ops-agent itself
+	conditions = append(conditions, "query NOT LIKE '%%ops-agent-%%'")
 
 	return strings.Join(conditions, " AND "), args
 }

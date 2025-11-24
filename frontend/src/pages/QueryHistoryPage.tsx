@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useAuth } from '../services/AuthContext'
 import { metricsAPI } from '../services/metricsAPI'
-import { queryAPI, type QueryLogEntry, type QueryLogFilter, type Process } from '../services/queryAPI'
+import { queryAPI, type QueryLogEntry, type QueryLogFilter, type Process, type QueryLogStatsResponse } from '../services/queryAPI'
 import QueryHistoryMetricCard from '../components/QueryHistoryMetricCard'
 import MetricChartCard, { type MetricChartPoint } from '../components/MetricChartCard'
 import NodeSelectorDropdown from '../components/NodeSelectorDropdown'
@@ -87,6 +87,9 @@ const QueryHistoryPage = () => {
   const [queryLogLimit] = useState(50)
   const [selectedTimePreset, setSelectedTimePreset] = useState<TimePreset>('15m')
 
+  // Query log stats state
+  const [queryLogStats, setQueryLogStats] = useState<QueryLogStatsResponse>({ running: 0, finished: 0, error: 0 })
+
   // Current processes state
   const [currentProcesses, setCurrentProcesses] = useState<Process[]>([])
   const [processesLoading, setProcessesLoading] = useState(false)
@@ -108,14 +111,10 @@ const QueryHistoryPage = () => {
   // Query modal state
   const [expandedQuery, setExpandedQuery] = useState<{ title: string; query: string } | null>(null)
 
-  // Summary metrics
-  const runningQueriesCount = currentProcesses.length
-  const completedQueriesCount = useMemo(() => {
-    return queryLog.filter((entry) => !entry.exception_code || entry.exception_code === 0).length
-  }, [queryLog])
-  const failedQueriesCount = useMemo(() => {
-    return queryLog.filter((entry) => entry.exception_code && entry.exception_code !== 0).length
-  }, [queryLog])
+  // Summary metrics - use stats from API instead of computed from queryLog
+  const runningQueriesCount = queryLogStats.running
+  const completedQueriesCount = queryLogStats.finished
+  const failedQueriesCount = queryLogStats.error
 
   // Get unique users from queries
   const availableUsers = useMemo(() => {
@@ -144,6 +143,46 @@ const QueryHistoryPage = () => {
     loadNodes()
   }, [isAuthenticated, selectedNode])
 
+  // Convert datetime-local format (YYYY-MM-DDTHH:mm) to ISO format (YYYY-MM-DDTHH:mm:ss)
+  const formatDateTimeForAPI = (datetimeLocal: string): string | undefined => {
+    if (!datetimeLocal) return undefined
+    // datetime-local returns YYYY-MM-DDTHH:mm, we need YYYY-MM-DDTHH:mm:ss
+    if (datetimeLocal.length === 16) {
+      return `${datetimeLocal}:00`
+    }
+    return datetimeLocal
+  }
+
+  // Load query log stats (without pagination)
+  useEffect(() => {
+    const loadQueryLogStats = async () => {
+      if (!selectedNode || !isAuthenticated) {
+        return
+      }
+
+      try {
+        // Use preset only if from/to are not specified
+        const usePreset = !dateFrom && !dateTo
+
+        const filter: Omit<QueryLogFilter, 'limit' | 'offset'> = {
+          node: selectedNode,
+          last: usePreset ? selectedTimePreset : undefined,
+          from: formatDateTimeForAPI(dateFrom),
+          to: formatDateTimeForAPI(dateTo),
+          user: selectedUser !== 'all' ? selectedUser : undefined,
+        }
+
+        const stats = await queryAPI.getQueryLogStats(filter)
+        setQueryLogStats(stats)
+      } catch (err) {
+        console.error('Failed to load query log stats:', err)
+        // Don't show error to user, just keep previous stats
+      }
+    }
+
+    loadQueryLogStats()
+  }, [selectedNode, selectedTimePreset, dateFrom, dateTo, selectedUser, isAuthenticated])
+
   // Load query log
   useEffect(() => {
     const loadQueryLog = async () => {
@@ -155,16 +194,6 @@ const QueryHistoryPage = () => {
       setQueryLogError(null)
 
       try {
-        // Convert datetime-local format (YYYY-MM-DDTHH:mm) to ISO format (YYYY-MM-DDTHH:mm:ss)
-        const formatDateTimeForAPI = (datetimeLocal: string): string | undefined => {
-          if (!datetimeLocal) return undefined
-          // datetime-local returns YYYY-MM-DDTHH:mm, we need YYYY-MM-DDTHH:mm:ss
-          if (datetimeLocal.length === 16) {
-            return `${datetimeLocal}:00`
-          }
-          return datetimeLocal
-        }
-
         // Use preset only if from/to are not specified
         const usePreset = !dateFrom && !dateTo
 

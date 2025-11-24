@@ -45,3 +45,10 @@ type QueryLogRange struct {
 	To     string `json:"to"`
 	Preset string `json:"preset,omitempty"`
 }
+
+// QueryLogStatsResponse provides query count statistics by status.
+type QueryLogStatsResponse struct {
+	Running  int64 `json:"running"`  // Count of running queries (QueryStart without QueryFinish)
+	Finished int64 `json:"finished"` // Count of finished queries (QueryFinish)
+	Error    int64 `json:"error"`    // Count of queries with errors (QueryFinish with exception_code != 0)
+}

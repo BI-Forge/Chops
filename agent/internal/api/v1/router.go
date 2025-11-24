@@ -110,6 +110,7 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 			}
 			if queryLogHandler != nil {
 				protected.GET("/query-log", queryLogHandler.ListQueryLog)
+				protected.GET("/query-log/stats", queryLogHandler.GetQueryLogStats)
 			}
 			if processHandler != nil {
 				processes := protected.Group("/processes")
