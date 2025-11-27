@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
@@ -18,6 +19,7 @@ type ProcessRepository struct {
 	manager     *clickhouse.Manager
 	logger      *logger.Logger
 	clusterName string
+	killGuards  sync.Map // map[string]time.Time
 }
 
 // NewProcessRepository creates a repository backed by the shared ClickHouse manager
@@ -245,6 +247,17 @@ ORDER BY elapsed DESC`, whereClause)
 
 // KillQuery kills a query by query_id
 func (r *ProcessRepository) KillQuery(ctx context.Context, queryID string, nodeName string) error {
+	// Deduplicate rapid duplicate kill calls (same queryId + node)
+	killKey := fmt.Sprintf("%s:%s", queryID, nodeName)
+	if last, ok := r.killGuards.Load(killKey); ok {
+		if ts, ok := last.(time.Time); ok && time.Since(ts) < 5*time.Second {
+			if r.logger != nil {
+				r.logger.Infof("Skipping duplicate kill request for query %s on node %s", queryID, nodeName)
+			}
+			return nil
+		}
+	}
+
 	// Get connection to specific node
 	clusterManager := r.manager.GetClusterManager()
 	if clusterManager == nil {
@@ -273,6 +286,13 @@ func (r *ProcessRepository) KillQuery(ctx context.Context, queryID string, nodeN
 	if err != nil {
 		return fmt.Errorf("failed to kill query: %w", err)
 	}
+
+	// Record kill timestamp and cleanup later
+	r.killGuards.Store(killKey, time.Now())
+	go func() {
+		time.Sleep(30 * time.Second)
+		r.killGuards.Delete(killKey)
+	}()
 
 	return nil
 }

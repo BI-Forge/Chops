@@ -95,6 +95,7 @@ const QueryHistoryPage = () => {
   const [processesLoading, setProcessesLoading] = useState(false)
   const [processesError, setProcessesError] = useState<string | null>(null)
   const sseRef = useRef<EventSource | null>(null)
+  const [killingQueryId, setKillingQueryId] = useState<string | null>(null)
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState<string>('')
@@ -367,18 +368,31 @@ const QueryHistoryPage = () => {
     return queryId
   }
 
-  const handleKillQuery = async (queryId: string, node: string) => {
+  const handleKillQuery = async (queryId: string) => {
+    // Prevent double-click
+    if (killingQueryId === queryId) {
+      return
+    }
+
     if (!confirm('Are you sure you want to kill this query?')) {
       return
     }
 
+    if (!selectedNode) {
+      alert('No node selected. Please select a node first.')
+      return
+    }
+
+    setKillingQueryId(queryId)
     try {
-      await queryAPI.killProcess({ query_id: queryId, node })
+      await queryAPI.killProcess({ query_id: queryId, node: selectedNode })
       const response = await queryAPI.getCurrentProcesses(selectedNode)
       setCurrentProcesses(response.processes || [])
     } catch (err) {
       console.error('Failed to kill query:', err)
       alert('Failed to kill query. Please try again.')
+    } finally {
+      setKillingQueryId(null)
     }
   }
 
@@ -461,7 +475,6 @@ const QueryHistoryPage = () => {
                       const queryId = process.query_id
                       const queryText = process.query
                       const user = process.user
-                      const node = process.node
                       const startTime = formatDateTime(process.query_start_time)
                       return (
                         <div key={queryId} className="query-history-page__card">
@@ -475,7 +488,8 @@ const QueryHistoryPage = () => {
                             </div>
                             <button
                               className="query-history-page__kill-button"
-                              onClick={() => handleKillQuery(queryId, node)}
+                              onClick={() => handleKillQuery(queryId)}
+                              disabled={killingQueryId === queryId}
                               title="Kill query"
                             >
                               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

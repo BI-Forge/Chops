@@ -210,10 +210,9 @@ export const queryAPI = {
   },
 
   killProcess: async (request: KillProcessRequest): Promise<KillProcessResponse> => {
-    return retryRequest(async () => {
-      const response = await api.post<KillProcessResponse>('/processes/kill', request)
-      return response.data
-    })
+    // Don't retry kill requests - they should be executed only once
+    const response = await api.post<KillProcessResponse>('/processes/kill', request)
+    return response.data
   },
 
   getQueryLogStats: async (filter: Omit<QueryLogFilter, 'limit' | 'offset'>): Promise<QueryLogStatsResponse> => {
