@@ -129,6 +129,9 @@ const QueryHistoryPage = () => {
   // Storage key for filters
   const FILTERS_STORAGE_KEY = 'queryHistoryFilters'
 
+  // Copy to clipboard state
+  const [copiedQueryId, setCopiedQueryId] = useState<string | null>(null)
+
   // Summary metrics - use stats from API instead of computed from queryLog
   const runningQueriesCount = queryLogStats.running
   const completedQueriesCount = queryLogStats.finished
@@ -463,22 +466,6 @@ const QueryHistoryPage = () => {
     }
   }
 
-  const formatQueryId = (queryId: string): string => {
-    const match = queryId.match(/\d+/)
-    if (match) {
-      const num = parseInt(match[0], 10)
-      return `Q${String(num).padStart(3, '0')}`
-    }
-    if (queryId.length >= 3) {
-      const lastThree = queryId.slice(-3)
-      if (/^\d+$/.test(lastThree)) {
-        return `Q${lastThree.padStart(3, '0')}`
-      }
-      return `Q${queryId.slice(-3).padStart(3, '0').replace(/[^0-9]/g, '0')}`
-    }
-    return queryId
-  }
-
   const handleKillQuery = async (queryId: string) => {
     // Prevent double-click
     if (killingQueryId === queryId) {
@@ -576,6 +563,38 @@ const QueryHistoryPage = () => {
 
   const closeQueryModal = () => {
     setExpandedQuery(null)
+    setCopiedQueryId(null)
+  }
+
+  // Copy query text to clipboard
+  const copyQueryToClipboard = async (queryText: string, queryId: string) => {
+    try {
+      await navigator.clipboard.writeText(queryText)
+      setCopiedQueryId(queryId)
+      // Reset copied state after 2 seconds
+      setTimeout(() => {
+        setCopiedQueryId(null)
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err)
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = queryText
+      textArea.style.position = 'fixed'
+      textArea.style.opacity = '0'
+      document.body.appendChild(textArea)
+      textArea.select()
+      try {
+        document.execCommand('copy')
+        setCopiedQueryId(queryId)
+        setTimeout(() => {
+          setCopiedQueryId(null)
+        }, 2000)
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed:', fallbackErr)
+      }
+      document.body.removeChild(textArea)
+    }
   }
 
   return (
@@ -1002,7 +1021,7 @@ const QueryHistoryPage = () => {
             aria-labelledby="query-modal-title"
           >
             <div className="query-history-page__modal-header">
-              <h3 id="query-modal-title">Query: {formatQueryId(expandedQuery.query_id)}</h3>
+              <h3 id="query-modal-title">{expandedQuery.query_id}</h3>
               <button className="query-history-page__modal-close" onClick={closeQueryModal} aria-label="Close query preview">
                 ×
               </button>
@@ -1010,7 +1029,27 @@ const QueryHistoryPage = () => {
             <div className="query-history-page__modal-body">
               <div className="query-history-page__modal-content">
                 <div className="query-history-page__modal-query-section">
-                  <div className="query-history-page__modal-query-header">Query Text</div>
+                  <div className="query-history-page__modal-query-header">
+                    <span>Query Text</span>
+                    <button
+                      className="query-history-page__modal-copy-button"
+                      onClick={() => copyQueryToClipboard(expandedQuery.query_text || '', expandedQuery.query_id)}
+                      title="Copy query to clipboard"
+                      aria-label="Copy query to clipboard"
+                      type="button"
+                    >
+                      {copiedQueryId === expandedQuery.query_id ? (
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M13.3333 4L6 11.3333L2.66667 8" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M10.6667 2.66667H5.33333C4.59695 2.66667 4 3.26362 4 4V12C4 12.7364 4.59695 13.3333 5.33333 13.3333H10.6667C11.403 13.3333 12 12.7364 12 12V4C12 3.26362 11.403 2.66667 10.6667 2.66667Z" stroke="currentColor" strokeWidth="1.5" />
+                          <path d="M10.6667 2.66667V1.33333C10.6667 0.596954 11.2636 0 12 0H13.3333C14.0697 0 14.6667 0.596954 14.6667 1.33333V5.33333C14.6667 6.06971 14.0697 6.66667 13.3333 6.66667H12" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                   <div className="query-history-page__modal-query-text">
                     <pre dangerouslySetInnerHTML={{ __html: highlightSql(expandedQuery.query_text || '') }}></pre>
                   </div>

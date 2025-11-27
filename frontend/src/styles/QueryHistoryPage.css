@@ -816,6 +816,40 @@
   color: #90a1b9;
   border-bottom: 1px solid #1d293d;
   background: rgba(18, 26, 44, 0.5);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.query-history-page__modal-copy-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(92, 118, 170, 0.3);
+  border-radius: 6px;
+  color: #90a1b9;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.query-history-page__modal-copy-button:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #60a5fa;
+}
+
+.query-history-page__modal-copy-button:active {
+  transform: scale(0.95);
+}
+
+.query-history-page__modal-copy-button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .query-history-page__modal-query-text {
