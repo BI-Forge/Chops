@@ -121,7 +121,7 @@ const QueryHistoryPage = () => {
   const [chartsLoading, setChartsLoading] = useState(false)
 
   // Query modal state
-  const [expandedQuery, setExpandedQuery] = useState<{ title: string; query: string } | null>(null)
+  const [expandedQuery, setExpandedQuery] = useState<QueryLogEntry | null>(null)
 
   // Selected queries for visualization
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set())
@@ -537,11 +537,41 @@ const QueryHistoryPage = () => {
     setSelectedQueries(new Set())
   }, [appliedSearchQuery, appliedUser, appliedStatus, appliedDateFrom, appliedDateTo, queryLogPage])
 
-  const openQueryModal = (title: string, query: string) => {
-    setExpandedQuery({
-      title,
-      query: query.trim(),
-    })
+  // Convert Process to QueryLogEntry format for modal display
+  const processToQueryLogEntry = (process: Process): QueryLogEntry => {
+    return {
+      node: process.node,
+      event_time: process.query_start_time,
+      event_time_microseconds: process.query_start_time,
+      initial_user: process.user,
+      user: process.user,
+      query_id: process.query_id,
+      query_kind: '',
+      query_text: process.query,
+      read_rows: process.read_rows,
+      read_bytes: process.read_bytes,
+      written_rows: process.written_rows,
+      written_bytes: process.written_bytes,
+      result_rows: 0,
+      result_bytes: 0,
+      memory_usage: process.memory_usage,
+      duration_ms: process.query_duration_ms || process.elapsed * 1000,
+      exception_code: 0, // Running queries have no exception
+      exception: undefined,
+      client_hostname: undefined,
+      databases: process.current_database ? [process.current_database] : undefined,
+      tables: undefined,
+    }
+  }
+
+  const openQueryModal = (entry: QueryLogEntry | Process) => {
+    if ('query' in entry) {
+      // It's a Process, convert it
+      setExpandedQuery(processToQueryLogEntry(entry as Process))
+    } else {
+      // It's already a QueryLogEntry
+      setExpandedQuery(entry as QueryLogEntry)
+    }
   }
 
   const closeQueryModal = () => {
@@ -615,7 +645,7 @@ const QueryHistoryPage = () => {
                           <div className="query-history-page__card-query">
                             <button
                               className="query-history-page__card-query-button"
-                              onClick={() => openQueryModal(formatQueryId(queryId), queryText || '')}
+                              onClick={() => openQueryModal(process)}
                               type="button"
                             >
                               <code>{queryText || ''}</code>
@@ -882,7 +912,7 @@ const QueryHistoryPage = () => {
                             <div className="query-history-page__card-query">
                               <button
                                 className="query-history-page__card-query-button"
-                                onClick={() => openQueryModal(formatQueryId(entry.query_id), entry.query_text || '')}
+                                onClick={() => openQueryModal(entry)}
                                 type="button"
                               >
                                 <code>{entry.query_text || ''}</code>
@@ -972,13 +1002,73 @@ const QueryHistoryPage = () => {
             aria-labelledby="query-modal-title"
           >
             <div className="query-history-page__modal-header">
-              <h3 id="query-modal-title">{expandedQuery.title}</h3>
+              <h3 id="query-modal-title">Query: {formatQueryId(expandedQuery.query_id)}</h3>
               <button className="query-history-page__modal-close" onClick={closeQueryModal} aria-label="Close query preview">
                 ×
               </button>
             </div>
             <div className="query-history-page__modal-body">
-              <pre dangerouslySetInnerHTML={{ __html: highlightSql(expandedQuery.query) }}></pre>
+              <div className="query-history-page__modal-content">
+                <div className="query-history-page__modal-query-section">
+                  <div className="query-history-page__modal-query-header">Query Text</div>
+                  <div className="query-history-page__modal-query-text">
+                    <pre dangerouslySetInnerHTML={{ __html: highlightSql(expandedQuery.query_text || '') }}></pre>
+                  </div>
+                </div>
+                <div className="query-history-page__modal-info-section">
+                  <div className="query-history-page__modal-info-header">Query Information</div>
+                  <div className="query-history-page__modal-info-content">
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Query ID:</span>
+                      <span className="query-history-page__modal-info-value">{expandedQuery.query_id}</span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">User:</span>
+                      <span className="query-history-page__modal-info-value">{expandedQuery.user}</span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Start Time:</span>
+                      <span className="query-history-page__modal-info-value">{formatDateTime(expandedQuery.event_time)}</span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Duration:</span>
+                      <span className="query-history-page__modal-info-value">
+                        {expandedQuery.duration_ms ? `${(expandedQuery.duration_ms / 1000).toFixed(2)}s` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Memory Usage:</span>
+                      <span className="query-history-page__modal-info-value">
+                        {expandedQuery.memory_usage ? `${(expandedQuery.memory_usage / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Read Bytes:</span>
+                      <span className="query-history-page__modal-info-value">
+                        {expandedQuery.read_bytes ? `${(expandedQuery.read_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Written Bytes:</span>
+                      <span className="query-history-page__modal-info-value">
+                        {expandedQuery.written_bytes ? `${(expandedQuery.written_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Status:</span>
+                      <span className={`query-history-page__modal-info-value query-history-page__modal-info-value--${!expandedQuery.exception_code || expandedQuery.exception_code === 0 ? 'success' : 'error'}`}>
+                        {!expandedQuery.exception_code || expandedQuery.exception_code === 0 ? 'Completed' : 'Failed'}
+                      </span>
+                    </div>
+                    {expandedQuery.exception && (
+                      <div className="query-history-page__modal-info-item query-history-page__modal-info-item--full">
+                        <span className="query-history-page__modal-info-label">Error:</span>
+                        <span className="query-history-page__modal-info-value query-history-page__modal-info-value--error">{expandedQuery.exception}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
