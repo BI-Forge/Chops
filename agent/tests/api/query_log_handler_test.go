@@ -170,3 +170,103 @@ func TestQueryLogHandlerGetStatsHandlesError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.True(t, repo.statsCalled)
 }
+
+func TestQueryLogHandlerParsesStatusParameter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		items: []models.QueryLogEntry{},
+		total: 0,
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log?last=10s&status=failed", nil)
+	c.Request = req
+
+	h.ListQueryLog(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.called)
+	assert.Equal(t, "failed", repo.lastFilter.Status)
+}
+
+func TestQueryLogHandlerParsesCompletedStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		items: []models.QueryLogEntry{},
+		total: 0,
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log?last=10s&status=completed", nil)
+	c.Request = req
+
+	h.ListQueryLog(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.called)
+	assert.Equal(t, "completed", repo.lastFilter.Status)
+}
+
+func TestQueryLogHandlerRejectsInvalidStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log?last=10s&status=invalid", nil)
+	c.Request = req
+
+	h.ListQueryLog(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.False(t, repo.called, "repository should not be invoked on invalid status")
+}
+
+func TestQueryLogHandlerAllowsAllStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		items: []models.QueryLogEntry{},
+		total: 0,
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log?last=10s&status=all", nil)
+	c.Request = req
+
+	h.ListQueryLog(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.called)
+	assert.Equal(t, "", repo.lastFilter.Status, "status should be empty when 'all' is passed")
+}
+
+func TestQueryLogHandlerStatusNotInStats(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		stats: models.QueryLogStatsResponse{
+			Running:  5,
+			Finished: 100,
+			Error:    3,
+		},
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log/stats?last=10s&status=failed", nil)
+	c.Request = req
+
+	h.GetQueryLogStats(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.statsCalled)
+	// Status should not be set in stats filter (stats should include all statuses)
+	assert.Equal(t, "", repo.lastFilter.Status, "status should not be applied to stats")
+}

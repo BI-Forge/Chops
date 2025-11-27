@@ -47,6 +47,8 @@ export interface QueryLogFilter {
   to?: string
   user?: string
   node?: string
+  search?: string
+  status?: string // 'completed' | 'failed' | 'all'
   limit?: number
   offset?: number
 }
@@ -55,6 +57,10 @@ export interface QueryLogStatsResponse {
   running: number
   finished: number
   error: number
+}
+
+export interface UsersResponse {
+  users: string[]
 }
 
 // Types for current processes
@@ -129,6 +135,8 @@ export const queryAPI = {
       if (filter.to) params.append('to', filter.to)
       if (filter.user) params.append('user', filter.user)
       if (filter.node) params.append('node', filter.node)
+      if (filter.search) params.append('search', filter.search)
+      if (filter.status && filter.status !== 'all') params.append('status', filter.status)
       if (filter.limit) params.append('limit', filter.limit.toString())
       if (filter.offset) params.append('offset', filter.offset.toString())
 
@@ -223,8 +231,19 @@ export const queryAPI = {
       if (filter.to) params.append('to', filter.to)
       if (filter.user) params.append('user', filter.user)
       if (filter.node) params.append('node', filter.node)
+      if (filter.search) params.append('search', filter.search)
 
       const response = await api.get<QueryLogStatsResponse>(`/query-log/stats?${params.toString()}`)
+      return response.data
+    })
+  },
+
+  getUsers: async (node?: string): Promise<UsersResponse> => {
+    return retryRequest(async () => {
+      const params = new URLSearchParams()
+      if (node) params.append('node', node)
+
+      const response = await api.get<UsersResponse>(`/users${params.toString() ? `?${params.toString()}` : ''}`)
       return response.data
     })
   },

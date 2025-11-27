@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../services/AuthContext'
 import { metricsAPI } from '../services/metricsAPI'
 import { queryAPI, type QueryLogEntry, type QueryLogFilter, type Process, type QueryLogStatsResponse } from '../services/queryAPI'
@@ -97,12 +97,23 @@ const QueryHistoryPage = () => {
   const sseRef = useRef<EventSource | null>(null)
   const [killingQueryId, setKillingQueryId] = useState<string | null>(null)
 
-  // Filters state
+  // Filters state (input values)
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [selectedUser, setSelectedUser] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [dateFrom, setDateFrom] = useState<string>('')
   const [dateTo, setDateTo] = useState<string>('')
+
+  // Applied filters state (used in API queries)
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState<string>('')
+  const [appliedUser, setAppliedUser] = useState<string>('all')
+  const [appliedStatus, setAppliedStatus] = useState<string>('all')
+  const [appliedDateFrom, setAppliedDateFrom] = useState<string>('')
+  const [appliedDateTo, setAppliedDateTo] = useState<string>('')
+
+  // Available users from ClickHouse
+  const [availableUsers, setAvailableUsers] = useState<string[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
 
   // Chart data state
   const [memoryChartData, setMemoryChartData] = useState<MetricChartPoint[]>([])
@@ -112,18 +123,16 @@ const QueryHistoryPage = () => {
   // Query modal state
   const [expandedQuery, setExpandedQuery] = useState<{ title: string; query: string } | null>(null)
 
+  // Selected queries for visualization
+  const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set())
+
+  // Storage key for filters
+  const FILTERS_STORAGE_KEY = 'queryHistoryFilters'
+
   // Summary metrics - use stats from API instead of computed from queryLog
   const runningQueriesCount = queryLogStats.running
   const completedQueriesCount = queryLogStats.finished
   const failedQueriesCount = queryLogStats.error
-
-  // Get unique users from queries
-  const availableUsers = useMemo(() => {
-    const users = new Set<string>()
-    queryLog.forEach((entry) => users.add(entry.user))
-    currentProcesses.forEach((process) => users.add(process.user))
-    return Array.from(users).sort()
-  }, [queryLog, currentProcesses])
 
   // Load available nodes
   useEffect(() => {
@@ -144,6 +153,32 @@ const QueryHistoryPage = () => {
     loadNodes()
   }, [isAuthenticated, selectedNode])
 
+  // Load available users from ClickHouse for selected node
+  useEffect(() => {
+    const loadUsers = async () => {
+      if (!selectedNode || !isAuthenticated) {
+        setAvailableUsers([])
+        return
+      }
+
+      setUsersLoading(true)
+      try {
+        const response = await queryAPI.getUsers(selectedNode)
+        setAvailableUsers(response.users || [])
+        // Reset user filter when node changes
+        setSelectedUser('all')
+        setAppliedUser('all')
+      } catch (err) {
+        console.error('Failed to load users:', err)
+        setAvailableUsers([])
+      } finally {
+        setUsersLoading(false)
+      }
+    }
+
+    loadUsers()
+  }, [selectedNode, isAuthenticated])
+
   // Convert datetime-local format (YYYY-MM-DDTHH:mm) to ISO format (YYYY-MM-DDTHH:mm:ss)
   const formatDateTimeForAPI = (datetimeLocal: string): string | undefined => {
     if (!datetimeLocal) return undefined
@@ -154,6 +189,78 @@ const QueryHistoryPage = () => {
     return datetimeLocal
   }
 
+  // Apply filters - called on Enter key or Refresh button
+  const applyFilters = () => {
+    setAppliedSearchQuery(searchQuery)
+    setAppliedUser(selectedUser)
+    setAppliedStatus(selectedStatus)
+    setAppliedDateFrom(dateFrom)
+    setAppliedDateTo(dateTo)
+    setQueryLogPage(0)
+  }
+
+  // Track if filters were loaded from sessionStorage
+  const filtersLoadedRef = useRef(false)
+
+  // Load filters from sessionStorage on mount
+  useEffect(() => {
+    if (!isAuthenticated || filtersLoadedRef.current) return
+
+    try {
+      const savedFilters = sessionStorage.getItem(FILTERS_STORAGE_KEY)
+      if (savedFilters) {
+        const filters = JSON.parse(savedFilters)
+        if (filters.searchQuery !== undefined) setSearchQuery(filters.searchQuery)
+        if (filters.selectedUser !== undefined) setSelectedUser(filters.selectedUser)
+        if (filters.selectedStatus !== undefined) setSelectedStatus(filters.selectedStatus)
+        if (filters.dateFrom !== undefined) setDateFrom(filters.dateFrom)
+        if (filters.dateTo !== undefined) setDateTo(filters.dateTo)
+        if (filters.selectedTimePreset !== undefined) setSelectedTimePreset(filters.selectedTimePreset)
+
+        // Apply saved filters
+        setAppliedSearchQuery(filters.searchQuery || '')
+        setAppliedUser(filters.selectedUser || 'all')
+        setAppliedStatus(filters.selectedStatus || 'all')
+        setAppliedDateFrom(filters.dateFrom || '')
+        setAppliedDateTo(filters.dateTo || '')
+        filtersLoadedRef.current = true
+      } else {
+        // No saved filters, mark as loaded
+        filtersLoadedRef.current = true
+      }
+    } catch (err) {
+      console.error('Failed to load filters from sessionStorage:', err)
+      filtersLoadedRef.current = true
+    }
+  }, [isAuthenticated])
+
+  // Save filters to sessionStorage whenever they change (but not on initial load)
+  useEffect(() => {
+    if (!isAuthenticated || !filtersLoadedRef.current) return
+
+    try {
+      const filters = {
+        searchQuery,
+        selectedUser,
+        selectedStatus,
+        dateFrom,
+        dateTo,
+        selectedTimePreset,
+      }
+      sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters))
+    } catch (err) {
+      console.error('Failed to save filters to sessionStorage:', err)
+    }
+  }, [searchQuery, selectedUser, selectedStatus, dateFrom, dateTo, selectedTimePreset, isAuthenticated])
+
+  // Apply filters automatically on initial load and when node changes
+  useEffect(() => {
+    if (selectedNode && isAuthenticated && filtersLoadedRef.current) {
+      applyFilters()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode, isAuthenticated])
+
   // Load query log stats (without pagination)
   useEffect(() => {
     const loadQueryLogStats = async () => {
@@ -163,14 +270,15 @@ const QueryHistoryPage = () => {
 
       try {
         // Use preset only if from/to are not specified
-        const usePreset = !dateFrom && !dateTo
+        const usePreset = !appliedDateFrom && !appliedDateTo
 
         const filter: Omit<QueryLogFilter, 'limit' | 'offset'> = {
           node: selectedNode,
           last: usePreset ? selectedTimePreset : undefined,
-          from: formatDateTimeForAPI(dateFrom),
-          to: formatDateTimeForAPI(dateTo),
-          user: selectedUser !== 'all' ? selectedUser : undefined,
+          from: formatDateTimeForAPI(appliedDateFrom),
+          to: formatDateTimeForAPI(appliedDateTo),
+          user: appliedUser !== 'all' ? appliedUser : undefined,
+          search: appliedSearchQuery.trim() || undefined,
         }
 
         const stats = await queryAPI.getQueryLogStats(filter)
@@ -182,7 +290,7 @@ const QueryHistoryPage = () => {
     }
 
     loadQueryLogStats()
-  }, [selectedNode, selectedTimePreset, dateFrom, dateTo, selectedUser, isAuthenticated])
+  }, [selectedNode, selectedTimePreset, appliedDateFrom, appliedDateTo, appliedUser, appliedSearchQuery, isAuthenticated])
 
   // Load query log
   useEffect(() => {
@@ -196,13 +304,16 @@ const QueryHistoryPage = () => {
 
       try {
         // Use preset only if from/to are not specified
-        const usePreset = !dateFrom && !dateTo
+        const usePreset = !appliedDateFrom && !appliedDateTo
 
         const filter: QueryLogFilter = {
           node: selectedNode,
           last: usePreset ? selectedTimePreset : undefined,
-          from: formatDateTimeForAPI(dateFrom),
-          to: formatDateTimeForAPI(dateTo),
+          from: formatDateTimeForAPI(appliedDateFrom),
+          to: formatDateTimeForAPI(appliedDateTo),
+          user: appliedUser !== 'all' ? appliedUser : undefined,
+          search: appliedSearchQuery.trim() || undefined,
+          status: appliedStatus !== 'all' ? appliedStatus : undefined,
           limit: queryLogLimit,
           offset: queryLogPage * queryLogLimit,
         }
@@ -224,7 +335,7 @@ const QueryHistoryPage = () => {
     }
 
     loadQueryLog()
-  }, [selectedNode, selectedTimePreset, dateFrom, dateTo, queryLogPage, queryLogLimit, isAuthenticated])
+  }, [selectedNode, selectedTimePreset, appliedDateFrom, appliedDateTo, appliedUser, appliedSearchQuery, appliedStatus, queryLogPage, queryLogLimit, isAuthenticated])
 
   // Load and stream current processes
   useEffect(() => {
@@ -396,32 +507,35 @@ const QueryHistoryPage = () => {
     }
   }
 
-  // Filter queries based on search, user, and status
-  const filteredQueryLog = useMemo(() => {
-    let filtered = queryLog
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const searchLower = searchQuery.toLowerCase()
-      filtered = filtered.filter((entry) => entry.query_text?.toLowerCase().includes(searchLower))
-    }
-
-    // Filter by user
-    if (selectedUser !== 'all') {
-      filtered = filtered.filter((entry) => entry.user === selectedUser)
-    }
-
-    // Filter by status
-    if (selectedStatus === 'completed') {
-      filtered = filtered.filter((entry) => !entry.exception_code || entry.exception_code === 0)
-    } else if (selectedStatus === 'failed') {
-      filtered = filtered.filter((entry) => entry.exception_code && entry.exception_code !== 0)
-    }
-
-    return filtered
-  }, [queryLog, searchQuery, selectedUser, selectedStatus])
+  // All filtering is done server-side now
+  const filteredQueryLog = queryLog
 
   const totalQueryLogPages = Math.ceil(queryLogTotal / queryLogLimit)
+
+  // Handle query selection
+  const toggleQuerySelection = (queryId: string) => {
+    setSelectedQueries((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(queryId)) {
+        newSet.delete(queryId)
+      } else {
+        newSet.add(queryId)
+      }
+      return newSet
+    })
+  }
+
+  // Handle apply selected queries (for future visualization)
+  const handleApplySelectedQueries = () => {
+    const selected = Array.from(selectedQueries)
+    console.log('Selected queries for visualization:', selected)
+    // TODO: Implement visualization logic here
+  }
+
+  // Clear selection when filters change
+  useEffect(() => {
+    setSelectedQueries(new Set())
+  }, [appliedSearchQuery, appliedUser, appliedStatus, appliedDateFrom, appliedDateTo, queryLogPage])
 
   const openQueryModal = (title: string, query: string) => {
     setExpandedQuery({
@@ -536,6 +650,23 @@ const QueryHistoryPage = () => {
           <div className="query-history-page__section">
             <div className="query-history-page__section-header">
               <h2 className="query-history-page__section-title">Filters</h2>
+              <button
+                className="query-history-page__refresh-button"
+                onClick={applyFilters}
+                type="button"
+                title="Apply filters"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M14 8C14 4.68629 11.3137 2 8 2C6.67112 2 5.45746 2.44703 4.5 3.20437M2 8C2 11.3137 4.68629 14 8 14C9.32888 14 10.5425 13.553 11.5 12.7956M2 2L4.5 4.5M11.5 11.5L14 14"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Refresh
+              </button>
             </div>
             <div className="query-history-page__filters">
               <div className="query-history-page__search-container">
@@ -554,6 +685,12 @@ const QueryHistoryPage = () => {
                     placeholder="Search queries..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        applyFilters()
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -570,6 +707,7 @@ const QueryHistoryPage = () => {
                   onChange={(value) => setSelectedUser(value)}
                   ariaLabel="User filter"
                   id="user-filter"
+                  disabled={usersLoading || !selectedNode}
                 />
               </div>
               <div className="query-history-page__filters-group">
@@ -599,7 +737,12 @@ const QueryHistoryPage = () => {
                     setSelectedTimePreset(value as TimePreset)
                     setDateFrom('')
                     setDateTo('')
-                    setQueryLogPage(0)
+                    // Apply filters automatically when preset changes
+                    setTimeout(() => {
+                      setAppliedDateFrom('')
+                      setAppliedDateTo('')
+                      applyFilters()
+                    }, 0)
                   }}
                   ariaLabel="Date range filter"
                   id="date-range-filter"
@@ -619,7 +762,6 @@ const QueryHistoryPage = () => {
                     if (e.target.value) {
                       setSelectedTimePreset('15m') // Reset preset when manual date is set
                     }
-                    setQueryLogPage(0)
                   }}
                 />
               </div>
@@ -637,7 +779,6 @@ const QueryHistoryPage = () => {
                     if (e.target.value) {
                       setSelectedTimePreset('15m') // Reset preset when manual date is set
                     }
-                    setQueryLogPage(0)
                   }}
                 />
               </div>
@@ -692,6 +833,20 @@ const QueryHistoryPage = () => {
                   <div className="query-history-page__empty">No queries found</div>
                 ) : (
                   <>
+                    {selectedQueries.size > 0 && (
+                      <div className="query-history-page__selected-actions">
+                        <span className="query-history-page__selected-count">
+                          {selectedQueries.size} query{selectedQueries.size !== 1 ? 'ies' : ''} selected
+                        </span>
+                        <button
+                          className="query-history-page__apply-selected-button"
+                          onClick={handleApplySelectedQueries}
+                          type="button"
+                        >
+                          Apply Selected
+                        </button>
+                      </div>
+                    )}
                     <div className="query-history-page__cards">
                       {filteredQueryLog.map((entry, index) => {
                         const startTime = formatDateTime(entry.event_time)
@@ -700,8 +855,19 @@ const QueryHistoryPage = () => {
                         const endTime = formatDateTime(endDate.toISOString())
                         const isSuccess = !entry.exception_code || entry.exception_code === 0
 
+                        const isSelected = selectedQueries.has(entry.query_id)
+
                         return (
                           <div key={`${entry.query_id}-${index}`} className="query-history-page__card">
+                            <div className="query-history-page__card-checkbox-wrapper">
+                              <input
+                                type="checkbox"
+                                className="query-history-page__card-checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleQuerySelection(entry.query_id)}
+                                aria-label={`Select query ${entry.query_id}`}
+                              />
+                            </div>
                             <div className="query-history-page__card-header">
                               <div className={`query-history-page__card-icon-wrapper ${isSuccess ? 'query-history-page__card-icon-wrapper--completed' : 'query-history-page__card-icon-wrapper--failed'}`}>
                                 {isSuccess ? <CompletedIcon width={20} height={20} /> : <FailedIcon width={20} height={20} />}

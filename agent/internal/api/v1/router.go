@@ -77,6 +77,10 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 	if err != nil {
 		cfg.Logger.Errorf("Failed to initialize process handler: %v", err)
 	}
+	usersHandler, err := handlers.NewUsersHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize users handler: %v", err)
+	}
 
 	// Health check endpoint (no auth required)
 	router.GET("/healthz", healthHandler.Healthz)
@@ -119,6 +123,9 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 					processes.GET("/stream", processHandler.StreamProcesses)
 					processes.POST("/kill", processHandler.KillProcess)
 				}
+			}
+			if usersHandler != nil {
+				protected.GET("/users", usersHandler.GetUsers)
 			}
 		}
 	}

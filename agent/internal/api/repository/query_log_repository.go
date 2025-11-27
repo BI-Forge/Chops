@@ -22,6 +22,8 @@ type QueryLogFilter struct {
 	To          time.Time
 	User        string
 	Node        string
+	Search      string
+	Status      string // "completed", "failed", or empty for all
 	Limit       int
 	Offset      int
 	RangePreset string
@@ -353,8 +355,9 @@ WHERE type = 'QueryFinish'
 func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []any) {
 	conditions := []string{
 		"type = 'QueryFinish'",
-		"event_time >= ?",
-		"event_time <= ?",
+		"event_time >= ?", // Date From filter - filters by event_time column
+		"event_time <= ?", // Date To filter - filters by event_time column
+		"NOT has(databases, 'system')",
 	}
 
 	args := []any{filter.From, filter.To}
@@ -362,17 +365,31 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 	if filter.User != "" {
 		conditions = append(conditions, "(initial_user = ? OR user = ?)")
 		args = append(args, filter.User, filter.User)
+	}
+
+	if filter.Search != "" {
+		conditions = append(conditions, "query LIKE ?")
+		args = append(args, "%"+filter.Search+"%")
+	}
+
+	// Filter by status: failed (exception_code != 0) or completed (exception_code = 0 or NULL)
+	if filter.Status == "failed" {
+		conditions = append(conditions, "exception_code != 0")
+	} else if filter.Status == "completed" {
+		conditions = append(conditions, "(exception_code = 0 OR exception_code IS NULL)")
 	}
 
 	return strings.Join(conditions, " AND "), args
 }
 
 // buildStatsWhereClause builds WHERE clause for stats queries (without type filter).
+// Filters by event_time (Date Range, Date From, Date To filters affect counters here).
 // Note: Node filtering is handled by connection selection, not WHERE clause.
 func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (string, []any) {
 	conditions := []string{
-		"event_time >= ?",
-		"event_time <= ?",
+		"event_time >= ?", // Date From filter
+		"event_time <= ?", // Date To filter
+		"NOT has(databases, 'system')",
 	}
 
 	args := []any{filter.From, filter.To}
@@ -380,6 +397,11 @@ func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (strin
 	if filter.User != "" {
 		conditions = append(conditions, "(initial_user = ? OR user = ?)")
 		args = append(args, filter.User, filter.User)
+	}
+
+	if filter.Search != "" {
+		conditions = append(conditions, "query LIKE ?")
+		args = append(args, "%"+filter.Search+"%")
 	}
 
 	return strings.Join(conditions, " AND "), args
@@ -403,6 +425,11 @@ func (r *QueryLogRepository) buildProcessesWhereClause(filter QueryLogFilter) (s
 
 	// Filter out internal queries from ops-agent itself
 	conditions = append(conditions, "query NOT LIKE '%%ops-agent-%%'")
+
+	if filter.Search != "" {
+		conditions = append(conditions, "query LIKE ?")
+		args = append(args, "%"+filter.Search+"%")
+	}
 
 	return strings.Join(conditions, " AND "), args
 }

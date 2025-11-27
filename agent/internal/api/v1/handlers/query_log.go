@@ -73,7 +73,7 @@ func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepositor
 
 // ListQueryLog returns filtered ClickHouse query log entries.
 // @Summary      List query log entries
-// @Description  Returns ClickHouse system.query_log entries filtered by time range, user, and node
+// @Description  Returns ClickHouse system.query_log entries filtered by time range, user, node, and search query
 // @Tags         query-log
 // @Security     BearerAuth
 // @Produce      json
@@ -82,6 +82,8 @@ func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepositor
 // @Param        to      query     string  false  "End timestamp (RFC3339 or 2006-01-02 15:04:05)"
 // @Param        user    query     string  false  "Initial or effective ClickHouse user"
 // @Param        node    query     string  false  "ClickHouse node hostname"
+// @Param        search  query     string  false  "Search query text (LIKE pattern in query column)"
+// @Param        status  query     string  false  "Filter by status: 'completed' (exception_code = 0) or 'failed' (exception_code != 0)"
 // @Param        limit   query     int     false  "Items per page (max 500)"
 // @Param        offset  query     int     false  "Offset for pagination"
 // @Success      200     {object}  models.QueryLogResponse
@@ -132,18 +134,19 @@ func (h *QueryLogHandler) ListQueryLog(c *gin.Context) {
 
 // GetQueryLogStats returns query count statistics by status (running, finished, error).
 // @Summary      Get query log statistics
-// @Description  Returns count of running, finished, and error queries filtered by time range, user, and node
+// @Description  Returns count of running, finished, and error queries filtered by time range, user, node, and search query
 // @Tags         query-log
 // @Security     BearerAuth
 // @Produce      json
-// @Param        last  query     string  false  "Relative window (10s|30s|1m|5m|15m)"
-// @Param        from  query     string  false  "Start timestamp (RFC3339 or 2006-01-02 15:04:05)"
-// @Param        to    query     string  false  "End timestamp (RFC3339 or 2006-01-02 15:04:05)"
-// @Param        user  query     string  false  "Initial or effective ClickHouse user"
-// @Param        node  query     string  false  "ClickHouse node hostname"
-// @Success      200   {object}  models.QueryLogStatsResponse
-// @Failure      400   {object}  models.ErrorResponse
-// @Failure      500   {object}  models.ErrorResponse
+// @Param        last   query     string  false  "Relative window (10s|30s|1m|5m|15m)"
+// @Param        from   query     string  false  "Start timestamp (RFC3339 or 2006-01-02 15:04:05)"
+// @Param        to     query     string  false  "End timestamp (RFC3339 or 2006-01-02 15:04:05)"
+// @Param        user   query     string  false  "Initial or effective ClickHouse user"
+// @Param        node   query     string  false  "ClickHouse node hostname"
+// @Param        search query     string  false  "Search query text (LIKE pattern in query column)"
+// @Success      200    {object}  models.QueryLogStatsResponse
+// @Failure      400    {object}  models.ErrorResponse
+// @Failure      500    {object}  models.ErrorResponse
 // @Router       /api/v1/query-log/stats [get]
 func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 	// Parse filter without pagination (limit/offset are ignored)
@@ -177,6 +180,18 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter, error) {
 	user := strings.TrimSpace(c.Query("user"))
 	node := strings.TrimSpace(c.Query("node"))
+	search := strings.TrimSpace(c.Query("search"))
+	status := strings.TrimSpace(c.Query("status"))
+
+	// Validate status parameter
+	if status != "" && status != "completed" && status != "failed" && status != "all" {
+		return repository.QueryLogFilter{}, fmt.Errorf("invalid status value: %s (must be 'completed', 'failed', or 'all')", status)
+	}
+
+	// Convert "all" to empty string for consistency
+	if status == "all" {
+		status = ""
+	}
 
 	limit := defaultQueryLogLimit
 	if limitParam := strings.TrimSpace(c.Query("limit")); limitParam != "" {
@@ -209,6 +224,8 @@ func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter
 		To:          to,
 		User:        user,
 		Node:        node,
+		Search:      search,
+		Status:      status,
 		Limit:       limit,
 		Offset:      offset,
 		RangePreset: preset,
@@ -280,6 +297,7 @@ func parseTimestamp(value string) (time.Time, error) {
 func (h *QueryLogHandler) parseFilterForStats(c *gin.Context) (repository.QueryLogFilter, error) {
 	user := strings.TrimSpace(c.Query("user"))
 	node := strings.TrimSpace(c.Query("node"))
+	search := strings.TrimSpace(c.Query("search"))
 
 	from, to, preset, err := parseTimeRange(c.Query("last"), c.Query("from"), c.Query("to"))
 	if err != nil {
@@ -291,6 +309,7 @@ func (h *QueryLogHandler) parseFilterForStats(c *gin.Context) (repository.QueryL
 		To:          to,
 		User:        user,
 		Node:        node,
+		Search:      search,
 		Limit:       0, // Not used for stats
 		Offset:      0, // Not used for stats
 		RangePreset: preset,
