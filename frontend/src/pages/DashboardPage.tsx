@@ -132,6 +132,9 @@ const DashboardPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('1h')
+  
+  // Storage key for dashboard filters
+  const DASHBOARD_STORAGE_KEY = 'dashboardFilters'
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const currentInterval = useMemo(() => PERIOD_CONFIG[selectedPeriod].step, [selectedPeriod])
   const currentIntervalLabel = useMemo(() => STEP_INFO[currentInterval].label, [currentInterval])
@@ -156,7 +159,46 @@ const DashboardPage = () => {
     }
   }, [isAuthenticated, navigate])
 
-  // Load available nodes
+  // Track if filters were loaded from sessionStorage
+  const filtersLoadedRef = useRef(false)
+
+  // Load filters from sessionStorage on mount
+  useEffect(() => {
+    if (!isAuthenticated || filtersLoadedRef.current) return
+
+    try {
+      const savedFilters = sessionStorage.getItem(DASHBOARD_STORAGE_KEY)
+      if (savedFilters) {
+        const filters = JSON.parse(savedFilters)
+        if (filters.selectedNode !== undefined && filters.selectedNode) setSelectedNode(filters.selectedNode)
+        if (filters.selectedPeriod !== undefined) setSelectedPeriod(filters.selectedPeriod)
+        filtersLoadedRef.current = true
+      } else {
+        // No saved filters, mark as loaded
+        filtersLoadedRef.current = true
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard filters from sessionStorage:', err)
+      filtersLoadedRef.current = true
+    }
+  }, [isAuthenticated])
+
+  // Save filters to sessionStorage whenever they change
+  useEffect(() => {
+    if (!isAuthenticated || !filtersLoadedRef.current) return
+
+    try {
+      const filters = {
+        selectedNode,
+        selectedPeriod,
+      }
+      sessionStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(filters))
+    } catch (err) {
+      console.error('Failed to save dashboard filters to sessionStorage:', err)
+    }
+  }, [selectedNode, selectedPeriod, isAuthenticated])
+
+  // Load available nodes and validate/restore selected node
   useEffect(() => {
     if (!isAuthenticated) return
 
@@ -166,13 +208,60 @@ const DashboardPage = () => {
         setError(null)
         const availableNodes = await metricsAPI.getAvailableNodes()
         setNodes(availableNodes)
-        if (availableNodes.length > 0 && !selectedNode) {
+
+        if (availableNodes.length === 0) {
+          setLoading(false)
+          return
+        }
+
+        // Wait for filters to be loaded from sessionStorage before setting node
+        if (!filtersLoadedRef.current) {
+          // Retry after filters are loaded
+          const checkInterval = setInterval(() => {
+            if (filtersLoadedRef.current) {
+              clearInterval(checkInterval)
+              loadNodes()
+            }
+          }, 50)
+          // Cleanup after 2 seconds max
+          setTimeout(() => {
+            clearInterval(checkInterval)
+            setLoading(false)
+          }, 2000)
+          return
+        }
+
+        // If node is already selected and exists in available nodes, keep it
+        if (selectedNode && availableNodes.includes(selectedNode)) {
+          setLoading(false)
+          return
+        }
+
+        // Try to restore saved node from sessionStorage
+        let nodeToSet = null
+        try {
+          const savedFilters = sessionStorage.getItem(DASHBOARD_STORAGE_KEY)
+          if (savedFilters) {
+            const filters = JSON.parse(savedFilters)
+            if (filters.selectedNode && availableNodes.includes(filters.selectedNode)) {
+              nodeToSet = filters.selectedNode
+            }
+          }
+        } catch (err) {
+          // Ignore errors when checking saved node
+        }
+
+        // Set saved node if found, otherwise use first available
+        if (nodeToSet) {
+          setSelectedNode(nodeToSet)
+        } else if (!selectedNode) {
           setSelectedNode(availableNodes[0])
         }
+
+        setLoading(false)
       } catch (err) {
         setError('Failed to load nodes. Please refresh the page.')
         console.error('Failed to load nodes:', err)
-      } finally {
         setLoading(false)
       }
     }

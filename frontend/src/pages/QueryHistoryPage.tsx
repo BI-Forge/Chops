@@ -129,6 +129,9 @@ const QueryHistoryPage = () => {
   // Storage key for filters
   const FILTERS_STORAGE_KEY = 'queryHistoryFilters'
 
+  // Track if filters were loaded from sessionStorage
+  const filtersLoadedRef = useRef(false)
+
   // Copy to clipboard state
   const [copiedQueryId, setCopiedQueryId] = useState<string | null>(null)
 
@@ -137,15 +140,54 @@ const QueryHistoryPage = () => {
   const completedQueriesCount = queryLogStats.finished
   const failedQueriesCount = queryLogStats.error
 
-  // Load available nodes
+  // Load available nodes and validate/restore selected node
   useEffect(() => {
-    const loadNodes = async () => {
-      if (!isAuthenticated) return
+    if (!isAuthenticated) return
 
+    const loadNodes = async () => {
       try {
         const availableNodes = await metricsAPI.getAvailableNodes()
         setNodes(availableNodes)
-        if (availableNodes.length > 0 && !selectedNode) {
+
+        if (availableNodes.length === 0) return
+
+        // Wait for filters to be loaded from sessionStorage before setting node
+        if (!filtersLoadedRef.current) {
+          // Retry after filters are loaded
+          const checkInterval = setInterval(() => {
+            if (filtersLoadedRef.current) {
+              clearInterval(checkInterval)
+              loadNodes()
+            }
+          }, 50)
+          // Cleanup after 2 seconds max
+          setTimeout(() => clearInterval(checkInterval), 2000)
+          return
+        }
+
+        // If node is already selected and exists in available nodes, keep it
+        if (selectedNode && availableNodes.includes(selectedNode)) {
+          return
+        }
+
+        // Try to restore saved node from sessionStorage (in case it wasn't loaded yet)
+        let nodeToSet = null
+        try {
+          const savedFilters = sessionStorage.getItem(FILTERS_STORAGE_KEY)
+          if (savedFilters) {
+            const filters = JSON.parse(savedFilters)
+            if (filters.selectedNode && availableNodes.includes(filters.selectedNode)) {
+              nodeToSet = filters.selectedNode
+            }
+          }
+        } catch (err) {
+          // Ignore errors when checking saved node
+        }
+
+        // Set saved node if found, otherwise use first available
+        if (nodeToSet) {
+          setSelectedNode(nodeToSet)
+        } else if (!selectedNode) {
           setSelectedNode(availableNodes[0])
         }
       } catch (err) {
@@ -154,7 +196,7 @@ const QueryHistoryPage = () => {
     }
 
     loadNodes()
-  }, [isAuthenticated, selectedNode])
+  }, [isAuthenticated])
 
   // Load available users from ClickHouse for selected node
   useEffect(() => {
@@ -202,10 +244,7 @@ const QueryHistoryPage = () => {
     setQueryLogPage(0)
   }
 
-  // Track if filters were loaded from sessionStorage
-  const filtersLoadedRef = useRef(false)
-
-  // Load filters from sessionStorage on mount
+  // Load filters and selected node from sessionStorage on mount (before loading nodes)
   useEffect(() => {
     if (!isAuthenticated || filtersLoadedRef.current) return
 
@@ -219,6 +258,10 @@ const QueryHistoryPage = () => {
         if (filters.dateFrom !== undefined) setDateFrom(filters.dateFrom)
         if (filters.dateTo !== undefined) setDateTo(filters.dateTo)
         if (filters.selectedTimePreset !== undefined) setSelectedTimePreset(filters.selectedTimePreset)
+        // Restore selectedNode immediately - will be validated when nodes are loaded
+        if (filters.selectedNode !== undefined && filters.selectedNode) {
+          setSelectedNode(filters.selectedNode)
+        }
 
         // Apply saved filters
         setAppliedSearchQuery(filters.searchQuery || '')
@@ -249,12 +292,13 @@ const QueryHistoryPage = () => {
         dateFrom,
         dateTo,
         selectedTimePreset,
+        selectedNode,
       }
       sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters))
     } catch (err) {
       console.error('Failed to save filters to sessionStorage:', err)
     }
-  }, [searchQuery, selectedUser, selectedStatus, dateFrom, dateTo, selectedTimePreset, isAuthenticated])
+  }, [searchQuery, selectedUser, selectedStatus, dateFrom, dateTo, selectedTimePreset, selectedNode, isAuthenticated])
 
   // Apply filters automatically on initial load and when node changes
   useEffect(() => {
