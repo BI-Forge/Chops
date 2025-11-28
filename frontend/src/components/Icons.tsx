@@ -18,6 +18,12 @@ import NodeWhiteIcon from '../icons/node_white.svg?react'
 import CompletedGreenIcon from '../icons/completed_green.svg?react'
 import FailedWhiteIcon from '../icons/failed_white.svg?react'
 
+import HighPerformanceIconSvg from '../icons/high_performance.svg?react'
+import EnterpriseSecurityIconSvg from '../icons/enterprise_security.svg?react'
+import MonitoringIconSvg from '../icons/monitoring.svg?react'
+import ClickHouseOpsLogoBig from '../icons/clickhouse_ops_logo_big.svg?react'
+import ClickHouseOpsLogoMedium from '../icons/clickhouse_ops_logo_medium.svg?react'
+
 // Sidebar navigation icons - accept isActive prop to switch between gray/white
 export const DashboardIcon = ({ isActive = false }: { isActive?: boolean }) => (
   <DashboardGrayIcon width={20} height={20} style={{ filter: isActive ? 'brightness(0) invert(1)' : 'none' }} />
@@ -65,8 +71,18 @@ export const SettingsIcon = () => <ConfigGrayIcon width={16} height={16} />
 export const LightModeIcon = () => <SunYellowIcon width={16} height={16} />
 export const LogoutIcon = () => <ExitGrayIcon width={16} height={16} />
 
-// Logo icon - using node icon as placeholder, should be replaced with actual logo icon
-export const LogoIcon = () => <NodeWhiteIcon width={24} height={24} />
+// Logo icons - big for login page, medium for other pages
+export const LogoIcon = ({ size = 'medium' }: { size?: 'medium' | 'big' }) => {
+  if (size === 'big') {
+    return <ClickHouseOpsLogoBig width={40} height={40} />
+  }
+  return <ClickHouseOpsLogoMedium width={24} height={24} />
+}
+
+// Feature icons for login page
+export const HighPerformanceFeatureIcon = () => <HighPerformanceIconSvg width={24} height={24} />
+export const EnterpriseSecurityFeatureIcon = () => <EnterpriseSecurityIconSvg width={24} height={24} />
+export const MonitoringFeatureIcon = () => <MonitoringIconSvg width={24} height={24} />
 
 // Node selector icon
 export const NodeIcon = ({ width = 16, height = 16 }: { width?: number; height?: number }) => <NodeWhiteIcon width={width} height={height} />

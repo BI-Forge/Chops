@@ -25,7 +25,7 @@ interface MetricChartConfig {
 }
 
 // Adjusted period and interval options
-type PeriodOption = '10m' | '30m' | '1h' | '6h' | '12h' | '1d' | '3d' | '7d'
+type PeriodOption = '10m' | '30m' | '1h' | '2h' | '6h' | '12h' | '1d' | '3d' | '7d'
 type IntervalOption = '1s' | '5s' | '10s' | '30s' | '1m' | '5m' | '30m' | '1h'
 
 const STEP_INFO: Record<IntervalOption, { label: string; durationMs: number }> = {
@@ -43,6 +43,7 @@ const PERIOD_CONFIG: Record<PeriodOption, { label: string; step: IntervalOption;
   '10m': { label: 'Last 10 minutes', step: '1s', durationMs: 10 * 60 * 1000 },
   '30m': { label: 'Last 30 minutes', step: '10s', durationMs: 30 * 60 * 1000 },
   '1h': { label: 'Last 1 hour', step: '1m', durationMs: 1 * 60 * 60 * 1000 },
+  '2h': { label: 'Last 2 hours', step: '5m', durationMs: 2 * 60 * 60 * 1000 },
   '6h': { label: 'Last 6 hours', step: '5m', durationMs: 6 * 60 * 60 * 1000 },
   '12h': { label: 'Last 12 hours', step: '5m', durationMs: 12 * 60 * 60 * 1000 },
   '1d': { label: 'Last 1 day', step: '30m', durationMs: 24 * 60 * 60 * 1000 },
@@ -50,7 +51,7 @@ const PERIOD_CONFIG: Record<PeriodOption, { label: string; step: IntervalOption;
   '7d': { label: 'Last 7 days', step: '1h', durationMs: 7 * 24 * 60 * 60 * 1000 },
 }
 
-const PERIOD_ORDER: PeriodOption[] = ['10m', '30m', '1h', '6h', '12h', '1d', '3d', '7d']
+const PERIOD_ORDER: PeriodOption[] = ['10m', '30m', '1h', '2h', '6h', '12h', '1d', '3d', '7d']
 const PERIOD_OPTIONS = PERIOD_ORDER.map((value) => ({ value, label: PERIOD_CONFIG[value].label }))
 
 const MIN_REFRESH_INTERVAL_MS = 10_000
@@ -453,10 +454,26 @@ const DashboardPage = () => {
     return gb.toFixed(0) + ' GB'
   }
 
-  const handleManualRefresh = () => {
+  const handleManualRefresh = async () => {
     if (!selectedNode || !isAuthenticated || seriesLoading) {
       return
     }
+    
+    // Refresh current metrics via API
+    try {
+      setLoading(true)
+      setError(null)
+      const refreshedMetrics = await metricsAPI.getCurrentMetrics(selectedNode)
+      setMetrics(refreshedMetrics)
+      setError(null)
+    } catch (err) {
+      console.error('Failed to refresh metrics:', err)
+      setError('Failed to refresh metrics. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+    
+    // Refresh chart series data
     setRefreshTrigger((prev) => prev + 1)
   }
 

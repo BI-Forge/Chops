@@ -9,7 +9,7 @@ import FilterSelect from '../components/FilterSelect'
 import { SpinnerIcon, CompletedIcon, FailedIcon } from '../components/Icons'
 import '../styles/QueryHistoryPage.css'
 
-type TimePreset = '10s' | '30s' | '1m' | '5m' | '15m'
+type TimePreset = '10s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h' | '2h'
 
 interface TimePresetOption {
   value: TimePreset
@@ -22,6 +22,9 @@ const TIME_PRESETS: TimePresetOption[] = [
   { value: '1m', label: 'Last 1 minute' },
   { value: '5m', label: 'Last 5 minutes' },
   { value: '15m', label: 'Last 15 minutes' },
+  { value: '30m', label: 'Last 30 minutes' },
+  { value: '1h', label: 'Last 1 hour' },
+  { value: '2h', label: 'Last 2 hours' },
 ]
 
 const SQL_KEYWORDS = [
@@ -84,7 +87,7 @@ const QueryHistoryPage = () => {
   const [queryLogError, setQueryLogError] = useState<string | null>(null)
   const [queryLogTotal, setQueryLogTotal] = useState(0)
   const [queryLogPage, setQueryLogPage] = useState(0)
-  const [queryLogLimit] = useState(50)
+  const [queryLogLimit, setQueryLogLimit] = useState<number>(50)
   const [selectedTimePreset, setSelectedTimePreset] = useState<TimePreset>('15m')
 
   // Query log stats state
@@ -245,6 +248,55 @@ const QueryHistoryPage = () => {
     setQueryLogPage(0)
   }
 
+  // Handle manual refresh - reloads query log data
+  const handleRefresh = async () => {
+    if (!selectedNode || !isAuthenticated || queryLogLoading) {
+      return
+    }
+
+    // Apply filters first
+    applyFilters()
+
+    // Force reload query log by manually calling the load function
+    setQueryLogLoading(true)
+    setQueryLogError(null)
+
+    try {
+      const usePreset = !appliedDateFrom && !appliedDateTo
+
+      const filter: QueryLogFilter = {
+        node: selectedNode,
+        last: usePreset ? selectedTimePreset : undefined,
+        from: formatDateTimeForAPI(appliedDateFrom),
+        to: formatDateTimeForAPI(appliedDateTo),
+        user: appliedUser !== 'all' ? appliedUser : undefined,
+        search: appliedSearchQuery.trim() || undefined,
+        status: appliedStatus !== 'all' ? appliedStatus : undefined,
+        limit: queryLogLimit,
+        offset: 0, // Reset to first page on refresh
+      }
+
+      const response = await queryAPI.getQueryLog(filter)
+      setQueryLog(response.items)
+      setQueryLogTotal(response.pagination.total)
+      setQueryLogPage(0)
+    } catch (err) {
+      console.error('Failed to refresh query log:', err)
+      setQueryLogError('Failed to refresh query history. Please try again.')
+    } finally {
+      setQueryLogLoading(false)
+    }
+  }
+
+  // Handle limit change - reset page to 0 when limit changes
+  const handleLimitChange = (newLimit: string) => {
+    const limit = parseInt(newLimit, 10)
+    if ([10, 20, 50, 100, 200].includes(limit)) {
+      setQueryLogLimit(limit)
+      setQueryLogPage(0)
+    }
+  }
+
   // Load filters and selected node from sessionStorage on mount (before loading nodes)
   useEffect(() => {
     if (!isAuthenticated || filtersLoadedRef.current) return
@@ -259,6 +311,9 @@ const QueryHistoryPage = () => {
         if (filters.dateFrom !== undefined) setDateFrom(filters.dateFrom)
         if (filters.dateTo !== undefined) setDateTo(filters.dateTo)
         if (filters.selectedTimePreset !== undefined) setSelectedTimePreset(filters.selectedTimePreset)
+        if (filters.queryLogLimit !== undefined && [10, 20, 50, 100, 200].includes(filters.queryLogLimit)) {
+          setQueryLogLimit(filters.queryLogLimit)
+        }
         // Restore selectedNode immediately - will be validated when nodes are loaded
         if (filters.selectedNode !== undefined && filters.selectedNode) {
           setSelectedNode(filters.selectedNode)
@@ -294,12 +349,13 @@ const QueryHistoryPage = () => {
         dateTo,
         selectedTimePreset,
         selectedNode,
+        queryLogLimit,
       }
       sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters))
     } catch (err) {
       console.error('Failed to save filters to sessionStorage:', err)
     }
-  }, [searchQuery, selectedUser, selectedStatus, dateFrom, dateTo, selectedTimePreset, selectedNode, isAuthenticated])
+  }, [searchQuery, selectedUser, selectedStatus, dateFrom, dateTo, selectedTimePreset, selectedNode, queryLogLimit, isAuthenticated])
 
   // Apply filters automatically on initial load and when node changes
   useEffect(() => {
@@ -622,6 +678,8 @@ const QueryHistoryPage = () => {
       user: process.user,
       query_id: process.query_id,
       query_kind: '',
+      type: 'QueryStart', // Running queries are QueryStart type
+      settings: undefined,
       query_text: process.query,
       read_rows: process.read_rows,
       read_bytes: process.read_bytes,
@@ -789,9 +847,10 @@ const QueryHistoryPage = () => {
               <h2 className="query-history-page__section-title">Filters</h2>
               <button
                 className="query-history-page__refresh-button"
-                onClick={applyFilters}
+                onClick={handleRefresh}
                 type="button"
-                title="Apply filters"
+                title="Refresh data"
+                disabled={queryLogLoading || !selectedNode}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path
@@ -917,6 +976,24 @@ const QueryHistoryPage = () => {
                       setSelectedTimePreset('15m') // Reset preset when manual date is set
                     }
                   }}
+                />
+              </div>
+              <div className="query-history-page__filters-group">
+                <label className="query-history-page__filters-label" htmlFor="limit-filter">
+                  Records per Page
+                </label>
+                <FilterSelect
+                  value={queryLogLimit.toString()}
+                  options={[
+                    { value: '10', label: '10' },
+                    { value: '20', label: '20' },
+                    { value: '50', label: '50' },
+                    { value: '100', label: '100' },
+                    { value: '200', label: '200' },
+                  ]}
+                  onChange={handleLimitChange}
+                  ariaLabel="Records per page filter"
+                  id="limit-filter"
                 />
               </div>
             </div>
@@ -1181,6 +1258,46 @@ const QueryHistoryPage = () => {
                         {expandedQuery.written_bytes ? `${(expandedQuery.written_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
                       </span>
                     </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Type:</span>
+                      <span className="query-history-page__modal-info-value">{expandedQuery.type || 'N/A'}</span>
+                    </div>
+                    <div className="query-history-page__modal-info-item">
+                      <span className="query-history-page__modal-info-label">Query Kind:</span>
+                      <span className="query-history-page__modal-info-value">{expandedQuery.query_kind || 'N/A'}</span>
+                    </div>
+                    {expandedQuery.settings && (() => {
+                      try {
+                        const settingsObj = typeof expandedQuery.settings === 'string' 
+                          ? JSON.parse(expandedQuery.settings) 
+                          : expandedQuery.settings
+                        
+                        if (settingsObj && typeof settingsObj === 'object' && Object.keys(settingsObj).length > 0) {
+                          return (
+                            <div className="query-history-page__modal-info-item query-history-page__modal-info-item--full">
+                              <span className="query-history-page__modal-info-label">Settings:</span>
+                              <div className="query-history-page__modal-settings">
+                                {Object.entries(settingsObj).map(([key, value]) => (
+                                  <div key={key} className="query-history-page__modal-settings-item">
+                                    <span className="query-history-page__modal-settings-key">{key}:</span>
+                                    <span className="query-history-page__modal-settings-value">{String(value)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        }
+                      } catch (err) {
+                        // If parsing fails, show as plain text
+                        return (
+                          <div className="query-history-page__modal-info-item query-history-page__modal-info-item--full">
+                            <span className="query-history-page__modal-info-label">Settings:</span>
+                            <span className="query-history-page__modal-info-value">{expandedQuery.settings}</span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                     <div className="query-history-page__modal-info-item">
                       <span className="query-history-page__modal-info-label">Status:</span>
                       <span className={`query-history-page__modal-info-value query-history-page__modal-info-value--${!expandedQuery.exception_code || expandedQuery.exception_code === 0 ? 'success' : 'error'}`}>

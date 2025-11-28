@@ -1021,3 +1021,45 @@
 .query-history-page__apply-selected-button:active {
   transform: translateY(1px);
 }
+
+/* Settings display in modal */
+.query-history-page__modal-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.query-history-page__modal-settings-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.query-history-page__modal-settings-item:last-child {
+  border-bottom: none;
+}
+
+.query-history-page__modal-settings-key {
+  font-family: 'Arimo', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #90a1b9;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.query-history-page__modal-settings-value {
+  font-family: 'Arimo', sans-serif;
+  font-size: 14px;
+  color: #ffffff;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  padding-left: 0;
+}

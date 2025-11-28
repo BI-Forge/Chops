@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../services/AuthContext'
 import { authAPI } from '../services/api'
-import { LogoIcon } from '../components/Icons'
+import { LogoIcon, HighPerformanceFeatureIcon, EnterpriseSecurityFeatureIcon, MonitoringFeatureIcon } from '../components/Icons'
 import '../styles/LoginPage.css'
 
 const LoginPage = () => {
@@ -77,7 +77,7 @@ const LoginPage = () => {
         <div className="auth-page__left-content">
           <div className="auth-page__logo">
             <div className="auth-page__logo-icon">
-              <LogoIcon />
+              <LogoIcon size="big" />
             </div>
             <div className="auth-page__logo-text">
               <h1>ClickHouse</h1>
@@ -93,21 +93,27 @@ const LoginPage = () => {
 
           <div className="auth-page__features">
             <div className="auth-page__feature">
-              <div className="auth-page__feature-icon auth-page__feature-icon--orange"></div>
+              <div className="auth-page__feature-icon auth-page__feature-icon--orange">
+                <HighPerformanceFeatureIcon />
+              </div>
               <div>
                 <h3>High Performance</h3>
                 <p>Lightning-fast OLAP queries for real-time analytics</p>
               </div>
             </div>
             <div className="auth-page__feature">
-              <div className="auth-page__feature-icon auth-page__feature-icon--blue"></div>
+              <div className="auth-page__feature-icon auth-page__feature-icon--blue">
+                <EnterpriseSecurityFeatureIcon />
+              </div>
               <div>
                 <h3>Enterprise Security</h3>
                 <p>Role-based access control and encryption at rest</p>
               </div>
             </div>
             <div className="auth-page__feature">
-              <div className="auth-page__feature-icon auth-page__feature-icon--purple"></div>
+              <div className="auth-page__feature-icon auth-page__feature-icon--purple">
+                <MonitoringFeatureIcon />
+              </div>
               <div>
                 <h3>Real-time Monitoring</h3>
                 <p>Track cluster health and performance metrics</p>

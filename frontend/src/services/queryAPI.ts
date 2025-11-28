@@ -9,6 +9,8 @@ export interface QueryLogEntry {
   user: string
   query_id: string
   query_kind: string
+  type: string
+  settings?: string
   query_text: string
   read_rows: number
   read_bytes: number

@@ -57,11 +57,9 @@
 }
 
 .sidebar__logo-icon-wrapper {
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #f0b100 0%, #f54900 100%);
   display: flex;
   align-items: center;
   justify-content: center;

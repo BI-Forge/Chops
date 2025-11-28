@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -91,6 +92,8 @@ SELECT
 	query_id,
 	query,
 	query_kind,
+	type,
+	Settings,
 	read_rows,
 	read_bytes,
 	written_rows,
@@ -129,6 +132,8 @@ OFFSET ?`, whereClause)
 			queryID               string
 			queryText             string
 			queryKind             string
+			queryType             string
+			settings              map[string]string
 			readRows              uint64
 			readBytes             uint64
 			writtenRows           uint64
@@ -153,6 +158,8 @@ OFFSET ?`, whereClause)
 			&queryID,
 			&queryText,
 			&queryKind,
+			&queryType,
+			&settings,
 			&readRows,
 			&readBytes,
 			&writtenRows,
@@ -170,6 +177,15 @@ OFFSET ?`, whereClause)
 			return nil, 0, fmt.Errorf("failed to scan query log row: %w", err)
 		}
 
+		// Convert settings map to JSON string
+		settingsJSON := ""
+		if len(settings) > 0 {
+			settingsBytes, err := json.Marshal(settings)
+			if err == nil {
+				settingsJSON = string(settingsBytes)
+			}
+		}
+
 		entry := models.QueryLogEntry{
 			Node:                  node,
 			EventTime:             eventTime.UTC().Format(time.RFC3339),
@@ -178,6 +194,8 @@ OFFSET ?`, whereClause)
 			User:                  user,
 			QueryID:               queryID,
 			QueryKind:             queryKind,
+			Type:                  queryType,
+			Settings:              settingsJSON,
 			QueryText:             queryText,
 			ReadRows:              readRows,
 			ReadBytes:             readBytes,
@@ -278,7 +296,7 @@ func (r *QueryLogRepository) GetStats(ctx context.Context, filter QueryLogFilter
 		}
 	}
 
-	// Build base WHERE clause without type filter for query_log
+	// Build base WHERE clause for stats (without status filter, as we need all queries for stats)
 	baseWhere, baseArgs := r.buildStatsWhereClause(filter)
 
 	stats := models.QueryLogStatsResponse{}
@@ -304,19 +322,19 @@ WHERE %s`, runningWhere)
 	}
 	rows.Close()
 
-	// Count finished queries: QueryFinish
+	// Count finished queries: QueryFinish with exception_code = 0 or NULL
 	finishedQuery := fmt.Sprintf(`
 SELECT count()
 FROM system.query_log
 WHERE type = 'QueryFinish'
+	AND (exception_code = 0 OR exception_code IS NULL)
 	AND %s`, baseWhere)
 
 	// Count error queries: QueryFinish with exception_code != 0
 	errorQuery := fmt.Sprintf(`
 SELECT count()
 FROM system.query_log
-WHERE type = 'QueryFinish'
-	AND exception_code != 0
+WHERE exception_code != 0
 	AND %s`, baseWhere)
 
 	// Execute finished count
@@ -354,10 +372,11 @@ WHERE type = 'QueryFinish'
 
 func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []any) {
 	conditions := []string{
-		"type = 'QueryFinish'",
 		"event_time >= ?", // Date From filter - filters by event_time column
 		"event_time <= ?", // Date To filter - filters by event_time column
 		"NOT has(databases, 'system')",
+		"lower(query_kind) NOT IN 'show'",
+		"type != 'QueryStart'",
 	}
 
 	args := []any{filter.From, filter.To}
@@ -372,17 +391,18 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 		args = append(args, "%"+filter.Search+"%")
 	}
 
-	// Filter by status: failed (exception_code != 0) or completed (exception_code = 0 or NULL)
+	// Filter by status: failed (exception_code IS NOT NULL AND exception_code != 0) or completed (exception_code = 0 OR exception_code IS NULL)
 	if filter.Status == "failed" {
 		conditions = append(conditions, "exception_code != 0")
 	} else if filter.Status == "completed" {
 		conditions = append(conditions, "(exception_code = 0 OR exception_code IS NULL)")
+		conditions = append(conditions, "type = 'QueryFinish'")
 	}
 
 	return strings.Join(conditions, " AND "), args
 }
 
-// buildStatsWhereClause builds WHERE clause for stats queries (without type filter).
+// buildStatsWhereClause builds WHERE clause for stats queries (without type and status filters).
 // Filters by event_time (Date Range, Date From, Date To filters affect counters here).
 // Note: Node filtering is handled by connection selection, not WHERE clause.
 func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (string, []any) {
@@ -390,6 +410,7 @@ func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (strin
 		"event_time >= ?", // Date From filter
 		"event_time <= ?", // Date To filter
 		"NOT has(databases, 'system')",
+		"lower(query_kind) NOT IN 'show'",
 	}
 
 	args := []any{filter.From, filter.To}

@@ -33,6 +33,9 @@ var presetDurations = map[string]time.Duration{
 	"1m":  time.Minute,
 	"5m":  5 * time.Minute,
 	"15m": 15 * time.Minute,
+	"30m": 30 * time.Minute,
+	"1h":  1 * time.Hour,
+	"2h":  2 * time.Hour,
 }
 
 var acceptedTimeFormats = []string{
@@ -49,10 +52,10 @@ type QueryLogRepository interface {
 
 // QueryLogHandler handles ClickHouse query log endpoints.
 type QueryLogHandler struct {
-	repo             QueryLogRepository
-	broadcaster      *stream.Broadcaster
-	statsPublisher   *stream.QueryLogStatsPublisher
-	logger           *logger.Logger
+	repo           QueryLogRepository
+	broadcaster    *stream.Broadcaster
+	statsPublisher *stream.QueryLogStatsPublisher
+	logger         *logger.Logger
 }
 
 // NewQueryLogHandler creates a production query log handler.

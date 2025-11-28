@@ -9,6 +9,8 @@ type QueryLogEntry struct {
 	User                  string   `json:"user"`
 	QueryID               string   `json:"query_id"`
 	QueryKind             string   `json:"query_kind"`
+	Type                  string   `json:"type"`
+	Settings              string   `json:"settings,omitempty"`
 	QueryText             string   `json:"query_text"`
 	ReadRows              uint64   `json:"read_rows"`
 	ReadBytes             uint64   `json:"read_bytes"`
