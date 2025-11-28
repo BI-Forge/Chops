@@ -95,6 +95,7 @@ const QueryHistoryPage = () => {
   const [processesLoading, setProcessesLoading] = useState(false)
   const [processesError, setProcessesError] = useState<string | null>(null)
   const sseRef = useRef<EventSource | null>(null)
+  const statsSseRef = useRef<EventSource | null>(null)
   const [killingQueryId, setKillingQueryId] = useState<string | null>(null)
 
   // Filters state (input values)
@@ -308,13 +309,14 @@ const QueryHistoryPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNode, isAuthenticated])
 
-  // Load query log stats (without pagination)
+  // Load and stream query log stats via SSE
   useEffect(() => {
-    const loadQueryLogStats = async () => {
-      if (!selectedNode || !isAuthenticated) {
-        return
-      }
+    if (!selectedNode || !isAuthenticated) {
+      return
+    }
 
+    const loadAndStreamStats = async () => {
+      // Initial load
       try {
         // Use preset only if from/to are not specified
         const usePreset = !appliedDateFrom && !appliedDateTo
@@ -331,12 +333,54 @@ const QueryHistoryPage = () => {
         const stats = await queryAPI.getQueryLogStats(filter)
         setQueryLogStats(stats)
       } catch (err) {
-        console.error('Failed to load query log stats:', err)
+        console.error('Failed to load initial query log stats:', err)
         // Don't show error to user, just keep previous stats
+      }
+
+      // Setup SSE stream
+      if (statsSseRef.current) {
+        statsSseRef.current.close()
+      }
+
+      // Use preset only if from/to are not specified
+      const usePreset = !appliedDateFrom && !appliedDateTo
+
+      const filter: Omit<QueryLogFilter, 'limit' | 'offset'> = {
+        node: selectedNode,
+        last: usePreset ? selectedTimePreset : undefined,
+        from: formatDateTimeForAPI(appliedDateFrom),
+        to: formatDateTimeForAPI(appliedDateTo),
+        user: appliedUser !== 'all' ? appliedUser : undefined,
+        search: appliedSearchQuery.trim() || undefined,
+      }
+
+      statsSseRef.current = queryAPI.streamQueryLogStats(
+        filter,
+        (stats) => {
+          setQueryLogStats(stats)
+        },
+        (error) => {
+          console.error('SSE stats error:', error)
+          // Don't show error to user, just keep previous stats
+        }
+      )
+
+      return () => {
+        if (statsSseRef.current) {
+          statsSseRef.current.close()
+          statsSseRef.current = null
+        }
       }
     }
 
-    loadQueryLogStats()
+    loadAndStreamStats()
+
+    return () => {
+      if (statsSseRef.current) {
+        statsSseRef.current.close()
+        statsSseRef.current = null
+      }
+    }
   }, [selectedNode, selectedTimePreset, appliedDateFrom, appliedDateTo, appliedUser, appliedSearchQuery, isAuthenticated])
 
   // Load query log

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/repository"
+	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
@@ -47,8 +49,10 @@ type QueryLogRepository interface {
 
 // QueryLogHandler handles ClickHouse query log endpoints.
 type QueryLogHandler struct {
-	repo   QueryLogRepository
-	logger *logger.Logger
+	repo             QueryLogRepository
+	broadcaster      *stream.Broadcaster
+	statsPublisher   *stream.QueryLogStatsPublisher
+	logger           *logger.Logger
 }
 
 // NewQueryLogHandler creates a production query log handler.
@@ -57,17 +61,35 @@ func NewQueryLogHandler(log *logger.Logger, cfg *config.Config) (*QueryLogHandle
 	if err != nil {
 		return nil, err
 	}
+
+	broadcaster := stream.NewBroadcaster(log)
+
+	// Parse poll interval from config
+	pollInterval := 2 * time.Second
+	if cfg != nil && cfg.Sync.ProcessesPollInterval != "" {
+		parsed, err := time.ParseDuration(cfg.Sync.ProcessesPollInterval)
+		if err == nil && parsed > 0 {
+			pollInterval = parsed
+		}
+	}
+
+	statsPublisher := stream.NewQueryLogStatsPublisher(repo, broadcaster, log, pollInterval)
+
 	return &QueryLogHandler{
-		repo:   repo,
-		logger: log,
+		repo:           repo,
+		broadcaster:    broadcaster,
+		statsPublisher: statsPublisher,
+		logger:         log,
 	}, nil
 }
 
 // NewQueryLogHandlerWithRepository creates a query log handler using a custom repository (testing helper).
-func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepository) *QueryLogHandler {
+func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepository, broadcaster *stream.Broadcaster, publisher *stream.QueryLogStatsPublisher) *QueryLogHandler {
 	return &QueryLogHandler{
-		repo:   repo,
-		logger: log,
+		repo:           repo,
+		broadcaster:    broadcaster,
+		statsPublisher: publisher,
+		logger:         log,
 	}
 }
 
@@ -175,6 +197,117 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// StreamQueryLogStats streams query log statistics via Server-Sent Events (SSE)
+// @Summary      Stream query log stats via SSE
+// @Description  Streams query log statistics (running, finished, error counts) personalized per user and filter combination
+// @Tags         query-log
+// @Param        node   query  string  false  "ClickHouse node hostname"
+// @Param        user   query  string  false  "Initial or effective ClickHouse user"
+// @Param        search query  string  false  "Search query text"
+// @Param        last   query  string  false  "Relative window (10s|30s|1m|5m|15m)"
+// @Param        from   query  string  false  "Start timestamp (RFC3339)"
+// @Param        to     query  string  false  "End timestamp (RFC3339)"
+// @Param        token  query  string  false  "JWT token (alternative to Authorization header for SSE)"
+// @Produce      text/event-stream
+// @Success      200  {string}  text/event-stream
+// @Router       /api/v1/query-log/stats/stream [get]
+func (h *QueryLogHandler) StreamQueryLogStats(c *gin.Context) {
+	// Parse filter for stats
+	filter, err := h.parseFilterForStats(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid filter",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	var userID string
+	if v, exists := c.Get("user_id"); exists {
+		if s, ok := v.(string); ok {
+			userID = s
+		} else if v != nil {
+			userID = fmt.Sprint(v)
+		}
+	}
+
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+			Error:   "Unauthorized",
+			Message: "User ID not found in context",
+		})
+		return
+	}
+
+	// Set headers for SSE
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no") // Disable nginx buffering
+
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+
+	// Create filter key for topic
+	filterKey := stream.FilterKey{
+		Node:        filter.Node,
+		User:        filter.User,
+		Search:      filter.Search,
+		Last:        filter.RangePreset,
+		From:        filter.From.Format(time.RFC3339),
+		To:          filter.To.Format(time.RFC3339),
+		RangePreset: filter.RangePreset,
+	}
+
+	// Ensure publisher is running for this user+filter combination
+	h.statsPublisher.EnsurePublisher(userID, filter)
+
+	topic := stream.QueryLogStatsTopic(userID, filterKey)
+	updates, unsubscribe := h.broadcaster.Subscribe(ctx, topic, userID)
+	defer unsubscribe()
+
+	// Send initial connection message
+	c.SSEvent("message", gin.H{"status": "connected", "user_id": userID, "filter": filterKey})
+	c.Writer.Flush()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if h.logger != nil {
+				h.logger.Infof("SSE connection closed for query log stats, user: %s", userID)
+			}
+			return
+		case event, ok := <-updates:
+			if !ok {
+				if h.logger != nil {
+					h.logger.Infof("Query log stats stream closed for user: %s", userID)
+				}
+				return
+			}
+			if event.Err != nil {
+				c.SSEvent("error", gin.H{"error": fmt.Sprintf("Failed to get stats: %v", event.Err)})
+				c.Writer.Flush()
+				continue
+			}
+			stats, ok := stream.DecodeQueryLogStatsPayload(event)
+			if !ok || stats == nil {
+				continue
+			}
+
+			statsJSON, err := json.Marshal(stats)
+			if err != nil {
+				if h.logger != nil {
+					h.logger.Errorf("Failed to marshal stats: %v", err)
+				}
+				continue
+			}
+
+			c.SSEvent("stats", string(statsJSON))
+			c.Writer.Flush()
+		}
+	}
 }
 
 func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter, error) {

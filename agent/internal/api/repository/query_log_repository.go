@@ -408,27 +408,30 @@ func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (strin
 }
 
 // buildProcessesWhereClause builds WHERE clause for system.processes queries.
-// Filters by query_start_time (computed as now() - toIntervalSecond(elapsed)) and user.
+// For running queries, we only filter by user and search, not by time range,
+// because running queries are current and don't have a completion time.
 // Note: Node filtering is handled by connection selection, not WHERE clause.
 func (r *QueryLogRepository) buildProcessesWhereClause(filter QueryLogFilter) (string, []any) {
-	conditions := []string{
-		"(now() - toIntervalSecond(elapsed)) >= ?",
-		"(now() - toIntervalSecond(elapsed)) <= ?",
-	}
+	conditions := []string{}
 
-	args := []any{filter.From, filter.To}
+	args := []any{}
+
+	// Don't apply time filters to running queries - they are current queries
+	// that may have started at any time. Only apply user and search filters.
 
 	if filter.User != "" {
 		conditions = append(conditions, "user = ?")
 		args = append(args, filter.User)
 	}
 
-	// Filter out internal queries from ops-agent itself
-	conditions = append(conditions, "query NOT LIKE '%%ops-agent-%%'")
-
 	if filter.Search != "" {
 		conditions = append(conditions, "query LIKE ?")
 		args = append(args, "%"+filter.Search+"%")
+	}
+
+	// If no conditions, return a condition that's always true
+	if len(conditions) == 0 {
+		return "1 = 1", args
 	}
 
 	return strings.Join(conditions, " AND "), args

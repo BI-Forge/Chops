@@ -238,6 +238,74 @@ export const queryAPI = {
     })
   },
 
+  streamQueryLogStats: (
+    filter: Omit<QueryLogFilter, 'limit' | 'offset'>,
+    onMessage: (stats: QueryLogStatsResponse) => void,
+    onError?: (error: Error) => void
+  ): EventSource => {
+    const token = localStorage.getItem('token')
+    const params = new URLSearchParams()
+    if (filter.last) params.append('last', filter.last)
+    if (filter.from) params.append('from', filter.from)
+    if (filter.to) params.append('to', filter.to)
+    if (filter.user) params.append('user', filter.user)
+    if (filter.node) params.append('node', filter.node)
+    if (filter.search) params.append('search', filter.search)
+    if (token) params.append('token', token)
+
+    const url = `/api/v1/query-log/stats/stream?${params.toString()}`
+    
+    const eventSource = new EventSource(url, {
+      withCredentials: false,
+    })
+
+    eventSource.addEventListener('message', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data)
+        // Handle connection message
+        if (data.status === 'connected') {
+          return
+        }
+      } catch (err) {
+        // Ignore parsing errors for connection messages
+      }
+    })
+
+    eventSource.addEventListener('stats', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data && typeof data.running === 'number' && typeof data.finished === 'number' && typeof data.error === 'number') {
+          onMessage(data as QueryLogStatsResponse)
+        }
+      } catch (err) {
+        if (onError) {
+          onError(err as Error)
+        }
+      }
+    })
+
+    eventSource.addEventListener('error', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (onError) {
+          onError(new Error(data.error || 'Unknown error'))
+        }
+      } catch (err) {
+        if (onError) {
+          onError(err as Error)
+        }
+      }
+    })
+
+    eventSource.onerror = () => {
+      if (onError) {
+        onError(new Error('SSE connection error'))
+      }
+    }
+
+    return eventSource
+  },
+
   getUsers: async (node?: string): Promise<UsersResponse> => {
     return retryRequest(async () => {
       const params = new URLSearchParams()
