@@ -457,3 +457,128 @@ func (r *QueryLogRepository) buildProcessesWhereClause(filter QueryLogFilter) (s
 
 	return strings.Join(conditions, " AND "), args
 }
+
+// QueryLoadEntry represents CPU and memory load data for a query.
+type QueryLoadEntry struct {
+	EventTime   time.Time
+	QueryID     string
+	User        string
+	DurationMs  uint64
+	MemoryUsage uint64
+	UserUs      uint64
+	SystemUs    uint64
+	VirtUs      uint64
+	WaitUs      uint64
+	NumCores    uint64
+	RealUs      uint64
+	CPULoad     float64
+}
+
+// GetLoadData returns CPU and memory load data for queries matching the filter (without pagination).
+func (r *QueryLogRepository) GetLoadData(ctx context.Context, filter QueryLogFilter) ([]QueryLoadEntry, error) {
+	clusterManager := r.manager.GetClusterManager()
+	if clusterManager == nil {
+		return nil, fmt.Errorf("cluster manager not available")
+	}
+
+	var conn driver.Conn
+	var err error
+	if filter.Node != "" {
+		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
+		}
+	} else {
+		conn, _, err = clusterManager.GetConnection()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection: %w", err)
+		}
+	}
+
+	whereClause, args := r.buildWhereClause(filter)
+
+	loadQuery := fmt.Sprintf(`
+SELECT
+	event_time,
+	query_id,
+	user,
+	query_duration_ms,
+	memory_usage,
+	ProfileEvents['UserTimeMicroseconds'] AS user_us,
+	ProfileEvents['SystemTimeMicroseconds'] AS system_us,
+	ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS virt_us,
+	ProfileEvents['OSCPUWaitMicroseconds'] AS wait_us,
+	peak_threads_usage AS num_cores,
+	query_duration_ms * 1000 AS real_us,
+	(((user_us + system_us + virt_us) / (real_us * num_cores))
+        +
+    (wait_us / (real_us * num_cores))) * 100
+     AS cpu_load
+FROM system.query_log
+WHERE %s
+ORDER BY event_time DESC`, whereClause)
+
+	rows, err := conn.Query(ctx, loadQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query load data: %w", err)
+	}
+	defer rows.Close()
+
+	entries := make([]QueryLoadEntry, 0)
+	for rows.Next() {
+		var (
+			eventTime   time.Time
+			queryID     string
+			user        string
+			durationMs  uint64
+			memoryUsage uint64
+			userUs      uint64
+			systemUs    uint64
+			virtUs      uint64
+			waitUs      uint64
+			numCores    uint64
+			realUs      uint64
+			cpuLoad     float64
+		)
+
+		if err := rows.Scan(
+			&eventTime,
+			&queryID,
+			&user,
+			&durationMs,
+			&memoryUsage,
+			&userUs,
+			&systemUs,
+			&virtUs,
+			&waitUs,
+			&numCores,
+			&realUs,
+			&cpuLoad,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan load data row: %w", err)
+		}
+
+		entry := QueryLoadEntry{
+			EventTime:   eventTime,
+			QueryID:     queryID,
+			User:        user,
+			DurationMs:  durationMs,
+			MemoryUsage: memoryUsage,
+			UserUs:      userUs,
+			SystemUs:    systemUs,
+			VirtUs:      virtUs,
+			WaitUs:      waitUs,
+			NumCores:    numCores,
+			RealUs:      realUs,
+			CPULoad:     cpuLoad,
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("load data iteration failed: %w", err)
+	}
+
+	return entries, nil
+}

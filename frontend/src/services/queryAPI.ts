@@ -61,6 +61,19 @@ export interface QueryLogStatsResponse {
   error: number
 }
 
+export interface QueryLoadEntry {
+  event_time: string
+  query_id: string
+  user: string
+  duration_ms: number
+  memory_usage: number
+  cpu_load: number
+}
+
+export interface QueryLoadResponse {
+  entries: QueryLoadEntry[]
+}
+
 export interface UsersResponse {
   users: string[]
 }
@@ -314,6 +327,22 @@ export const queryAPI = {
       if (node) params.append('node', node)
 
       const response = await api.get<UsersResponse>(`/users${params.toString() ? `?${params.toString()}` : ''}`)
+      return response.data
+    })
+  },
+
+  getQueryLoadData: async (filter: QueryLogFilter): Promise<QueryLoadResponse> => {
+    return retryRequest(async () => {
+      const params = new URLSearchParams()
+      if (filter.last) params.append('last', filter.last)
+      if (filter.from) params.append('from', filter.from)
+      if (filter.to) params.append('to', filter.to)
+      if (filter.user) params.append('user', filter.user)
+      if (filter.node) params.append('node', filter.node)
+      if (filter.search) params.append('search', filter.search)
+      if (filter.status && filter.status !== 'all') params.append('status', filter.status)
+
+      const response = await api.get<QueryLoadResponse>(`/query-log/load?${params.toString()}`)
       return response.data
     })
   },

@@ -71,25 +71,31 @@ const MetricChartCard = ({
 
   const formattedData = useMemo(
     () =>
-      data.map((point) => ({
-        ...point,
-        label: new Date(point.timestamp).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      })),
+      data.map((point) => {
+        const timestamp = new Date(point.timestamp).getTime()
+        return {
+          ...point,
+          timestampValue: timestamp,
+          label: new Date(point.timestamp).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        }
+      }),
     [data]
   )
 
   const xTicks = useMemo(() => {
     const seenMinutes = new Set<number>()
-    const ticks: string[] = []
+    const ticks: number[] = []
+    const minuteMs = 60 * 1000
 
     formattedData.forEach((point) => {
-      const minuteBucket = Math.floor(new Date(point.timestamp).getTime() / 60_000)
+      const timestamp = point.timestampValue
+      const minuteBucket = Math.floor(timestamp / minuteMs)
       if (!seenMinutes.has(minuteBucket)) {
         seenMinutes.add(minuteBucket)
-        ticks.push(point.label)
+        ticks.push(timestamp)
       }
     })
 
@@ -124,8 +130,17 @@ const MetricChartCard = ({
               </defs>
               <CartesianGrid stroke="#1d293d" strokeDasharray="3 3" vertical={false} />
               <XAxis
-                dataKey="label"
+                dataKey="timestampValue"
+                type="number"
+                scale="time"
+                domain={['dataMin', 'dataMax']}
                 ticks={xTicks}
+                tickFormatter={(value) => {
+                  return new Date(value).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                }}
                 tick={{ fill: '#64748b', fontSize: 12 }}
                 stroke="#1d293d"
                 tickLine={false}
@@ -145,6 +160,22 @@ const MetricChartCard = ({
                   fontFamily: 'Arimo, sans-serif',
                 }}
                 labelStyle={{ color: '#90a1b9' }}
+                labelFormatter={(label, payload) => {
+                  if (payload && payload.length > 0 && payload[0].payload) {
+                    const timestamp = payload[0].payload.timestamp
+                    if (timestamp) {
+                      return new Date(timestamp).toLocaleString([], {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })
+                    }
+                  }
+                  return label
+                }}
                 formatter={(value: number) => [valueFormatter(value), '']}
               />
               <Area

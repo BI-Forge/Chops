@@ -48,6 +48,7 @@ var acceptedTimeFormats = []string{
 type QueryLogRepository interface {
 	List(ctx context.Context, filter repository.QueryLogFilter) ([]models.QueryLogEntry, int64, error)
 	GetStats(ctx context.Context, filter repository.QueryLogFilter) (models.QueryLogStatsResponse, error)
+	GetLoadData(ctx context.Context, filter repository.QueryLogFilter) ([]repository.QueryLoadEntry, error)
 }
 
 // QueryLogHandler handles ClickHouse query log endpoints.
@@ -200,6 +201,68 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// GetQueryLoadData returns CPU and memory load data for queries matching the filter (without pagination).
+// @Summary      Get query load data
+// @Description  Returns CPU and memory load data for queries filtered by time range, user, node, and search query
+// @Tags         query-log
+// @Security     BearerAuth
+// @Produce      json
+// @Param        last    query     string  false  "Relative window (10s|30s|1m|5m|15m)"
+// @Param        from    query     string  false  "Start timestamp (RFC3339 or 2006-01-02 15:04:05)"
+// @Param        to      query     string  false  "End timestamp (RFC3339 or 2006-01-02 15:04:05)"
+// @Param        user    query     string  false  "Initial or effective ClickHouse user"
+// @Param        node    query     string  false  "ClickHouse node hostname"
+// @Param        search  query     string  false  "Search query text (LIKE pattern in query column)"
+// @Param        status  query     string  false  "Filter by status: 'completed' (exception_code = 0) or 'failed' (exception_code != 0)"
+// @Success      200     {object}  models.QueryLoadResponse
+// @Failure      400     {object}  models.ErrorResponse
+// @Failure      500     {object}  models.ErrorResponse
+// @Router       /api/v1/query-log/load [get]
+func (h *QueryLogHandler) GetQueryLoadData(c *gin.Context) {
+	filter, err := h.parseFilterForLoad(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid filter",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), queryLogTimeout)
+	defer cancel()
+
+	entries, err := h.repo.GetLoadData(ctx, filter)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Errorf("Failed to get query load data: %v", err)
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Failed to load query load data",
+			Message: "ClickHouse query failed",
+		})
+		return
+	}
+
+	// Convert repository entries to API models
+	apiEntries := make([]models.QueryLoadEntry, 0, len(entries))
+	for _, entry := range entries {
+		apiEntries = append(apiEntries, models.QueryLoadEntry{
+			EventTime:   entry.EventTime.UTC().Format(time.RFC3339),
+			QueryID:     entry.QueryID,
+			User:        entry.User,
+			DurationMs:  entry.DurationMs,
+			MemoryUsage: entry.MemoryUsage,
+			CPULoad:     entry.CPULoad,
+		})
+	}
+
+	response := models.QueryLoadResponse{
+		Entries: apiEntries,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // StreamQueryLogStats streams query log statistics via Server-Sent Events (SSE)
@@ -448,6 +511,41 @@ func (h *QueryLogHandler) parseFilterForStats(c *gin.Context) (repository.QueryL
 		Search:      search,
 		Limit:       0, // Not used for stats
 		Offset:      0, // Not used for stats
+		RangePreset: preset,
+	}, nil
+}
+
+// parseFilterForLoad parses filter parameters for load data endpoint (with status filter, without pagination).
+func (h *QueryLogHandler) parseFilterForLoad(c *gin.Context) (repository.QueryLogFilter, error) {
+	user := strings.TrimSpace(c.Query("user"))
+	node := strings.TrimSpace(c.Query("node"))
+	search := strings.TrimSpace(c.Query("search"))
+	status := strings.TrimSpace(c.Query("status"))
+
+	// Validate status parameter
+	if status != "" && status != "completed" && status != "failed" && status != "all" {
+		return repository.QueryLogFilter{}, fmt.Errorf("invalid status value: %s (must be 'completed', 'failed', or 'all')", status)
+	}
+
+	// Convert "all" to empty string for consistency
+	if status == "all" {
+		status = ""
+	}
+
+	from, to, preset, err := parseTimeRange(c.Query("last"), c.Query("from"), c.Query("to"))
+	if err != nil {
+		return repository.QueryLogFilter{}, err
+	}
+
+	return repository.QueryLogFilter{
+		From:        from,
+		To:          to,
+		User:        user,
+		Node:        node,
+		Search:      search,
+		Status:      status,
+		Limit:       0, // Not used for load data
+		Offset:      0, // Not used for load data
 		RangePreset: preset,
 	}, nil
 }

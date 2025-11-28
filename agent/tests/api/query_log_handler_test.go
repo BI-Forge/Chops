@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/v1/handlers"
@@ -17,14 +18,18 @@ import (
 )
 
 type stubQueryLogRepo struct {
-	items       []models.QueryLogEntry
-	total       int64
-	err         error
-	called      bool
-	lastFilter  repository.QueryLogFilter
-	stats       models.QueryLogStatsResponse
-	statsErr    error
-	statsCalled bool
+	items         []models.QueryLogEntry
+	total         int64
+	err           error
+	called        bool
+	lastFilter    repository.QueryLogFilter
+	stats         models.QueryLogStatsResponse
+	statsErr      error
+	statsCalled   bool
+	loadEntries   []repository.QueryLoadEntry
+	loadErr       error
+	loadCalled    bool
+	loadLastFilter repository.QueryLogFilter
 }
 
 func (s *stubQueryLogRepo) List(ctx context.Context, filter repository.QueryLogFilter) ([]models.QueryLogEntry, int64, error) {
@@ -39,10 +44,16 @@ func (s *stubQueryLogRepo) GetStats(ctx context.Context, filter repository.Query
 	return s.stats, s.statsErr
 }
 
+func (s *stubQueryLogRepo) GetLoadData(ctx context.Context, filter repository.QueryLogFilter) ([]repository.QueryLoadEntry, error) {
+	s.loadCalled = true
+	s.loadLastFilter = filter
+	return s.loadEntries, s.loadErr
+}
+
 func TestQueryLogHandlerRejectsInvalidPreset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &stubQueryLogRepo{}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -58,7 +69,7 @@ func TestQueryLogHandlerRejectsInvalidPreset(t *testing.T) {
 func TestQueryLogHandlerRejectsInvalidTimestamps(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &stubQueryLogRepo{}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -83,7 +94,7 @@ func TestQueryLogHandlerReturnsData(t *testing.T) {
 		},
 		total: 1,
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -114,7 +125,7 @@ func TestQueryLogHandlerGetStats(t *testing.T) {
 			Error:    3,
 		},
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -140,7 +151,7 @@ func TestQueryLogHandlerGetStats(t *testing.T) {
 func TestQueryLogHandlerGetStatsRejectsInvalidPreset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &stubQueryLogRepo{}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -158,7 +169,7 @@ func TestQueryLogHandlerGetStatsHandlesError(t *testing.T) {
 	repo := &stubQueryLogRepo{
 		statsErr: assert.AnError,
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -177,7 +188,7 @@ func TestQueryLogHandlerParsesStatusParameter(t *testing.T) {
 		items: []models.QueryLogEntry{},
 		total: 0,
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -197,7 +208,7 @@ func TestQueryLogHandlerParsesCompletedStatus(t *testing.T) {
 		items: []models.QueryLogEntry{},
 		total: 0,
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -214,7 +225,7 @@ func TestQueryLogHandlerParsesCompletedStatus(t *testing.T) {
 func TestQueryLogHandlerRejectsInvalidStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &stubQueryLogRepo{}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -233,7 +244,7 @@ func TestQueryLogHandlerAllowsAllStatus(t *testing.T) {
 		items: []models.QueryLogEntry{},
 		total: 0,
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -256,7 +267,7 @@ func TestQueryLogHandlerStatusNotInStats(t *testing.T) {
 			Error:    3,
 		},
 	}
-	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo)
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -269,4 +280,117 @@ func TestQueryLogHandlerStatusNotInStats(t *testing.T) {
 	assert.True(t, repo.statsCalled)
 	// Status should not be set in stats filter (stats should include all statuses)
 	assert.Equal(t, "", repo.lastFilter.Status, "status should not be applied to stats")
+}
+
+func TestQueryLogHandlerGetLoadData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		loadEntries: []repository.QueryLoadEntry{
+			{
+				EventTime:   time.Now(),
+				QueryID:     "query-123",
+				User:        "testuser",
+				DurationMs:  5000,
+				MemoryUsage: 1024 * 1024 * 100, // 100 MB
+				CPULoad:     0.75,
+			},
+		},
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log/load?last=10s&user=testuser&node=primary&status=completed", nil)
+	c.Request = req
+
+	h.GetQueryLoadData(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.loadCalled)
+	assert.Equal(t, "10s", repo.loadLastFilter.RangePreset)
+	assert.Equal(t, "testuser", repo.loadLastFilter.User)
+	assert.Equal(t, "primary", repo.loadLastFilter.Node)
+	assert.Equal(t, "completed", repo.loadLastFilter.Status)
+
+	var resp models.QueryLoadResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Len(t, resp.Entries, 1)
+	assert.Equal(t, "query-123", resp.Entries[0].QueryID)
+	assert.Equal(t, "testuser", resp.Entries[0].User)
+	assert.Equal(t, uint64(5000), resp.Entries[0].DurationMs)
+	assert.Equal(t, uint64(1024*1024*100), resp.Entries[0].MemoryUsage)
+	assert.Equal(t, 0.75, resp.Entries[0].CPULoad)
+}
+
+func TestQueryLogHandlerGetLoadDataRejectsInvalidPreset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log/load?last=9s", nil)
+	c.Request = req
+
+	h.GetQueryLoadData(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.False(t, repo.loadCalled, "repository should not be invoked on invalid input")
+}
+
+func TestQueryLogHandlerGetLoadDataRejectsInvalidStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log/load?last=10s&status=invalid", nil)
+	c.Request = req
+
+	h.GetQueryLoadData(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.False(t, repo.loadCalled, "repository should not be invoked on invalid status")
+}
+
+func TestQueryLogHandlerGetLoadDataHandlesError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		loadErr: assert.AnError,
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log/load?last=10s", nil)
+	c.Request = req
+
+	h.GetQueryLoadData(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.True(t, repo.loadCalled)
+}
+
+func TestQueryLogHandlerGetLoadDataParsesFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubQueryLogRepo{
+		loadEntries: []repository.QueryLoadEntry{},
+	}
+	h := handlers.NewQueryLogHandlerWithRepository(logger.New(logger.InfoLevel, "text"), repo, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/query-log/load?last=15m&user=admin&search=SELECT&status=failed", nil)
+	c.Request = req
+
+	h.GetQueryLoadData(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.loadCalled)
+	assert.Equal(t, "15m", repo.loadLastFilter.RangePreset)
+	assert.Equal(t, "admin", repo.loadLastFilter.User)
+	assert.Equal(t, "SELECT", repo.loadLastFilter.Search)
+	assert.Equal(t, "failed", repo.loadLastFilter.Status)
 }

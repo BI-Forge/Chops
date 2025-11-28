@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../services/AuthContext'
 import { metricsAPI } from '../services/metricsAPI'
-import { queryAPI, type QueryLogEntry, type QueryLogFilter, type Process, type QueryLogStatsResponse } from '../services/queryAPI'
+import { queryAPI, type QueryLogEntry, type QueryLogFilter, type Process, type QueryLogStatsResponse, type QueryLoadEntry } from '../services/queryAPI'
 import QueryHistoryMetricCard from '../components/QueryHistoryMetricCard'
 import MetricChartCard, { type MetricChartPoint } from '../components/MetricChartCard'
 import NodeSelectorDropdown from '../components/NodeSelectorDropdown'
@@ -123,6 +123,12 @@ const QueryHistoryPage = () => {
   const [memoryChartData, setMemoryChartData] = useState<MetricChartPoint[]>([])
   const [cpuChartData, setCpuChartData] = useState<MetricChartPoint[]>([])
   const [chartsLoading, setChartsLoading] = useState(false)
+  
+  // Store raw load data for filtering
+  const [rawLoadData, setRawLoadData] = useState<QueryLoadEntry[]>([])
+  
+  // Selected query IDs for chart filtering (empty set means show all)
+  const [filteredQueryIds, setFilteredQueryIds] = useState<Set<string>>(new Set())
 
   // Query modal state
   const [expandedQuery, setExpandedQuery] = useState<QueryLogEntry | null>(null)
@@ -540,45 +546,74 @@ const QueryHistoryPage = () => {
     }
   }, [selectedNode, isAuthenticated])
 
-  // Load chart data
+  // Load chart data from query load data
   useEffect(() => {
     const loadChartData = async () => {
-      if (!selectedNode || !isAuthenticated) {
+      if (!selectedNode || !isAuthenticated || !filtersLoadedRef.current) {
         return
       }
 
       setChartsLoading(true)
 
       try {
-        // Load memory and CPU metrics for the last 2 hours with 5-minute intervals
-        // Use '2h' period but API might need different format, try '6h' as closest match
-        const [memoryResponse, cpuResponse] = await Promise.all([
-          metricsAPI.getMetricSeries(selectedNode, 'memory_used_gb', '6h', '5m'),
-          metricsAPI.getMetricSeries(selectedNode, 'cpu_load', '6h', '5m'),
-        ])
+        // Use preset only if from/to are not specified
+        const usePreset = !appliedDateFrom && !appliedDateTo
 
-        setMemoryChartData(
-          memoryResponse.points.map((p) => ({
-            timestamp: p.timestamp,
-            value: p.value,
-          }))
-        )
+        const filter: Omit<QueryLogFilter, 'limit' | 'offset'> = {
+          node: selectedNode,
+          last: usePreset ? selectedTimePreset : undefined,
+          from: formatDateTimeForAPI(appliedDateFrom),
+          to: formatDateTimeForAPI(appliedDateTo),
+          user: appliedUser !== 'all' ? appliedUser : undefined,
+          search: appliedSearchQuery.trim() || undefined,
+          status: appliedStatus !== 'all' ? appliedStatus : undefined,
+        }
 
-        setCpuChartData(
-          cpuResponse.points.map((p) => ({
-            timestamp: p.timestamp,
-            value: p.value * 100, // Convert to percentage
-          }))
-        )
+        const loadResponse = await queryAPI.getQueryLoadData(filter)
+
+        // Store raw data for filtering
+        setRawLoadData(loadResponse.entries)
+
+        // Debug: log first few entries to check cpu_load values
+        if (loadResponse.entries.length > 0) {
+          console.log('Sample CPU load values:', loadResponse.entries.slice(0, 5).map(e => ({
+            query_id: e.query_id,
+            cpu_load: e.cpu_load,
+            duration_ms: e.duration_ms
+          })))
+        }
       } catch (err) {
         console.error('Failed to load chart data:', err)
+        // Set empty data on error
+        setCpuChartData([])
+        setMemoryChartData([])
       } finally {
         setChartsLoading(false)
       }
     }
 
     loadChartData()
-  }, [selectedNode, isAuthenticated])
+  }, [selectedNode, selectedTimePreset, appliedDateFrom, appliedDateTo, appliedUser, appliedSearchQuery, appliedStatus, isAuthenticated])
+
+  // Update charts when filtered query IDs or raw data changes
+  useEffect(() => {
+    if (rawLoadData.length === 0) {
+      setCpuChartData([])
+      setMemoryChartData([])
+      return
+    }
+
+    // Filter entries by selected query IDs (if any are selected)
+    let entriesToProcess = rawLoadData
+    if (filteredQueryIds.size > 0) {
+      entriesToProcess = rawLoadData.filter((entry) => filteredQueryIds.has(entry.query_id))
+    }
+
+    // Process filtered data
+    const { cpuPoints, memoryPoints } = processLoadData(entriesToProcess)
+    setCpuChartData(cpuPoints)
+    setMemoryChartData(memoryPoints)
+  }, [rawLoadData, filteredQueryIds])
 
   const formatDuration = (ms: number): string => {
     if (ms < 1000) return `${ms}ms`
@@ -656,16 +691,124 @@ const QueryHistoryPage = () => {
     })
   }
 
-  // Handle apply selected queries (for future visualization)
+  // Process load data and generate chart points
+  const processLoadData = (entries: QueryLoadEntry[]) => {
+    const intervalSeconds = 10
+    const intervalMs = intervalSeconds * 1000
+    const cpuDataMap = new Map<number, { sum: number; count: number }>()
+    const memoryDataMap = new Map<number, { sum: number; count: number }>()
+
+    // Find min and max time from all entries
+    let minTime = Infinity
+    let maxTime = -Infinity
+
+    entries.forEach((entry) => {
+      const startTime = new Date(entry.event_time).getTime()
+      const endTime = startTime + entry.duration_ms
+      minTime = Math.min(minTime, startTime)
+      maxTime = Math.max(maxTime, endTime)
+    })
+
+    if (minTime === Infinity || maxTime === -Infinity) {
+      return { cpuPoints: [], memoryPoints: [] }
+    }
+
+    // Round minTime down to nearest 10-second interval and maxTime up
+    const minInterval = Math.floor(minTime / intervalMs) * intervalMs
+    const maxInterval = Math.ceil(maxTime / intervalMs) * intervalMs
+
+    // Process each entry and distribute load over query duration
+    entries.forEach((entry) => {
+      const startTime = new Date(entry.event_time).getTime()
+      const durationSeconds = entry.duration_ms / 1000
+
+      // cpu_load from SQL is already in percentage (0-100) due to * 100 in SQL
+      // The value represents the average CPU load percentage for the entire query duration
+      // We use it directly as the load percentage for each time interval the query spans
+      const cpuLoadPercent = entry.cpu_load
+      const memoryUsageMB = entry.memory_usage / (1024 * 1024)
+
+      // Distribute load over query duration in 10-second intervals
+      const numIntervals = Math.ceil(durationSeconds / intervalSeconds)
+      for (let i = 0; i < numIntervals; i++) {
+        const intervalStart = startTime + i * intervalSeconds * 1000
+        const intervalKey = Math.floor(intervalStart / intervalMs) * intervalMs
+
+        // For each interval, add the load value (same load for all intervals of this query)
+        if (!cpuDataMap.has(intervalKey)) {
+          cpuDataMap.set(intervalKey, { sum: 0, count: 0 })
+        }
+        const cpuData = cpuDataMap.get(intervalKey)!
+        cpuData.sum += cpuLoadPercent
+        cpuData.count += 1
+
+        if (!memoryDataMap.has(intervalKey)) {
+          memoryDataMap.set(intervalKey, { sum: 0, count: 0 })
+        }
+        const memoryData = memoryDataMap.get(intervalKey)!
+        memoryData.sum += memoryUsageMB
+        memoryData.count += 1
+      }
+    })
+
+    // Convert maps to chart data points with 10-second intervals
+    const cpuPoints: MetricChartPoint[] = []
+    const memoryPoints: MetricChartPoint[] = []
+
+    // Create all intervals from min to max with 10-second step
+    for (let timestamp = minInterval; timestamp <= maxInterval; timestamp += intervalMs) {
+      const cpuData = cpuDataMap.get(timestamp)
+      const memoryData = memoryDataMap.get(timestamp)
+
+      if (cpuData) {
+        const avgCpuLoad = cpuData.count > 0 ? cpuData.sum / cpuData.count : 0
+        // Cap CPU load at 100% to avoid displaying values > 100%
+        const cappedCpuLoad = Math.min(avgCpuLoad, 100)
+        cpuPoints.push({
+          timestamp: new Date(timestamp).toISOString(),
+          value: cappedCpuLoad,
+        })
+      } else {
+        // Add zero value for intervals without data
+        cpuPoints.push({
+          timestamp: new Date(timestamp).toISOString(),
+          value: 0,
+        })
+      }
+
+      if (memoryData) {
+        const avgMemory = memoryData.count > 0 ? memoryData.sum / memoryData.count : 0
+        memoryPoints.push({
+          timestamp: new Date(timestamp).toISOString(),
+          value: avgMemory,
+        })
+      } else {
+        // Add zero value for intervals without data
+        memoryPoints.push({
+          timestamp: new Date(timestamp).toISOString(),
+          value: 0,
+        })
+      }
+    }
+
+    return { cpuPoints, memoryPoints }
+  }
+
+  // Handle apply selected queries - filter charts by selected query IDs
   const handleApplySelectedQueries = () => {
-    const selected = Array.from(selectedQueries)
-    console.log('Selected queries for visualization:', selected)
-    // TODO: Implement visualization logic here
+    if (selectedQueries.size === 0) {
+      // If nothing selected, show all queries
+      setFilteredQueryIds(new Set())
+    } else {
+      // Filter by selected query IDs
+      setFilteredQueryIds(new Set(selectedQueries))
+    }
   }
 
   // Clear selection when filters change
   useEffect(() => {
     setSelectedQueries(new Set())
+    setFilteredQueryIds(new Set()) // Also clear chart filter when main filters change
   }, [appliedSearchQuery, appliedUser, appliedStatus, appliedDateFrom, appliedDateTo, queryLogPage])
 
   // Convert Process to QueryLogEntry format for modal display
@@ -1006,12 +1149,12 @@ const QueryHistoryPage = () => {
                 <h2 className="query-history-page__section-title">Memory Load Timeline</h2>
               </div>
               <MetricChartCard
-                title="Memory Usage (GB)"
+                title="Memory Usage (MB)"
                 data={memoryChartData}
                 colorFrom="#f59e0b"
                 colorTo="#fbbf24"
                 strokeColor="#f59e0b"
-                valueFormatter={(value) => `${value.toFixed(2)} GB`}
+                valueFormatter={(value) => `${value.toFixed(2)} MB`}
                 isLoading={chartsLoading}
               />
             </div>
@@ -1047,20 +1190,52 @@ const QueryHistoryPage = () => {
                   <div className="query-history-page__empty">No queries found</div>
                 ) : (
                   <>
-                    {selectedQueries.size > 0 && (
-                      <div className="query-history-page__selected-actions">
-                        <span className="query-history-page__selected-count">
-                          {selectedQueries.size} query{selectedQueries.size !== 1 ? 'ies' : ''} selected
-                        </span>
-                        <button
-                          className="query-history-page__apply-selected-button"
-                          onClick={handleApplySelectedQueries}
-                          type="button"
-                        >
-                          Apply Selected
-                        </button>
-                      </div>
-                    )}
+                    {(() => {
+                      // Check if there are new selections after last Apply Selected
+                      const hasNewSelections = selectedQueries.size > 0 && 
+                        (filteredQueryIds.size === 0 || 
+                         !Array.from(selectedQueries).every(id => filteredQueryIds.has(id)) ||
+                         selectedQueries.size !== filteredQueryIds.size)
+                      
+                      if (!(selectedQueries.size > 0 || filteredQueryIds.size > 0)) {
+                        return null
+                      }
+                      
+                      return (
+                        <div className="query-history-page__selected-actions">
+                          {hasNewSelections ? (
+                            <>
+                              <span className="query-history-page__selected-count">
+                                {selectedQueries.size} query{selectedQueries.size !== 1 ? 'ies' : ''} selected
+                              </span>
+                              <button
+                                className="query-history-page__apply-selected-button"
+                                onClick={handleApplySelectedQueries}
+                                type="button"
+                              >
+                                Apply Selected
+                              </button>
+                            </>
+                          ) : filteredQueryIds.size > 0 ? (
+                            <>
+                              <span className="query-history-page__selected-count">
+                                Showing {filteredQueryIds.size} selected query{filteredQueryIds.size !== 1 ? 'ies' : ''} on charts
+                              </span>
+                              <button
+                                className="query-history-page__apply-selected-button"
+                                onClick={() => {
+                                  setFilteredQueryIds(new Set())
+                                  setSelectedQueries(new Set())
+                                }}
+                                type="button"
+                              >
+                                Clear Filter
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      )
+                    })()}
                     <div className="query-history-page__cards">
                       {filteredQueryLog.map((entry, index) => {
                         const startTime = formatDateTime(entry.event_time)
