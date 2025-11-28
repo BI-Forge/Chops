@@ -21,8 +21,6 @@ import FailedWhiteIcon from '../icons/failed_white.svg?react'
 import HighPerformanceIconSvg from '../icons/high_performance.svg?react'
 import EnterpriseSecurityIconSvg from '../icons/enterprise_security.svg?react'
 import MonitoringIconSvg from '../icons/monitoring.svg?react'
-import ClickHouseOpsLogoBig from '../icons/clickhouse_ops_logo_big.svg?react'
-import ClickHouseOpsLogoMedium from '../icons/clickhouse_ops_logo_medium.svg?react'
 
 // Sidebar navigation icons - accept isActive prop to switch between gray/white
 export const DashboardIcon = ({ isActive = false }: { isActive?: boolean }) => (
@@ -71,13 +69,8 @@ export const SettingsIcon = () => <ConfigGrayIcon width={16} height={16} />
 export const LightModeIcon = () => <SunYellowIcon width={16} height={16} />
 export const LogoutIcon = () => <ExitGrayIcon width={16} height={16} />
 
-// Logo icons - big for login page, medium for other pages
-export const LogoIcon = ({ size = 'medium' }: { size?: 'medium' | 'big' }) => {
-  if (size === 'big') {
-    return <ClickHouseOpsLogoBig width={40} height={40} />
-  }
-  return <ClickHouseOpsLogoMedium width={24} height={24} />
-}
+// Logo icon - re-export from ClickhouseOpsLogo component
+export { ClickhouseOpsLogo as LogoIcon } from './ClickhouseOpsLogo'
 
 // Feature icons for login page
 export const HighPerformanceFeatureIcon = () => <HighPerformanceIconSvg width={24} height={24} />

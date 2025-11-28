@@ -10,13 +10,14 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #020618;
+  background-color: transparent;
   color: #ffffff;
 }
 
 #root {
   width: 100%;
   min-height: 100vh;
+  position: relative;
 }
 
 button {

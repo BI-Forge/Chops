@@ -4,7 +4,8 @@ import { useAuth } from '../services/AuthContext'
 import { metricsAPI } from '../services/metricsAPI'
 import type { SystemMetrics } from '../types/metrics'
 import { useLayout } from '../components/Layout'
-import { MenuIcon, LogoIcon } from '../components/Icons'
+import { MenuIcon } from '../components/Icons'
+import { ClickhouseOpsLogo } from '../components/ClickhouseOpsLogo'
 import MetricCard from '../components/MetricCard'
 import NodeSelectorDropdown from '../components/NodeSelectorDropdown'
 import FilterSelect from '../components/FilterSelect'
@@ -486,13 +487,7 @@ const DashboardPage = () => {
         {/* Mobile Header */}
         <div className="dashboard-page__mobile-header">
           <div className="dashboard-page__mobile-logo">
-            <div className="dashboard-page__mobile-logo-icon">
-              <LogoIcon />
-            </div>
-            <div className="dashboard-page__mobile-logo-text">
-              <h1>ClickHouse</h1>
-              <p>Operations Panel</p>
-            </div>
+            <ClickhouseOpsLogo size="small" variant="light" iconOnly={false} />
           </div>
           <button className="dashboard-page__mobile-menu-button" onClick={openMobileMenu}>
             <MenuIcon />

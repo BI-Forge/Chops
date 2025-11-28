@@ -9,8 +9,8 @@ import {
   ClusterMonitorIcon,
   ConfigurationIcon,
   ChevronDownIcon,
-  LogoIcon,
 } from './Icons'
+import { ClickhouseOpsLogo } from './ClickhouseOpsLogo'
 import ProfileContextMenu from './ProfileContextMenu'
 import '../styles/Sidebar.css'
 
@@ -56,15 +56,7 @@ const Sidebar = ({ isMobile = false, onMobileClose }: SidebarProps) => {
     <aside className={`sidebar ${isMobile ? 'sidebar--mobile' : ''}`}>
       <div className="sidebar__container">
         <div className="sidebar__logo">
-          <div className="sidebar__logo-icon-wrapper">
-            <div className="sidebar__logo-icon">
-              <LogoIcon />
-            </div>
-          </div>
-          <div className="sidebar__logo-text">
-            <h1>ClickHouse</h1>
-            <p>Operations Panel</p>
-          </div>
+          <ClickhouseOpsLogo size="small" variant="light" iconOnly={false} />
         </div>
 
         <nav className="sidebar__navigation">

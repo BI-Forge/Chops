@@ -1,14 +1,14 @@
 .layout {
   display: flex;
   min-height: 100vh;
-  background: linear-gradient(180deg, #020618 0%, #0f172b 50%, #020618 100%);
+  background: transparent;
 }
 
 .layout__main {
   flex: 1;
   margin-left: 256px;
   min-height: 100vh;
-  background: linear-gradient(145deg, #020618, #0f172b, #020618);
+  background: transparent;
 }
 
 .layout__overlay {

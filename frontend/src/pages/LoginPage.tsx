@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../services/AuthContext'
 import { authAPI } from '../services/api'
-import { LogoIcon, HighPerformanceFeatureIcon, EnterpriseSecurityFeatureIcon, MonitoringFeatureIcon } from '../components/Icons'
+import { HighPerformanceFeatureIcon, EnterpriseSecurityFeatureIcon, MonitoringFeatureIcon } from '../components/Icons'
+import { ClickhouseOpsLogo } from '../components/ClickhouseOpsLogo'
 import '../styles/LoginPage.css'
 
 const LoginPage = () => {
@@ -76,13 +77,7 @@ const LoginPage = () => {
       <div className="auth-page__left">
         <div className="auth-page__left-content">
           <div className="auth-page__logo">
-            <div className="auth-page__logo-icon">
-              <LogoIcon size="big" />
-            </div>
-            <div className="auth-page__logo-text">
-              <h1>ClickHouse</h1>
-              <p>Operations Panel</p>
-            </div>
+            <ClickhouseOpsLogo size="medium" variant="light" iconOnly={false} />
           </div>
 
           <div className="auth-page__hero">
