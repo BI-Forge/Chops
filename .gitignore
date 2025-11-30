@@ -9,3 +9,5 @@
 # WSL mount points
 **/mnt/**
 **/wsl/**
+# Design directory (reference only, not part of the project)
+design3/
