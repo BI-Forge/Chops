@@ -26,7 +26,7 @@ var MetricExpressions = struct {
 	ActiveQueries     string
 }{
 	// CPU load: sum of all normalized CPU time components
-	CPULoad: `COALESCE(os_user_time_normalized, 0) + COALESCE(os_system_time_normalized, 0) + COALESCE(os_irq_time_normalized, 0) + COALESCE(os_soft_irq_time_normalized, 0) + COALESCE(os_guest_time_normalized, 0) + COALESCE(os_steal_time_normalized, 0) + COALESCE(os_nice_time_normalized, 0)`,
+	CPULoad: `(COALESCE(os_user_time_normalized, 0) + COALESCE(os_system_time_normalized, 0) + COALESCE(os_irq_time_normalized, 0) + COALESCE(os_soft_irq_time_normalized, 0) + COALESCE(os_guest_time_normalized, 0) + COALESCE(os_steal_time_normalized, 0) + COALESCE(os_nice_time_normalized, 0)) * 100`,
 
 	// Memory load: percentage of used memory
 	MemoryLoad: `CASE WHEN os_memory_total > 0 THEN ((os_memory_total - COALESCE(os_memory_available, 0))::float / os_memory_total::float) * 100 ELSE 0 END`,

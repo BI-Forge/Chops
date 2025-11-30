@@ -1,5 +1,4 @@
 import { MetricsIcon } from './Icons'
-import '../styles/MetricCard.css'
 
 interface MetricCardProps {
   title: string

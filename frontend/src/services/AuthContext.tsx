@@ -13,7 +13,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)

@@ -8,7 +8,6 @@ import {
   YAxis,
   Tooltip,
 } from 'recharts'
-import '../styles/MetricChartCard.css'
 
 export interface MetricChartPoint {
   timestamp: string

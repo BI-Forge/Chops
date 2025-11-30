@@ -1,6 +1,4 @@
 import { CompletedIcon, FailedIcon, SpinnerIcon } from './Icons'
-import '../styles/MetricCard.css'
-import '../styles/QueryHistoryMetricCard.css'
 
 interface QueryHistoryMetricCardProps {
   title: string

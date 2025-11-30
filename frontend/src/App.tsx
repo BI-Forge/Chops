@@ -1,50 +1,72 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
-import QueryHistoryPage from './pages/QueryHistoryPage'
-import { AuthProvider } from './services/AuthContext'
-import { ProtectedRoute } from './components/ProtectedRoute'
-import Layout from './components/Layout'
-import { BackgroundPattern } from './components/BackgroundPattern'
-import './styles/App.css'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { ThemeProvider } from './contexts/ThemeContext'
+import { AlertProvider } from './contexts/AlertContext'
+import { AuthProvider, useAuth } from './services/AuthContext'
+import { LoginPage } from './pages/LoginPage'
+import { DashboardPage } from './pages/DashboardPage'
+import { QueriesPage } from './pages/QueriesPage'
+import { AlertSystem } from './components/AlertSystem'
 
+// Protected Route Component
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+
+  return <>{children}</>
+}
+
+// Main App Routes
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/query-history"
+        element={
+          <ProtectedRoute>
+            <QueriesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  )
+}
+
+// Main App Component
 function App() {
   return (
-    <AuthProvider>
-      <div className="app-container">
-        <BackgroundPattern />
-        <div className="app-content">
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <DashboardPage />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/query-history"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <QueryHistoryPage />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="/" element={<Navigate to="/login" replace />} />
-            </Routes>
-          </BrowserRouter>
-        </div>
-      </div>
-    </AuthProvider>
+    <ThemeProvider>
+      <AlertProvider>
+        <AuthProvider>
+          <Router>
+            <AppRoutes />
+            <AlertSystem />
+          </Router>
+        </AuthProvider>
+      </AlertProvider>
+    </ThemeProvider>
   )
 }
 
 export default App
-

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import svgr from 'vite-plugin-svgr'
+import path from 'path'
 
 export default defineConfig({
   plugins: [
@@ -11,6 +12,12 @@ export default defineConfig({
       },
     }),
   ],
+  resolve: {
+    extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   server: {
     port: 3000,
     proxy: {
@@ -22,6 +29,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    target: 'esnext',
   },
 })
 

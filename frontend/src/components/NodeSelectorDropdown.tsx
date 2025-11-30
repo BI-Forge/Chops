@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import { ChevronDownIcon, NodeIcon } from './Icons'
-import '../styles/NodeSelectorDropdown.css'
 
 interface NodeSelectorDropdownProps {
   nodes: string[]
