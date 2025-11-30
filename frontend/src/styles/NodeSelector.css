@@ -91,6 +91,7 @@
   min-width: 280px;
   max-height: 400px;
   overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 0.75rem;
   background: rgba(17, 24, 39, 0.95);
   backdrop-filter: blur(16px);
@@ -172,6 +173,7 @@
 .node-option-content {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .node-option-name {
@@ -179,6 +181,9 @@
   font-weight: 600;
   color: #e5e7eb;
   margin-bottom: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .light .node-option-name {
@@ -189,9 +194,9 @@
   font-size: 0.75rem;
   color: #9ca3af;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .light .node-option-host {

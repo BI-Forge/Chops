@@ -10,16 +10,19 @@ interface MetricCardProps {
   unit: string;
   max?: number;
   icon: React.ReactNode;
+  absoluteValue?: number;
+  absoluteUnit?: string;
+  swapDisplay?: boolean; // New prop to swap primary and secondary values
 }
 
-function MetricCard({ title, value, unit, max = 100, icon }: MetricCardProps) {
+function MetricCard({ title, value, unit, max = 100, icon, absoluteValue, absoluteUnit, swapDisplay }: MetricCardProps) {
   const { theme } = useTheme();
   const percentage = max ? (value / max) * 100 : value;
   
   // Determine color based on percentage
   const getColor = () => {
-    if (percentage >= 90) return 'red';
-    if (percentage >= 70) return 'yellow';
+    if (percentage >= 85) return 'red';
+    if (percentage > 70) return 'yellow';
     return 'green';
   };
   
@@ -27,23 +30,23 @@ function MetricCard({ title, value, unit, max = 100, icon }: MetricCardProps) {
   
   const colorClasses = {
     red: {
-      text: 'text-red-400',
-      bg: 'bg-red-500/20',
-      border: 'border-red-500/30',
+      text: theme === 'light' ? 'text-red-600' : 'text-red-400',
+      bg: theme === 'light' ? 'bg-red-500/30' : 'bg-red-500/20',
+      border: theme === 'light' ? 'border-red-500/40' : 'border-red-500/30',
       progress: 'bg-gradient-to-r from-red-600 to-red-500',
       glow: 'shadow-red-500/20',
     },
     yellow: {
-      text: 'text-yellow-400',
-      bg: 'bg-yellow-500/20',
-      border: 'border-yellow-500/30',
+      text: theme === 'light' ? 'text-amber-600' : 'text-yellow-400',
+      bg: theme === 'light' ? 'bg-yellow-500/30' : 'bg-yellow-500/20',
+      border: theme === 'light' ? 'border-yellow-500/40' : 'border-yellow-500/30',
       progress: 'bg-gradient-to-r from-amber-500 to-yellow-500',
       glow: 'shadow-yellow-500/20',
     },
     green: {
-      text: 'text-green-400',
-      bg: 'bg-green-500/20',
-      border: 'border-green-500/30',
+      text: theme === 'light' ? 'text-green-600' : 'text-green-400',
+      bg: theme === 'light' ? 'bg-green-500/30' : 'bg-green-500/20',
+      border: theme === 'light' ? 'border-green-500/40' : 'border-green-500/30',
       progress: 'bg-gradient-to-r from-green-600 to-green-500',
       glow: 'shadow-green-500/20',
     },
@@ -66,9 +69,32 @@ function MetricCard({ title, value, unit, max = 100, icon }: MetricCardProps) {
       <div className={`${theme === 'light' ? 'text-gray-700 font-medium' : 'text-gray-400'} text-sm mb-2`}>{title}</div>
       
       {/* Value */}
-      <div className={`${colors.text} mb-4 flex items-baseline gap-2`}>
-        <span className="text-3xl font-mono">{value}</span>
-        <span className={`text-lg ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'}`}>{unit}</span>
+      <div className={`${colors.text} mb-4`}>
+        {swapDisplay && absoluteValue !== undefined && absoluteUnit ? (
+          // Display value (GB) as primary, absoluteValue (%) as secondary
+          <>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-mono">{value}</span>
+              <span className={`text-lg ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'}`}>{unit}</span>
+              <span className={`text-base ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} ml-1`}>
+                ({absoluteValue}{absoluteUnit})
+              </span>
+            </div>
+          </>
+        ) : (
+          // Display percentage as primary, absolute value as secondary (default)
+          <>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-mono">{value}</span>
+              <span className={`text-lg ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'}`}>{unit}</span>
+            </div>
+            {absoluteValue !== undefined && absoluteUnit && (
+              <div className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} mt-1`}>
+                {absoluteValue} {absoluteUnit}
+              </div>
+            )}
+          </>
+        )}
       </div>
       
       {/* Progress bar */}
@@ -171,10 +197,13 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
     },
     {
       title: 'Memory Load',
-      value: Math.round(metrics.memory_usage),
-      unit: '%',
-      max: 100,
+      value: Math.round(metrics.memory_used_gb * 10) / 10, // Round to 1 decimal place
+      unit: 'GB',
+      max: Math.round(metrics.memory_total_gb),
       icon: <Database className="w-6 h-6" />,
+      absoluteValue: Math.round(metrics.memory_usage),
+      absoluteUnit: '%',
+      swapDisplay: true, // Show GB as primary, % as secondary
     },
     {
       title: 'Storage Used',

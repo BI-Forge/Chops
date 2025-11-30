@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Activity, CheckCircle, XCircle, Search, User, Calendar, Filter, Play, Square, Eye, ChevronLeft, ChevronRight, Database, Clock, TrendingUp, AlertTriangle, Copy, Check, Cpu, HardDrive, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Search, User, Calendar, Filter, Play, Square, Eye, ChevronLeft, ChevronRight, Database, Clock, TrendingUp, AlertTriangle, Copy, Check, Cpu, HardDrive, FileText, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { QueryModal } from '../components/QueryModal';
 import { CustomSelect } from '../components/CustomSelect';
@@ -12,8 +12,9 @@ import { DashboardHeader } from '../components/DashboardHeader';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
 import { queryAPI } from '../services/queryAPI';
-import type { QueryLogStatsResponse, Process } from '../services/queryAPI';
+import type { QueryLogStatsResponse, Process, QueryLogEntry } from '../services/queryAPI';
 import { metricsAPI } from '../services/metricsAPI';
+import type { NodeInfo } from '../types/metrics';
 
 interface Query {
   id: string;
@@ -22,12 +23,21 @@ interface Query {
   database: string;
   status: 'running' | 'completed' | 'failed';
   startTime: string;
+  endTime?: string;
   duration: string;
   rowsRead: string;
   bytesRead: string;
   memoryUsage: string;
   cpuUsage: string;
   queryType: string;
+  errorMessage?: string;
+  settings?: {
+    max_memory_usage?: string;
+    max_execution_time?: string;
+    max_rows_to_read?: string;
+    priority?: string;
+    [key: string]: string | undefined;
+  };
 }
 
 export function QueriesPage() {
@@ -53,6 +63,9 @@ export function QueriesPage() {
   const [selectedStatus, setSelectedStatus] = useState(() => {
     return sessionStorage.getItem('queriesSelectedStatus') || 'All Statuses';
   });
+  const [selectedPeriod, setSelectedPeriod] = useState(() => {
+    return sessionStorage.getItem('queriesSelectedPeriod') || '1h';
+  });
   const [dateFrom, setDateFrom] = useState(() => {
     return sessionStorage.getItem('queriesDateFrom') || '';
   });
@@ -60,13 +73,18 @@ export function QueriesPage() {
     return sessionStorage.getItem('queriesDateTo') || '';
   });
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
-  const [nodes, setNodes] = useState<string[]>([]);
+  const [isApplyingFilters, setIsApplyingFilters] = useState(false);
+  const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<string>('');
   const [loadingNodes, setLoadingNodes] = useState(true);
   const [queryStats, setQueryStats] = useState<QueryLogStatsResponse>({ running: 0, finished: 0, error: 0 });
   const [loadingStats, setLoadingStats] = useState(true);
   const [runningProcesses, setRunningProcesses] = useState<Process[]>([]);
   const [loadingProcesses, setLoadingProcesses] = useState(true);
+  const [queryLog, setQueryLog] = useState<QueryLogEntry[]>([]);
+  const [loadingQueryLog, setLoadingQueryLog] = useState(false);
+  const [queryLogPagination, setQueryLogPagination] = useState<{ total: number; limit: number; offset: number }>({ total: 0, limit: 10, offset: 0 });
+  const [users, setUsers] = useState<string[]>([]);
   const statsEventSourceRef = useRef<EventSource | null>(null);
   const processesEventSourceRef = useRef<EventSource | null>(null);
   const { theme } = useTheme();
@@ -94,6 +112,10 @@ export function QueriesPage() {
   }, [selectedStatus]);
 
   useEffect(() => {
+    sessionStorage.setItem('queriesSelectedPeriod', selectedPeriod);
+  }, [selectedPeriod]);
+
+  useEffect(() => {
     sessionStorage.setItem('queriesDateFrom', dateFrom);
   }, [dateFrom]);
 
@@ -111,11 +133,12 @@ export function QueriesPage() {
         
         // Get saved node from sessionStorage or use first node
         const savedNode = sessionStorage.getItem('selectedNode');
-        if (savedNode && availableNodes.includes(savedNode)) {
-          setSelectedNode(savedNode);
+        const savedNodeInfo = availableNodes.find(n => n.name === savedNode);
+        if (savedNodeInfo) {
+          setSelectedNode(savedNodeInfo.name);
         } else if (availableNodes.length > 0) {
-          setSelectedNode(availableNodes[0]);
-          sessionStorage.setItem('selectedNode', availableNodes[0]);
+          setSelectedNode(availableNodes[0].name);
+          sessionStorage.setItem('selectedNode', availableNodes[0].name);
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);
@@ -126,6 +149,26 @@ export function QueriesPage() {
 
     loadNodes();
   }, []);
+
+  // Load users from API when node is selected
+  useEffect(() => {
+    if (!selectedNode) {
+      setUsers([]);
+      return;
+    }
+
+    const loadUsers = async () => {
+      try {
+        const response = await queryAPI.getUsers(selectedNode);
+        setUsers(response.users || []);
+      } catch (error) {
+        console.error('Failed to load users:', error);
+        setUsers([]);
+      }
+    };
+
+    loadUsers();
+  }, [selectedNode]);
 
   // Load query stats and setup SSE stream
   useEffect(() => {
@@ -138,12 +181,24 @@ export function QueriesPage() {
       try {
         setLoadingStats(true);
         // Build filter from current filters
+        const periodDates = getPeriodDates(selectedPeriod);
         const filter: any = {
           node: selectedNode,
         };
-        if (dateFrom) filter.from = dateFrom;
-        if (dateTo) filter.to = dateTo;
+
+        // Apply period or date range
+        if (periodDates.last) {
+          filter.last = periodDates.last;
+        } else if (periodDates.from || periodDates.to) {
+          if (periodDates.from) filter.from = periodDates.from;
+          if (periodDates.to) filter.to = periodDates.to;
+        }
+
         if (selectedUser && selectedUser !== 'All Users') filter.user = selectedUser;
+        if (selectedStatus && selectedStatus !== 'All Statuses' && selectedStatus.toLowerCase() !== 'running') {
+          // API doesn't accept 'running' status for query log stats (only 'completed', 'failed', or 'all')
+          filter.status = selectedStatus.toLowerCase();
+        }
         if (searchQuery) filter.search = searchQuery;
 
         // Load initial stats
@@ -186,7 +241,7 @@ export function QueriesPage() {
         statsEventSourceRef.current = null;
       }
     };
-  }, [selectedNode, dateFrom, dateTo, selectedUser, searchQuery]);
+  }, [selectedNode, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
 
   // Save selected node to sessionStorage
   const handleNodeSelect = (node: string) => {
@@ -248,6 +303,129 @@ export function QueriesPage() {
     };
   }, [selectedNode]);
 
+  // Load query log when filters or page changes
+  useEffect(() => {
+    loadQueryLog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode, currentPage, recordsPerPage, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
+
+  // Convert date string to RFC3339 format (API expects RFC3339 or 2006-01-02 15:04:05)
+  const formatDateForAPI = (dateStr: string): string => {
+    if (!dateStr) return '';
+    
+    // If already in RFC3339 format, return as is
+    if (dateStr.includes('T') && (dateStr.includes('Z') || dateStr.match(/[+-]\d{2}:\d{2}$/))) {
+      return dateStr;
+    }
+    
+    // Parse the date string
+    let date: Date;
+    if (dateStr.includes('T')) {
+      // Format: YYYY-MM-DDTHH:mm
+      const [datePart, timePart] = dateStr.split('T');
+      const [hours = '00', minutes = '00'] = timePart.split(':');
+      // Create date in local timezone, then convert to UTC
+      date = new Date(`${datePart}T${hours}:${minutes}:00`);
+    } else {
+      // Format: YYYY-MM-DD
+      // Create date at midnight in local timezone, then convert to UTC
+      date = new Date(`${dateStr}T00:00:00`);
+    }
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.error('Invalid date:', dateStr);
+      return '';
+    }
+    
+    // Convert to RFC3339 format: YYYY-MM-DDTHH:mm:ssZ (UTC)
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const hours = String(date.getUTCHours()).padStart(2, '0');
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
+  };
+
+  // Convert period to API format (from/to dates or last)
+  const getPeriodDates = (period: string): { from?: string; to?: string; last?: string } => {
+    if (dateFrom || dateTo) {
+      return { 
+        from: dateFrom ? formatDateForAPI(dateFrom) : undefined, 
+        to: dateTo ? formatDateForAPI(dateTo) : undefined 
+      };
+    }
+
+    switch (period) {
+      case '15min':
+        return { last: '15m' };
+      case '30min':
+        return { last: '30m' };
+      case '1h':
+        return { last: '1h' };
+      case '12h':
+        return { last: '12h' };
+      default:
+        return {};
+    }
+  };
+
+  // Load query log with filters
+  const loadQueryLog = async () => {
+    if (!selectedNode) {
+      setQueryLog([]);
+      setQueryLogPagination({ total: 0, limit: parseInt(recordsPerPage), offset: 0 });
+      return;
+    }
+
+    try {
+      setLoadingQueryLog(true);
+      const periodDates = getPeriodDates(selectedPeriod);
+      const filter: any = {
+        node: selectedNode,
+        limit: parseInt(recordsPerPage),
+        offset: (currentPage - 1) * parseInt(recordsPerPage),
+      };
+
+      if (periodDates.last) {
+        filter.last = periodDates.last;
+      } else if (periodDates.from || periodDates.to) {
+        if (periodDates.from) filter.from = periodDates.from;
+        if (periodDates.to) filter.to = periodDates.to;
+      }
+
+      if (selectedUser && selectedUser !== 'All Users') {
+        filter.user = selectedUser;
+      }
+
+      if (selectedStatus && selectedStatus !== 'All Statuses' && selectedStatus.toLowerCase() !== 'running') {
+        // API doesn't accept 'running' status for query log (only 'completed', 'failed', or 'all')
+        filter.status = selectedStatus.toLowerCase();
+      }
+
+      if (searchQuery) {
+        filter.search = searchQuery;
+      }
+
+      const response = await queryAPI.getQueryLog(filter);
+      setQueryLog(response.items || []);
+      setQueryLogPagination({
+        total: response.pagination?.total || 0,
+        limit: response.pagination?.limit || parseInt(recordsPerPage),
+        offset: response.pagination?.offset || 0,
+      });
+    } catch (err) {
+      console.error('Failed to load query log:', err);
+      setQueryLog([]);
+      setQueryLogPagination({ total: 0, limit: parseInt(recordsPerPage), offset: 0 });
+      error('Load Failed', 'Failed to load query log', 3000);
+    } finally {
+      setLoadingQueryLog(false);
+    }
+  };
+
   // Helper function to format bytes
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -285,124 +463,78 @@ export function QueriesPage() {
     };
   };
 
-  // Convert processes to queries for display
-  const runningQueries: Query[] = runningProcesses.map(convertProcessToQuery);
+  // Convert QueryLogEntry to Query format for display
+  const convertQueryLogEntryToQuery = (entry: QueryLogEntry): Query => {
+    const startTime = new Date(entry.event_time);
+    const formattedStartTime = startTime.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).replace(',', '');
 
-  // Mock data for query history
-  const allQueries: Query[] = [
-    {
-      id: 'Q-12345',
-      query: 'SELECT * FROM users WHERE created_at >= today() - 30',
-      user: 'admin',
-      database: 'main_db',
-      status: 'completed',
-      startTime: '2024-11-29 14:30:00',
-      duration: '0.5s',
-      rowsRead: '12,345',
-      bytesRead: '1.2 MB',
-      memoryUsage: '64 MB',
-      cpuUsage: '12%',
-      queryType: 'SELECT'
-    },
-    {
-      id: 'Q-12344',
-      query: 'SELECT COUNT(DISTINCT user_id) FROM events WHERE date = today()',
-      user: 'data_analyst',
-      database: 'analytics',
-      status: 'completed',
-      startTime: '2024-11-29 14:28:15',
-      duration: '1.2s',
-      rowsRead: '567,890',
-      bytesRead: '450 MB',
-      memoryUsage: '128 MB',
-      cpuUsage: '25%',
-      queryType: 'SELECT'
-    },
-    {
-      id: 'Q-12343',
-      query: 'INSERT INTO logs SELECT * FROM temp_logs WHERE processed = 0',
-      user: 'etl_user',
-      database: 'logs_db',
-      status: 'failed',
-      startTime: '2024-11-29 14:25:00',
-      duration: '15.8s',
-      rowsRead: '2,345,678',
-      bytesRead: '3.2 GB',
-      memoryUsage: '1.5 GB',
-      cpuUsage: '78%',
-      queryType: 'INSERT'
-    },
-    {
-      id: 'Q-12342',
-      query: 'SELECT product_id, SUM(quantity) as total_sold FROM orders GROUP BY product_id ORDER BY total_sold DESC LIMIT 100',
-      user: 'admin',
-      database: 'ecommerce',
-      status: 'completed',
-      startTime: '2024-11-29 14:20:30',
-      duration: '0.8s',
-      rowsRead: '89,012',
-      bytesRead: '120 MB',
-      memoryUsage: '96 MB',
-      cpuUsage: '18%',
-      queryType: 'SELECT'
-    },
-    {
-      id: 'Q-12341',
-      query: 'UPDATE users SET last_login = now() WHERE user_id IN (SELECT user_id FROM active_sessions)',
-      user: 'backend_service',
-      database: 'main_db',
-      status: 'completed',
-      startTime: '2024-11-29 14:15:00',
-      duration: '3.4s',
-      rowsRead: '234,567',
-      bytesRead: '180 MB',
-      memoryUsage: '200 MB',
-      cpuUsage: '35%',
-      queryType: 'UPDATE'
-    },
-    {
-      id: 'Q-12340',
-      query: 'SELECT date, COUNT(*) as daily_events FROM events GROUP BY date ORDER BY date DESC',
-      user: 'data_analyst',
-      database: 'analytics',
-      status: 'completed',
-      startTime: '2024-11-29 14:10:45',
-      duration: '2.1s',
-      rowsRead: '1,456,789',
-      bytesRead: '1.8 GB',
-      memoryUsage: '384 MB',
-      cpuUsage: '42%',
-      queryType: 'SELECT'
-    },
-    {
-      id: 'Q-12339',
-      query: 'DELETE FROM temp_data WHERE created_at < now() - interval 24 hour',
-      user: 'cleanup_job',
-      database: 'temp_db',
-      status: 'failed',
-      startTime: '2024-11-29 14:05:00',
-      duration: '8.9s',
-      rowsRead: '678,901',
-      bytesRead: '890 MB',
-      memoryUsage: '450 MB',
-      cpuUsage: '55%',
-      queryType: 'DELETE'
-    },
-    {
-      id: 'Q-12338',
-      query: 'SELECT customer_id, AVG(order_value) as avg_value FROM orders GROUP BY customer_id HAVING avg_value > 100',
-      user: 'admin',
-      database: 'ecommerce',
-      status: 'completed',
-      startTime: '2024-11-29 14:00:20',
-      duration: '1.5s',
-      rowsRead: '345,678',
-      bytesRead: '290 MB',
-      memoryUsage: '180 MB',
-      cpuUsage: '28%',
-      queryType: 'SELECT'
+    // Calculate end time and duration
+    const endTime = new Date(startTime.getTime() + entry.duration_ms);
+    const formattedEndTime = endTime.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).replace(',', '');
+
+    const durationSeconds = (entry.duration_ms / 1000).toFixed(1);
+    const duration = `${durationSeconds}s`;
+
+    // Determine status based on exception
+    const status: 'running' | 'completed' | 'failed' = entry.exception_code !== 0 ? 'failed' : 'completed';
+
+    // Parse settings if available
+    let settings: Query['settings'] = undefined;
+    if (entry.settings) {
+      try {
+        const parsed = JSON.parse(entry.settings);
+        settings = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          settings[key] = String(value);
+        }
+      } catch (e) {
+        // Ignore parsing errors
+      }
     }
-  ];
+
+    return {
+      id: entry.query_id,
+      query: entry.query_text,
+      user: entry.user,
+      database: entry.databases?.[0] || 'default',
+      status,
+      startTime: formattedStartTime,
+      endTime: formattedEndTime,
+      duration,
+      rowsRead: entry.read_rows.toLocaleString(),
+      bytesRead: formatBytes(entry.read_bytes),
+      memoryUsage: formatBytes(entry.memory_usage),
+      cpuUsage: '0%', // CPU usage not available in QueryLogEntry
+      queryType: entry.type.toUpperCase() || 'SELECT',
+      errorMessage: entry.exception,
+      settings,
+    };
+  };
+
+  // Convert processes to queries for display
+  const allRunningQueries: Query[] = runningProcesses.map(convertProcessToQuery);
+  
+  // Filter running queries by selected user
+  const runningQueries: Query[] = selectedUser && selectedUser !== 'All Users'
+    ? allRunningQueries.filter(q => q.user === selectedUser)
+    : allRunningQueries;
+
+  // Convert query log entries to queries for display
+  const allQueries: Query[] = queryLog.map(convertQueryLogEntryToQuery);
 
   // Mock data for charts (1 minute intervals)
   const memoryData = [
@@ -516,15 +648,6 @@ export function QueriesPage() {
     });
   };
 
-  const handleSelectAll = () => {
-    const paginatedQueries = allQueries.slice((currentPage - 1) * parseInt(recordsPerPage), currentPage * parseInt(recordsPerPage));
-    if (selectedQueries.size === paginatedQueries.length) {
-      setSelectedQueries(new Set());
-    } else {
-      setSelectedQueries(new Set(paginatedQueries.map((q: Query) => q.id)));
-    }
-  };
-
   const handleAcceptSelected = () => {
     console.log('Accepting queries:', Array.from(selectedQueries));
     // In real app, this would call an API to accept selected queries
@@ -544,19 +667,45 @@ export function QueriesPage() {
     }
   };
 
-  const totalPages = Math.ceil(allQueries.length / parseInt(recordsPerPage));
-  const startIndex = (currentPage - 1) * parseInt(recordsPerPage);
-  const endIndex = startIndex + parseInt(recordsPerPage);
-  const currentQueries = allQueries.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(queryLogPagination.total / parseInt(recordsPerPage));
+  const currentQueries = allQueries; // Already paginated by API
+
+  // Format period for display
+  const formatPeriod = (period: string): string => {
+    switch (period) {
+      case '15min':
+        return 'Last 15 minutes';
+      case '30min':
+        return 'Last 30 minutes';
+      case '1h':
+        return 'Last 1 hour';
+      case '12h':
+        return 'Last 12 hours';
+      default:
+        return period;
+    }
+  };
+
+  // Format date for display
+  const formatDate = (date: string): string => {
+    if (!date) return '';
+    // If date includes time, just return as is
+    if (date.includes(':')) {
+      return date;
+    }
+    return date;
+  };
 
   const stats = [
     {
       title: 'Running Queries',
-      value: loadingStats ? '...' : queryStats.running.toString(),
+      value: loadingProcesses ? '...' : runningQueries.length.toString(),
       icon: Activity,
       color: 'text-blue-400',
       bg: 'bg-blue-500/20',
-      border: 'border-blue-500/30'
+      border: 'border-blue-500/30',
+      showPeriod: false,
+      user: selectedUser
     },
     {
       title: 'Completed Queries',
@@ -564,7 +713,12 @@ export function QueriesPage() {
       icon: CheckCircle,
       color: 'text-green-400',
       bg: 'bg-green-500/20',
-      border: 'border-green-500/30'
+      border: 'border-green-500/30',
+      showPeriod: true,
+      period: formatPeriod(selectedPeriod),
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      user: selectedUser
     },
     {
       title: 'Failed Queries',
@@ -572,7 +726,12 @@ export function QueriesPage() {
       icon: XCircle,
       color: 'text-red-400',
       bg: 'bg-red-500/20',
-      border: 'border-red-500/30'
+      border: 'border-red-500/30',
+      showPeriod: true,
+      period: formatPeriod(selectedPeriod),
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      user: selectedUser
     }
   ];
 
@@ -636,8 +795,52 @@ export function QueriesPage() {
               <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>{stat.title}</div>
               
               {/* Value */}
-              <div className={`${stat.color} flex items-baseline gap-2`}>
+              <div className={`${stat.color}`}>
                 <span className="text-3xl font-mono">{stat.value}</span>
+
+                {/* For Running Queries - show only user filter */}
+                {!stat.showPeriod && stat.user && stat.user !== 'All Users' && (
+                  <div className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-500'} mt-3`}>
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3 h-3" />
+                      <span>{stat.user}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* For Completed/Failed Queries - show all filters */}
+                {stat.showPeriod && (
+                  <div className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-500'} mt-3 space-y-1`}>
+                    {/* Period */}
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3 h-3" />
+                      <span>{stat.period}</span>
+                    </div>
+
+                    {/* Date Range */}
+                    {(stat.dateFrom || stat.dateTo) && (
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3" />
+                        <span>
+                          {stat.dateFrom && stat.dateTo
+                            ? `${formatDate(stat.dateFrom)} - ${formatDate(stat.dateTo)}`
+                            : stat.dateFrom
+                              ? `From: ${formatDate(stat.dateFrom)}`
+                              : `To: ${formatDate(stat.dateTo)}`
+                          }
+                        </span>
+                      </div>
+                    )}
+
+                    {/* User Filter */}
+                    {stat.user && stat.user !== 'All Users' && (
+                      <div className="flex items-center gap-1.5">
+                        <User className="w-3 h-3" />
+                        <span>{stat.user}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -680,7 +883,6 @@ export function QueriesPage() {
                         <span className="text-xs capitalize text-blue-400">running</span>
                       </div>
                       <span className="text-blue-400 font-mono text-sm">{query.id}</span>
-                      <span className={`text-xs ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'}`}>{query.startTime}</span>
                     </div>
                     <div className="flex items-start gap-2 mb-2">
                       <p className={`${
@@ -715,7 +917,7 @@ export function QueriesPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {query.duration}
+                        {query.startTime}
                       </span>
                     </div>
                   </div>
@@ -745,9 +947,34 @@ export function QueriesPage() {
       <div className={`${
         theme === 'light' ? 'bg-white/90 border-amber-500/30' : 'bg-gray-900/60 border-yellow-500/20'
       } backdrop-blur-md rounded-xl border p-6`}>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2">
           <Filter className={`w-5 h-5 ${theme === 'light' ? 'text-amber-600' : 'text-yellow-400'}`} />
           <h2 className={theme === 'light' ? 'text-amber-700' : 'text-yellow-400'}>Filters</h2>
+          </div>
+
+          {/* Apply Button */}
+          <button
+            onClick={async () => {
+              setCurrentPage(1);
+              setIsApplyingFilters(true);
+              await loadQueryLog();
+              setIsApplyingFilters(false);
+            }}
+            disabled={isApplyingFilters || loadingQueryLog}
+            className={`px-4 py-2 rounded-lg text-sm ${
+              theme === 'light'
+                ? 'bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 hover:border-amber-600 text-amber-700 hover:text-amber-800'
+                : 'bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 hover:border-yellow-500/50 text-yellow-400 hover:text-yellow-300'
+            } transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {isApplyingFilters ? (
+              <Play className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Check className="w-3.5 h-3.5" />
+            )}
+            <span>Apply</span>
+          </button>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -776,7 +1003,7 @@ export function QueriesPage() {
             <CustomSelect
               value={selectedUser}
               onChange={setSelectedUser}
-              options={['All Users', 'admin', 'data_analyst', 'etl_user', 'backend_service', 'cleanup_job']}
+              options={['All Users', ...users]}
             />
           </div>
 
@@ -787,6 +1014,16 @@ export function QueriesPage() {
               value={selectedStatus}
               onChange={setSelectedStatus}
               options={['All Statuses', 'running', 'completed', 'failed']}
+            />
+          </div>
+
+          {/* Period Filter */}
+          <div>
+            <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Period</label>
+            <CustomSelect
+              value={selectedPeriod}
+              onChange={setSelectedPeriod}
+              options={['15min', '30min', '1h', '12h']}
             />
           </div>
 
@@ -813,8 +1050,8 @@ export function QueriesPage() {
           </div>
 
           {/* Records per Page */}
-          <div className="lg:col-span-2">
-            <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Records per Page</label>
+          <div>
+            <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Per Page</label>
             <CustomSelect
               value={recordsPerPage}
               onChange={(value) => {
@@ -875,7 +1112,7 @@ export function QueriesPage() {
                 stroke="#F59E0B" 
                 strokeWidth={2}
                 fill="url(#colorMemory)"
-                dot={{ fill: '#F59E0B', r: 3 }}
+                dot={false}
                 activeDot={{ r: 5 }}
               />
             </AreaChart>
@@ -929,7 +1166,7 @@ export function QueriesPage() {
                 stroke="#F97316" 
                 strokeWidth={2}
                 fill="url(#colorCpu)"
-                dot={{ fill: '#F97316', r: 3 }}
+                dot={false}
                 activeDot={{ r: 5 }}
               />
             </AreaChart>
@@ -1000,7 +1237,6 @@ export function QueriesPage() {
                         <span className={`text-xs capitalize ${statusConfig.color}`}>{query.status}</span>
                       </div>
                       <span className={`font-mono text-sm ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'}`}>{query.id}</span>
-                      <span className={`text-xs ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'}`}>{query.startTime}</span>
                     </div>
                     <div className="flex items-start gap-2 mb-2">
                       <p className={`${
@@ -1035,7 +1271,15 @@ export function QueriesPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {query.duration}
+                        Start: {query.startTime}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        End: {query.endTime || ''}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3" />
+                        Duration: {query.duration}
                       </span>
                       <span>{query.rowsRead} rows</span>
                       <span>{query.bytesRead}</span>
@@ -1058,7 +1302,7 @@ export function QueriesPage() {
           theme === 'light' ? 'border-amber-500/30' : 'border-gray-700/50'
         }`}>
           <div className={`text-sm ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}>
-            Showing {startIndex + 1} to {Math.min(endIndex, allQueries.length)} of {allQueries.length} queries
+            Showing {queryLogPagination.offset + 1} to {Math.min(queryLogPagination.offset + queryLog.length, queryLogPagination.total)} of {queryLogPagination.total} queries
           </div>
           
           <div className="flex items-center gap-2">

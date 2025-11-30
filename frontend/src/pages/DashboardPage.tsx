@@ -5,11 +5,12 @@ import { MobileMenu } from '../components/MobileMenu';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { DashboardContent } from '../components/DashboardContent';
 import { metricsAPI } from '../services/metricsAPI';
+import type { NodeInfo } from '../types/metrics';
 
 export function DashboardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [nodes, setNodes] = useState<string[]>([]);
+  const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<string>('');
   const [loadingNodes, setLoadingNodes] = useState(true);
 
@@ -23,11 +24,12 @@ export function DashboardPage() {
         
         // Get saved node from sessionStorage or use first node
         const savedNode = sessionStorage.getItem('selectedNode');
-        if (savedNode && availableNodes.includes(savedNode)) {
-          setSelectedNode(savedNode);
+        const savedNodeInfo = availableNodes.find(n => n.name === savedNode);
+        if (savedNodeInfo) {
+          setSelectedNode(savedNodeInfo.name);
         } else if (availableNodes.length > 0) {
-          setSelectedNode(availableNodes[0]);
-          sessionStorage.setItem('selectedNode', availableNodes[0]);
+          setSelectedNode(availableNodes[0].name);
+          sessionStorage.setItem('selectedNode', availableNodes[0].name);
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);

@@ -574,9 +574,29 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   }
 }
 
-.animate-chart-line {
-  stroke-dasharray: 1000;
-  animation: chart-line-draw 1.5s ease-out forwards;
+/* ========================================
+   Chrome Autofill Styles Override
+   ======================================== */
+
+/* Fix Chrome autofill white background issue */
+/* Light theme autofill */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #ffffff inset !important;
+  -webkit-text-fill-color: #1f2937 !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Dark theme autofill */
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus,
+.dark input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px rgba(31, 41, 55, 0.6) inset !important;
+  -webkit-text-fill-color: #e5e7eb !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 /* ========================================

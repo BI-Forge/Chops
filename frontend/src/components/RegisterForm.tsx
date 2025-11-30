@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Lock, Mail, User, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { CustomCheckbox } from './CustomCheckbox';
 
 interface RegisterFormProps {
   onRegister: (username: string, email: string, password: string) => Promise<void>;
@@ -264,28 +265,23 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
 
         {/* Terms Agreement */}
         <div className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            id="terms"
-            checked={agreeToTerms}
-            onChange={(e) => setAgreeToTerms(e.target.checked)}
-            className={`w-4 h-4 mt-0.5 rounded ${
-              theme === 'light'
-                ? 'border-2 border-amber-600/60 bg-white text-amber-700 focus:ring-amber-500/30'
-                : 'border-yellow-500/30 bg-gray-800/40 text-yellow-500 focus:ring-yellow-500/20'
-            } focus:ring-2 focus:ring-offset-0 cursor-pointer`}
-          />
-          <label htmlFor="terms" className={`${theme === 'light' ? 'text-gray-900' : 'text-gray-400'} text-sm cursor-pointer`}>
+          <div className="mt-0.5">
+            <CustomCheckbox
+              checked={agreeToTerms}
+              onChange={() => setAgreeToTerms(!agreeToTerms)}
+            />
+          </div>
+          <label
+            htmlFor="terms"
+            className={`${theme === 'light' ? 'text-gray-900' : 'text-gray-400'} text-sm cursor-pointer`}
+            onClick={() => setAgreeToTerms(!agreeToTerms)}
+          >
             I agree to the{' '}
-            <button type="button" className={`${
-              theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'
-            } transition-colors`}>
+            <button type="button" className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors`}>
               Terms and Conditions
             </button>
             {' '}and{' '}
-            <button type="button" className={`${
-              theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'
-            } transition-colors`}>
+            <button type="button" className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors`}>
               Privacy Policy
             </button>
           </label>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Clock, User, Database, Server, Activity, CheckCircle, XCircle, AlertCircle, Zap, HardDrive, Cpu, Copy, Check } from 'lucide-react';
+import { X, Clock, User, Database, Activity, CheckCircle, XCircle, AlertCircle, Zap, HardDrive, Cpu, Copy, Check, Settings, AlertTriangle } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface QueryModalProps {
@@ -13,12 +13,21 @@ interface QueryModalProps {
     database: string;
     status: 'running' | 'completed' | 'failed';
     startTime: string;
+    endTime?: string;
     duration: string;
     rowsRead: string;
     bytesRead: string;
     memoryUsage: string;
     cpuUsage: string;
     queryType: string;
+    errorMessage?: string;
+    settings?: {
+      max_memory_usage?: string;
+      max_execution_time?: string;
+      max_rows_to_read?: string;
+      priority?: string;
+      [key: string]: string | undefined;
+    };
   } | null;
 }
 
@@ -264,7 +273,7 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
               </div>
 
               {/* Time Info */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className={`${
                   theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
                 } border rounded-xl p-4`}>
@@ -273,6 +282,15 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                     Start Time
                   </div>
                   <p className={theme === 'light' ? 'text-gray-800' : 'text-white'}>{query.startTime}</p>
+                </div>
+                <div className={`${
+                  theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
+                } border rounded-xl p-4`}>
+                  <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
+                    <Clock className="w-4 h-4" />
+                    End Time
+                  </div>
+                  <p className={theme === 'light' ? 'text-gray-800' : 'text-white'}>{query.endTime || '-'}</p>
                 </div>
                 <div className={`${
                   theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
@@ -324,12 +342,59 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                   </div>
                 </div>
               </div>
+
+              {/* Error Message */}
+              {query.errorMessage && (
+                <div className={`bg-gradient-to-br ${
+                  theme === 'light'
+                    ? 'from-red-50/50 to-red-50/50 border-red-500/30'
+                    : 'from-gray-800/40 to-gray-900/40 border-red-500/20'
+                } border rounded-xl p-4`}>
+                  <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-red-700' : 'text-red-400'} mb-4`}>
+                    <AlertTriangle className="w-4 h-4" />
+                    <span className="text-sm">Error Message</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Error</span>
+                      <span className={`${theme === 'light' ? 'text-red-800' : 'text-red-400'} font-mono`}>{query.errorMessage}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Settings */}
+              {query.settings && (
+                <div className={`bg-gradient-to-br ${
+                  theme === 'light'
+                    ? 'from-gray-50/50 to-gray-50/50 border-gray-500/30'
+                    : 'from-gray-800/40 to-gray-900/40 border-gray-500/20'
+                } border rounded-xl p-4`}>
+                  <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} mb-4`}>
+                    <Settings className="w-4 h-4" />
+                    <span className="text-sm">Settings</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {Object.entries(query.settings).map(([key, value], index, array) => (
+                      <React.Fragment key={key}>
+                        <div className="flex items-center justify-between">
+                          <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                          <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{value}</span>
+                        </div>
+                        {index < array.length - 1 && <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes modalFadeIn {
           from {
             opacity: 0;

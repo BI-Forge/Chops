@@ -12,8 +12,14 @@ export interface SystemMetrics {
   active_queries: number
 }
 
+export interface NodeInfo {
+  name: string
+  host: string
+  cluster_name: string
+}
+
 export interface NodesResponse {
-  nodes: string[]
+  nodes: NodeInfo[]
 }
 
 export interface MetricSeriesPoint {

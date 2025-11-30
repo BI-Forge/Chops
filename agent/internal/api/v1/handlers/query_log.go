@@ -19,12 +19,15 @@ import (
 )
 
 const (
-	defaultQueryLogLimit = 50
-	maxQueryLogLimit     = 500
-	queryLogTimeout      = 10 * time.Second
-	defaultRangePreset   = "1m"
-	isoNoTZLayout        = "2006-01-02 15:04:05"
-	isoNoTZCompactLayout = "2006-01-02T15:04:05"
+	defaultQueryLogLimit  = 50
+	maxQueryLogLimit      = 500
+	queryLogTimeout       = 10 * time.Second
+	defaultRangePreset    = "1m"
+	isoNoTZLayout         = "2006-01-02 15:04:05"
+	isoNoTZCompactLayout  = "2006-01-02T15:04:05"
+	isoDateOnlyLayout     = "2006-01-02"
+	isoTimeNoSecLayout    = "2006-01-02 15:04"
+	isoCompactNoSecLayout = "2006-01-02T15:04"
 )
 
 var presetDurations = map[string]time.Duration{
@@ -40,8 +43,12 @@ var presetDurations = map[string]time.Duration{
 
 var acceptedTimeFormats = []string{
 	time.RFC3339,
+	time.RFC3339Nano,
 	isoNoTZLayout,
 	isoNoTZCompactLayout,
+	isoTimeNoSecLayout,
+	isoCompactNoSecLayout,
+	isoDateOnlyLayout,
 }
 
 // QueryLogRepository defines the subset of repository methods required by the handler.
@@ -484,12 +491,43 @@ func parseTimeRange(lastParam, fromParam, toParam string) (time.Time, time.Time,
 }
 
 func parseTimestamp(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("empty timestamp")
+	}
+
+	// Try all accepted formats
 	for _, layout := range acceptedTimeFormats {
+		if ts, err := time.Parse(layout, value); err == nil {
+			// If date-only format, set time to start of day (00:00:00)
+			if layout == isoDateOnlyLayout {
+				ts = time.Date(ts.Year(), ts.Month(), ts.Day(), 0, 0, 0, 0, ts.Location())
+			}
+			return ts, nil
+		}
+	}
+
+	// Try parsing with common timezone formats (variations of RFC3339)
+	timezoneFormats := []string{
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05-07:00",
+		"2006-01-02T15:04:05+07:00",
+		"2006-01-02 15:04:05Z",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05+07:00",
+		"2006-01-02T15:04Z",
+		"2006-01-02T15:04-07:00",
+		"2006-01-02T15:04+07:00",
+	}
+	for _, layout := range timezoneFormats {
 		if ts, err := time.Parse(layout, value); err == nil {
 			return ts, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("expected RFC3339 or %s format", isoNoTZLayout)
+
+	return time.Time{}, fmt.Errorf("expected RFC3339, %s, %s, %s, %s, or %s format", isoNoTZLayout, isoNoTZCompactLayout, isoTimeNoSecLayout, isoCompactNoSecLayout, isoDateOnlyLayout)
 }
 
 // parseFilterForStats parses filter parameters for stats endpoint (without pagination).

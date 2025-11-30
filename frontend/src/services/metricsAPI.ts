@@ -1,5 +1,5 @@
 import api from './api'
-import type { SystemMetrics, NodesResponse, MetricSeriesResponse } from '../types/metrics'
+import type { SystemMetrics, NodesResponse, MetricSeriesResponse, NodeInfo } from '../types/metrics'
 
 // Retry helper function
 const retryRequest = async <T>(
@@ -26,7 +26,7 @@ const retryRequest = async <T>(
 }
 
 export const metricsAPI = {
-  getAvailableNodes: async (): Promise<string[]> => {
+  getAvailableNodes: async (): Promise<NodeInfo[]> => {
     return retryRequest(async () => {
       const response = await api.get<NodesResponse>('/metrics/nodes')
       return response.data.nodes

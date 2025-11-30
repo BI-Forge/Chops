@@ -12,6 +12,7 @@ import (
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -69,6 +70,7 @@ type MetricsHandler struct {
 	metricsPublisher *stream.MetricsPublisher
 	logger           *logger.Logger
 	retentionDays    int
+	config           *config.Config
 }
 
 // NewMetricsHandler creates a new metrics handler
@@ -92,12 +94,20 @@ func NewMetricsHandler(logger *logger.Logger, cfg *config.Config) (*MetricsHandl
 		metricsPublisher: metricsPublisher,
 		logger:           logger,
 		retentionDays:    retentionDays,
+		config:           cfg,
 	}, nil
 }
 
-// GetAvailableNodes returns list of available nodes
+// NodeInfo represents node information with host and cluster name
+type NodeInfo struct {
+	Name        string `json:"name"`
+	Host        string `json:"host"`
+	ClusterName string `json:"cluster_name"`
+}
+
+// GetAvailableNodes returns list of available nodes with host and cluster information
 // @Summary      Get available nodes
-// @Description  Returns list of node names that have metrics data
+// @Description  Returns list of node names that have metrics data, including host and cluster name
 // @Tags         metrics
 // @Produce      json
 // @Success      200  {object}  map[string]interface{}
@@ -106,11 +116,39 @@ func (h *MetricsHandler) GetAvailableNodes(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	nodes, err := h.metricsRepo.GetAvailableNodes(ctx)
+	// Get node names from database
+	nodeNames, err := h.metricsRepo.GetAvailableNodes(ctx)
 	if err != nil {
 		h.logger.Errorf("Failed to get nodes: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get nodes"})
 		return
+	}
+
+	// Create a map of node name to node config for quick lookup
+	nodeConfigMap := make(map[string]config.ClickHouseNode)
+	clusterName := ""
+	if h.config != nil && h.config.Database.ClickHouse.Nodes != nil {
+		clusterName = h.config.Database.ClickHouse.ClusterName
+		for _, node := range h.config.Database.ClickHouse.Nodes {
+			nodeConfigMap[node.Name] = node
+		}
+	}
+
+	// Build response with node information
+	nodes := make([]NodeInfo, 0, len(nodeNames))
+	for _, nodeName := range nodeNames {
+		nodeInfo := NodeInfo{
+			Name:        nodeName,
+			Host:        "",
+			ClusterName: clusterName,
+		}
+
+		// Get host from config if available
+		if nodeConfig, exists := nodeConfigMap[nodeName]; exists {
+			nodeInfo.Host = nodeConfig.Host
+		}
+
+		nodes = append(nodes, nodeInfo)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"nodes": nodes})

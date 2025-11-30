@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  LineChart,
-  Line,
   AreaChart,
   Area,
   BarChart,
@@ -40,27 +38,30 @@ const formatTime = (timestamp: string, interval: string): string => {
 // Convert API data to chart format
 const convertToChartData = (
   cpuData: MetricSeriesPoint[],
-  memoryData: MetricSeriesPoint[],
+  memoryPercentData: MetricSeriesPoint[],
+  memoryGBData: MetricSeriesPoint[],
   diskData: MetricSeriesPoint[],
   queriesData: MetricSeriesPoint[],
   interval: string
 ) => {
-  const maxLength = Math.max(cpuData.length, memoryData.length, diskData.length, queriesData.length);
+  const maxLength = Math.max(cpuData.length, memoryPercentData.length, memoryGBData.length, diskData.length, queriesData.length);
   const data = [];
   
   for (let i = 0; i < maxLength; i++) {
     const cpuPoint = cpuData[i];
-    const memoryPoint = memoryData[i];
+    const memoryPercentPoint = memoryPercentData[i];
+    const memoryGBPoint = memoryGBData[i];
     const diskPoint = diskData[i];
     const queriesPoint = queriesData[i];
     
     // Use the timestamp from the first available point
-    const timestamp = cpuPoint?.timestamp || memoryPoint?.timestamp || diskPoint?.timestamp || queriesPoint?.timestamp;
+    const timestamp = cpuPoint?.timestamp || memoryPercentPoint?.timestamp || memoryGBPoint?.timestamp || diskPoint?.timestamp || queriesPoint?.timestamp;
     
     data.push({
       time: formatTime(timestamp || new Date().toISOString(), interval),
       cpu: cpuPoint ? Math.round(cpuPoint.value) : 0,
-      memory: memoryPoint ? Math.round(memoryPoint.value) : 0,
+      memory: memoryPercentPoint ? Math.round(memoryPercentPoint.value) : 0,
+      memoryGB: memoryGBPoint ? Math.round(memoryGBPoint.value * 10) / 10 : 0, // Round to 1 decimal place
       storage: diskPoint ? Math.round(diskPoint.value) : 0,
       queries: queriesPoint ? Math.round(queriesPoint.value) : 0,
     });
@@ -96,9 +97,12 @@ interface ChartCardProps {
   children: React.ReactNode;
   currentValue: number;
   unit: string;
+  absoluteValue?: number;
+  absoluteUnit?: string;
+  swapDisplay?: boolean; // New prop to swap primary and secondary display
 }
 
-function ChartCard({ title, icon, children, currentValue, unit }: ChartCardProps) {
+function ChartCard({ title, icon, children, currentValue, unit, absoluteValue, absoluteUnit, swapDisplay }: ChartCardProps) {
   const { theme } = useTheme();
   return (
     <div className={`${
@@ -113,9 +117,30 @@ function ChartCard({ title, icon, children, currentValue, unit }: ChartCardProps
           </div>
           <div>
             <h3 className={theme === 'light' ? 'text-gray-700' : 'text-gray-300'}>{title}</h3>
-            <div className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-2xl font-mono`}>
-              {currentValue}{unit}
-            </div>
+            {swapDisplay && absoluteValue !== undefined && absoluteUnit ? (
+              // Display currentValue (GB) as primary, absoluteValue (%) as secondary
+              <>
+                <div className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} font-mono flex items-baseline gap-1.5`}>
+                  <span className="text-2xl">{currentValue}</span>
+                  <span className="text-lg">{unit}</span>
+                  <span className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
+                    ({absoluteValue}{absoluteUnit})
+                  </span>
+                </div>
+              </>
+            ) : (
+              // Display percentage as primary, absolute value as secondary (default)
+              <>
+                <div className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-2xl font-mono`}>
+                  {currentValue}{unit}
+                </div>
+                {absoluteValue !== undefined && absoluteUnit && (
+                  <div className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} mt-0.5`}>
+                    {absoluteValue} {absoluteUnit}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -137,6 +162,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [data, setData] = useState<any[]>([]);
+  const [memoryTotalGB, setMemoryTotalGB] = useState<number>(0);
   const { theme } = useTheme();
 
   // Save period to sessionStorage when it changes
@@ -177,17 +203,23 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
     try {
       const { apiPeriod, step } = getPeriodConfig();
 
+      // Load current metrics to get memory_total_gb for YAxis
+      const currentMetrics = await metricsAPI.getCurrentMetrics(selectedNode);
+      setMemoryTotalGB(Math.round(currentMetrics.memory_total_gb));
+
       // Load all metrics in parallel
-      const [cpuData, memoryData, diskData, queriesData] = await Promise.all([
+      const [cpuData, memoryPercentData, memoryGBData, diskData, queriesData] = await Promise.all([
         metricsAPI.getMetricSeries(selectedNode, 'cpu_load', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'memory_load', apiPeriod, step),
+        metricsAPI.getMetricSeries(selectedNode, 'memory_used_gb', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'storage_used', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'active_queries', apiPeriod, step),
       ]);
 
       const chartData = convertToChartData(
         cpuData.points,
-        memoryData.points,
+        memoryPercentData.points,
+        memoryGBData.points,
         diskData.points,
         queriesData.points,
         periodConfig.step
@@ -216,9 +248,13 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
   return (
     <div className="space-y-6">
       {/* Filters Panel */}
-      <div className={`${
-        theme === 'light' ? 'bg-white/90 border-amber-500/30 hover:border-amber-500/50' : 'bg-gray-900/40 border-yellow-500/20 hover:border-yellow-500/30'
-      } backdrop-blur-md rounded-xl p-4 border transition-all duration-300`}>
+      <div
+        className={`${
+          theme === 'light'
+            ? 'bg-white/90 border-amber-500/30 hover:border-amber-500/50'
+            : 'bg-gray-900/40 border-yellow-500/20 hover:border-yellow-500/30'
+        } backdrop-blur-md rounded-xl p-4 border transition-all duration-300`}
+      >
         <div className="flex flex-wrap items-center gap-4">
           {/* Period Filter */}
           <CustomSelect
@@ -246,10 +282,14 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-500 text-gray-900 hover:from-amber-600 hover:to-yellow-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`ml-auto flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${
+              theme === 'light'
+                ? 'bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 hover:border-amber-600 text-amber-700 hover:text-amber-800'
+                : 'bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 hover:border-yellow-500/50 text-yellow-400 hover:text-yellow-300'
+            } transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span className="text-sm">Refresh</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
           </button>
         </div>
       </div>
@@ -297,15 +337,24 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         </ResponsiveContainer>
       </ChartCard>
 
-      {/* Memory Load - Line Chart */}
+      {/* Memory Load - Area Chart */}
       <ChartCard
         title="Memory Load"
         icon={<Database className="w-5 h-5" />}
-        currentValue={data.length > 0 ? data[data.length - 1].memory : 0}
-        unit="%"
+        currentValue={data.length > 0 ? data[data.length - 1].memoryGB : 0}
+        unit=" GB"
+        absoluteValue={data.length > 0 ? data[data.length - 1].memory : 0}
+        absoluteUnit="%"
+        swapDisplay={true}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data.length > 0 ? data : []}>
+          <AreaChart data={data.length > 0 ? data : []}>
+            <defs>
+              <linearGradient id="memoryGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
+                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1} />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
             <XAxis 
               dataKey="time" 
@@ -317,19 +366,18 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               stroke="#9ca3af" 
               style={{ fontSize: '12px' }}
               tick={{ fill: '#9ca3af' }}
-              domain={[0, 100]}
+              domain={[0, memoryTotalGB || 700]}
             />
             <Tooltip content={<CustomTooltip theme={theme} />} />
-            <Line
+            <Area
               type="monotone"
-              dataKey="memory"
+              dataKey="memoryGB"
               stroke="#f59e0b"
-              strokeWidth={3}
-              dot={{ fill: '#fbbf24', strokeWidth: 2, r: 4 }}
-              activeDot={{ r: 6, fill: '#fbbf24' }}
+              strokeWidth={2}
+              fill="url(#memoryGradient)"
               animationDuration={1000}
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </ChartCard>
 
