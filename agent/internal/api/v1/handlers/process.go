@@ -64,6 +64,13 @@ func NewProcessHandler(log *logger.Logger, cfg *config.Config) (*ProcessHandler,
 	}, nil
 }
 
+// Stop stops all publishers (useful for tests)
+func (h *ProcessHandler) Stop() {
+	if h.processPublisher != nil {
+		h.processPublisher.Stop()
+	}
+}
+
 // NewProcessHandlerWithRepository creates a process handler using a custom repository (testing helper)
 func NewProcessHandlerWithRepository(log *logger.Logger, repo ProcessRepository, broadcaster *stream.Broadcaster, publisher *stream.ProcessPublisher) *ProcessHandler {
 	return &ProcessHandler{

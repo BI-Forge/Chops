@@ -100,6 +100,13 @@ func NewMetricsHandler(logger *logger.Logger, cfg *config.Config) (*MetricsHandl
 	}, nil
 }
 
+// Stop stops all publishers (useful for tests)
+func (h *MetricsHandler) Stop() {
+	if h.metricsPublisher != nil {
+		h.metricsPublisher.Stop()
+	}
+}
+
 // NodeInfo represents node information with host and cluster name
 type NodeInfo struct {
 	Name        string `json:"name"`

@@ -1,0 +1,76 @@
+services:
+  test_postgres:
+    image: postgres:13.11
+    container_name: test_postgres
+    environment:
+      - POSTGRES_HOST=test_postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_PASSWORD=test12345
+      - POSTGRES_USER=test_ops
+      - POSTGRES_DB=test_public
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U test_ops -d test_public" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - 5437:5432
+    networks:
+      - test_network
+
+  test_clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: test_clickhouse
+    ports:
+      - "8122:8123"
+      - "9007:9000"
+    volumes:
+      - ./.config/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ./.config/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ./.config/clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./.config/clickhouse/users.d:/etc/clickhouse-server/users.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks:
+      - test_network
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8123/ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  test_app:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+      target: builder
+    container_name: test_app
+    working_dir: /app
+    volumes:
+      - ./agent:/app
+    environment:
+      - TEST_DB_ENABLED=true
+      - POSTGRES_DSN=postgres://test_ops:test12345@test_postgres:5432/test_public?sslmode=disable
+      - TEST_POSTGRES_DSN=postgres://test_ops:test12345@test_postgres:5432/test_public?sslmode=disable
+      - TEST_CLICKHOUSE_HOST=test_clickhouse
+      - TEST_CLICKHOUSE_PORT=9000
+      - TEST_CLICKHOUSE_DATABASE=default
+      - TEST_CLICKHOUSE_USER=ops
+      - TEST_CLICKHOUSE_PASSWORD=12345
+      - TEST_CLICKHOUSE_NODE_NAME=test_node
+    networks:
+      - test_network
+    depends_on:
+      test_postgres:
+        condition: service_healthy
+      test_clickhouse:
+        condition: service_healthy
+    command: tail -f /dev/null
+    stdin_open: true
+    tty: true
+
+networks:
+  test_network:
+    name: test_network

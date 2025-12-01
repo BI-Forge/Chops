@@ -82,9 +82,7 @@ func (r *QueryLogRepository) List(ctx context.Context, filter QueryLogFilter) ([
 	whereClause, args := r.buildWhereClause(filter)
 
 	dataQuery := fmt.Sprintf(`
-WITH hostName() AS node
 SELECT
-	node,
 	event_time,
 	event_time_microseconds,
 	query_start_time,
@@ -117,7 +115,8 @@ SELECT
 	(((user_us + system_us + virt_us) / (real_us * num_cores))
         +
     (wait_us / (real_us * num_cores))) * 100
-     AS cpu_load
+     AS cpu_load,
+	hostName() AS node
 FROM system.query_log
 WHERE %s
 ORDER BY event_time DESC
@@ -169,7 +168,6 @@ OFFSET ?`, whereClause)
 		)
 
 		if err := rows.Scan(
-			&node,
 			&eventTime,
 			&eventTimeMicroseconds,
 			&queryStartTime,
@@ -200,6 +198,7 @@ OFFSET ?`, whereClause)
 			&numCores,
 			&realUs,
 			&cpuLoad,
+			&node,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan query log row: %w", err)
 		}
@@ -279,7 +278,6 @@ func (r *QueryLogRepository) count(ctx context.Context, filter QueryLogFilter, w
 	}
 
 	countQuery := fmt.Sprintf(`
-WITH hostName() AS node
 SELECT count()
 FROM system.query_log
 WHERE %s`, whereClause)
@@ -404,7 +402,7 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 		"event_time >= ?", // Date From filter - filters by event_time column
 		"event_time <= ?", // Date To filter - filters by event_time column
 		"NOT has(databases, 'system')",
-		"lower(query_kind) NOT IN 'show'",
+		"lower(query_kind) NOT IN ('show')",
 		"type != 'QueryStart'",
 	}
 
@@ -439,7 +437,7 @@ func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (strin
 		"event_time >= ?", // Date From filter
 		"event_time <= ?", // Date To filter
 		"NOT has(databases, 'system')",
-		"lower(query_kind) NOT IN 'show'",
+		"lower(query_kind) NOT IN ('show')",
 	}
 
 	args := []any{filter.From, filter.To}

@@ -20,7 +20,7 @@ interface Query {
   query: string;
   user: string;
   database: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'completed' | 'failed';
   startTime: string;
   endTime?: string;
   duration: string;

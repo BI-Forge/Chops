@@ -1,50 +1,22 @@
-.PHONY: help dev prod stop test test-unit test-clickhouse test-api test-coverage test-config test-server test-db test-integration clean
+.PHONY: help test test-clickhouse test-api test-db-up test-db-down swagger
 
 # Default target
 help:
 	@echo "ClickHouse Operations - Makefile Commands"
 	@echo "========================================="
 	@echo ""
-	@echo "Environment:"
-	@echo "  dev                 - Start development environment"
-	@echo "  prod                - Start production environment"
-	@echo "  stop                - Stop all services"
-	@echo ""
 	@echo "Tests (run in Docker):"
 	@echo "  Backend:"
 	@echo "    test                - Run all Go tests"
-	@echo "    test-unit           - Run unit tests only"
 	@echo "    test-clickhouse     - Run ClickHouse tests only"
-	@echo "    test-api            - Run API tests only"
-	@echo "    test-coverage       - Run tests with coverage"
-	@echo "    test-config         - Test configuration"
-	@echo "    test-server         - Test HTTP server"
-	@echo "    test-db             - Test database"
-	@echo "    test-integration    - Test full integration"
+	@echo "    test-api            - Run API unit tests only (with mocks)"
+	@echo "    test-db-up          - Start test databases (PostgreSQL and ClickHouse)"
+	@echo "    test-db-down        - Stop test databases"
 	@echo ""
-	@echo "Other:"
-	@echo "  clean               - Clean test containers"
-	@echo ""
-
-# Development environment
-dev:
-	docker-compose -f docker-compose.dev.yml up -d
-
-# Production environment
-prod:
-	docker-compose up -d
-
-# Stop all services
-stop:
-	docker-compose stop
 
 # Run all tests
 test:
 	@cd agent && $(MAKE) test
-
-# Run unit tests
-test-unit:
-	@cd agent && $(MAKE) test-unit
 
 # Run ClickHouse tests
 test-clickhouse:
@@ -54,22 +26,14 @@ test-clickhouse:
 test-api:
 	@cd agent && $(MAKE) test-api
 
+# Start test databases
+test-db-up:
+	@cd agent && $(MAKE) test-db-up
+
+# Stop test databases
+test-db-down:
+	@cd agent && $(MAKE) test-db-down
+
 # Test configuration
-test-config:
-	@cd agent && $(MAKE) test-config
-
-# Test server
-test-server:
-	@cd agent && $(MAKE) test-server
-
-# Test database
-test-db:
-	@cd agent && $(MAKE) test-db
-
-# Test integration
-test-integration:
-	@cd agent && $(MAKE) test-integration
-
-# Clean test containers
-clean:
-	@cd agent && $(MAKE) clean
+swagger:
+	@cd agent && $(MAKE) swagger

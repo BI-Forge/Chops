@@ -94,6 +94,13 @@ func NewQueryLogHandler(log *logger.Logger, cfg *config.Config) (*QueryLogHandle
 	}, nil
 }
 
+// Stop stops all publishers (useful for tests)
+func (h *QueryLogHandler) Stop() {
+	if h.statsPublisher != nil {
+		h.statsPublisher.Stop()
+	}
+}
+
 // NewQueryLogHandlerWithRepository creates a query log handler using a custom repository (testing helper).
 func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepository, broadcaster *stream.Broadcaster, publisher *stream.QueryLogStatsPublisher) *QueryLogHandler {
 	return &QueryLogHandler{

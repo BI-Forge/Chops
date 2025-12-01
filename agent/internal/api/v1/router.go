@@ -23,8 +23,22 @@ type RouterConfig struct {
 	Config           *config.Config
 }
 
+// RouterWithHandlers holds router and handlers for cleanup in tests
+type RouterWithHandlers struct {
+	Router          *gin.Engine
+	MetricsHandler  *handlers.MetricsHandler
+	QueryLogHandler *handlers.QueryLogHandler
+	ProcessHandler  *handlers.ProcessHandler
+}
+
 // SetupRouter sets up API v1 routes
 func SetupRouter(cfg RouterConfig) *gin.Engine {
+	router, _ := SetupRouterWithHandlers(cfg)
+	return router
+}
+
+// SetupRouterWithHandlers sets up API v1 routes and returns handlers for cleanup
+func SetupRouterWithHandlers(cfg RouterConfig) (*gin.Engine, *RouterWithHandlers) {
 	router := gin.New()
 
 	// Global middleware
@@ -135,5 +149,10 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 		}
 	}
 
-	return router
+	return router, &RouterWithHandlers{
+		Router:          router,
+		MetricsHandler:  metricsHandler,
+		QueryLogHandler: queryLogHandler,
+		ProcessHandler:  processHandler,
+	}
 }

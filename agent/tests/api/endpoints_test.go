@@ -2,110 +2,26 @@ package api_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"clickhouse-ops/internal/api/repository"
-	"clickhouse-ops/internal/api/v1"
 	"clickhouse-ops/internal/api/v1/models"
-	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
-	"clickhouse-ops/internal/logger"
+	"clickhouse-ops/tests/api/testutil"
 
-	"github.com/gin-gonic/gin"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
-
-// setupTestDB creates a test database connection
-func setupTestDB(t *testing.T) (*gorm.DB, *sql.DB) {
-	// Use test database
-	dsn := "postgres://ops:12345@localhost:5436/public?sslmode=disable"
-
-	gormDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Skipf("Skipping test: cannot connect to test database: %v", err)
-		return nil, nil
-	}
-
-	// Get underlying sql.DB
-	sqlDB, err := gormDB.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Ping())
-
-	// Clean up test data
-	cleanupTestData(t, gormDB)
-
-	return gormDB, sqlDB
-}
-
-// cleanupTestData cleans up test data
-func cleanupTestData(t *testing.T, gormDB *gorm.DB) {
-	gormDB.Exec("DELETE FROM users WHERE username LIKE 'test_%'")
-	gormDB.Exec("DELETE FROM ch_metrics WHERE node_name LIKE 'test_%'")
-}
-
-// setupTestRouter creates a test router
-func setupTestRouter(t *testing.T, gormDB *gorm.DB, sqlDB *sql.DB, appCfg *config.Config) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-
-	cfg := v1.RouterConfig{
-		JWTSecretKey:     "test-secret-key-for-testing-only",
-		JWTTokenDuration: 24 * time.Hour,
-		RateLimitRPS:     0, // Disable rate limiting for tests
-		RateLimitBurst:   0,
-		Logger:           logger.New(logger.InfoLevel, "text"),
-		Config:           appCfg,
-	}
-
-	// Setup router - it will use db.GetInstance() from setupTestEnvironment
-	router := v1.SetupRouter(cfg)
-
-	return router
-}
-
-// setupTestEnvironment sets up test environment
-func setupTestEnvironment(t *testing.T) (*gorm.DB, *gin.Engine) {
-	gormDB, sqlDB := setupTestDB(t)
-	if gormDB == nil {
-		return nil, nil
-	}
-
-	// Initialize database instance for handlers
-	cfg := &config.Config{
-		Database: config.DatabaseConfig{
-			Postgres: config.DatabaseDSN{
-				DSN: "postgres://ops:12345@localhost:5436/public?sslmode=disable",
-			},
-		},
-		Sync: config.SyncConfig{
-			RetentionDays: 10,
-		},
-	}
-
-	log := logger.New(logger.InfoLevel, "text")
-
-	// Create database manager properly
-	err := db.Connect(cfg, log)
-	if err != nil {
-		t.Skipf("Skipping test: failed to initialize database manager: %v", err)
-		return nil, nil
-	}
-
-	router := setupTestRouter(t, gormDB, sqlDB, cfg)
-	return gormDB, router
-}
 
 // TestHealthEndpoint tests the /healthz endpoint
 func TestHealthEndpoint(t *testing.T) {
-	_, router := setupTestEnvironment(t)
+	fmt.Println("TestHealthEndpoint")
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}
@@ -127,11 +43,11 @@ func TestHealthEndpoint(t *testing.T) {
 
 // TestRegisterEndpoint tests the POST /api/v1/auth/register endpoint
 func TestRegisterEndpoint(t *testing.T) {
-	dbConn, router := setupTestEnvironment(t)
+	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}
-	defer cleanupTestData(t, dbConn)
+	defer testutil.CleanupTestData(t, dbConn)
 
 	tests := []struct {
 		name           string
@@ -231,11 +147,11 @@ func TestRegisterEndpoint(t *testing.T) {
 
 // TestLoginEndpoint tests the POST /api/v1/auth/login endpoint
 func TestLoginEndpoint(t *testing.T) {
-	dbConn, router := setupTestEnvironment(t)
+	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}
-	defer cleanupTestData(t, dbConn)
+	defer testutil.CleanupTestData(t, dbConn)
 
 	// Create test user for login
 	username := "test_login_user_" + time.Now().Format("20060102150405")
@@ -331,11 +247,11 @@ func TestLoginEndpoint(t *testing.T) {
 
 // TestMeEndpoint tests the GET /api/v1/auth/me endpoint
 func TestMeEndpoint(t *testing.T) {
-	dbConn, router := setupTestEnvironment(t)
+	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}
-	defer cleanupTestData(t, dbConn)
+	defer testutil.CleanupTestData(t, dbConn)
 
 	// Create user and get token
 	username := "test_me_user_" + time.Now().Format("20060102150405")
@@ -412,16 +328,22 @@ func TestMeEndpoint(t *testing.T) {
 
 // TestMetricsSeriesEndpoint tests the GET /api/v1/metrics/series endpoint
 func TestMetricsSeriesEndpoint(t *testing.T) {
-	dbConn, router := setupTestEnvironment(t)
+	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}
-	defer cleanupTestData(t, dbConn)
+	defer testutil.CleanupTestData(t, dbConn)
 
 	nodeName := "test_node_series"
 	now := time.Now().UTC().Truncate(time.Second)
 
-	insertSample := func(ts time.Time, cpu float64) {
+	insertSample := func(ts time.Time, cpuPercent float64) {
+		// cpuPercent is expected CPU load percentage (0-100)
+		// Formula: (sum of all normalized CPU times) * 100 = cpuPercent
+		// So we need: sum = cpuPercent / 100
+		// Distribute evenly across all 7 CPU time fields
+		cpuNormalized := cpuPercent / 100.0 / 7.0
+		
 		memoryTotal := int64(16 * 1024 * 1024 * 1024)
 		memoryAvailable := int64(8 * 1024 * 1024 * 1024)
 		diskTotal := int64(10 * 1024 * 1024 * 1024)
@@ -431,18 +353,23 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 			INSERT INTO ch_metrics (
 				"timestamp", node_name,
 				os_user_time_normalized, os_system_time_normalized, os_io_wait_time_normalized,
+				os_irq_time_normalized, os_soft_irq_time_normalized, os_guest_time_normalized, os_steal_time_normalized, os_nice_time_normalized,
 				os_memory_total, os_memory_available,
 				disk_total_space, disk_free_space,
 				tcp_connection, mysql_connection, http_connection, interserver_connection, postgresql_connection,
 				query
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, ts, nodeName, cpu/3, cpu/3, cpu/3, memoryTotal, memoryAvailable, diskTotal, diskFree, 2, 1, 3, 0, 4, 5)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, ts, nodeName, 
+			cpuNormalized, cpuNormalized, cpuNormalized, // user, system, io_wait
+			cpuNormalized, cpuNormalized, cpuNormalized, cpuNormalized, cpuNormalized, // irq, soft_irq, guest, steal, nice
+			memoryTotal, memoryAvailable, diskTotal, diskFree, 
+			2, 1, 3, 0, 4, 5)
 		require.NoError(t, req.Error)
 	}
 
-	insertSample(now.Add(-2*time.Minute), 0.3)
-	insertSample(now.Add(-time.Minute), 0.33)
-	insertSample(now, 0.36)
+	insertSample(now.Add(-2*time.Minute), 30.0)  // 30% CPU load
+	insertSample(now.Add(-time.Minute), 33.0)    // 33% CPU load
+	insertSample(now, 36.0)                       // 36% CPU load
 
 	username := "test_metrics_user_" + time.Now().Format("20060102150405")
 	password := "securepass123"
@@ -479,7 +406,8 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	assert.Equal(t, "1m", series.Step)
 	if assert.NotEmpty(t, series.Points) {
 		latest := series.Points[len(series.Points)-1]
-		assert.InDelta(t, 0.36, latest.Value, 0.05)
+		// CPULoad formula multiplies by 100, so 36% CPU load = 36.0
+		assert.InDelta(t, 36.0, latest.Value, 0.5)
 	}
 
 	reqWide, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=1h", nil)
@@ -496,7 +424,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 
 // TestSwaggerEndpoint tests Swagger documentation availability
 func TestSwaggerEndpoint(t *testing.T) {
-	_, router := setupTestEnvironment(t)
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}
@@ -513,7 +441,7 @@ func TestSwaggerEndpoint(t *testing.T) {
 
 // TestCORSHeaders tests CORS headers
 func TestCORSHeaders(t *testing.T) {
-	_, router := setupTestEnvironment(t)
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
 		return
 	}

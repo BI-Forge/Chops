@@ -67,9 +67,8 @@ func (r *ProcessRepository) GetCurrentProcesses(ctx context.Context, nodeName st
 	whereClause, args := r.buildWhereClause(nodeName)
 
 	query := fmt.Sprintf(`
-WITH hostName() AS node
 SELECT
-	node,
+	hostName() AS node,
 	query_id,
 	user,
 	address,
