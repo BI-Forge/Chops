@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"clickhouse-ops/internal/api/repository"
@@ -13,6 +14,7 @@ import (
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gin-gonic/gin"
 )
 
@@ -103,52 +105,92 @@ type NodeInfo struct {
 	Name        string `json:"name"`
 	Host        string `json:"host"`
 	ClusterName string `json:"cluster_name"`
+	Available   bool   `json:"available"` // Node availability status
 }
 
-// GetAvailableNodes returns list of available nodes with host and cluster information
+// checkNodeAvailability checks if a ClickHouse node is available by attempting to connect
+func (h *MetricsHandler) checkNodeAvailability(ctx context.Context, node config.ClickHouseNode) bool {
+	if h.config == nil {
+		return false
+	}
+
+	// Parse timeouts
+	dialTimeout, err := time.ParseDuration(h.config.Database.ClickHouse.GlobalSettings.DialTimeout)
+	if err != nil {
+		dialTimeout = 2 * time.Second // Default timeout
+	}
+
+	readTimeout, err := time.ParseDuration(h.config.Database.ClickHouse.GlobalSettings.ReadTimeout)
+	if err != nil {
+		readTimeout = 5 * time.Second // Default timeout
+	}
+
+	// Use shorter timeout for health check
+	testCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	// Build connection options
+	options := &clickhouse.Options{
+		Addr: []string{fmt.Sprintf("%s:%d", node.Host, node.Port)},
+		Auth: clickhouse.Auth{
+			Database: node.Database,
+			Username: node.Username,
+			Password: node.Password,
+		},
+		DialTimeout: dialTimeout,
+		ReadTimeout: readTimeout,
+	}
+
+	// Configure TLS if secure (TLS configuration handled by driver)
+	// Note: TLS is configured automatically by the driver when using secure connections
+
+	// Attempt to connect
+	conn, err := clickhouse.Open(options)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	// Try to ping
+	err = conn.Ping(testCtx)
+	return err == nil
+}
+
+// GetAvailableNodes returns list of nodes from configuration with availability status
 // @Summary      Get available nodes
-// @Description  Returns list of node names that have metrics data, including host and cluster name
+// @Description  Returns list of nodes from configuration, including host, cluster name and availability status
 // @Tags         metrics
 // @Produce      json
 // @Success      200  {object}  map[string]interface{}
 // @Router       /api/v1/metrics/nodes [get]
 func (h *MetricsHandler) GetAvailableNodes(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get node names from database
-	nodeNames, err := h.metricsRepo.GetAvailableNodes(ctx)
-	if err != nil {
-		h.logger.Errorf("Failed to get nodes: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get nodes"})
-		return
-	}
-
-	// Create a map of node name to node config for quick lookup
-	nodeConfigMap := make(map[string]config.ClickHouseNode)
+	var nodes []NodeInfo
 	clusterName := ""
+
+	// Get nodes from configuration only
 	if h.config != nil && h.config.Database.ClickHouse.Nodes != nil {
 		clusterName = h.config.Database.ClickHouse.ClusterName
-		for _, node := range h.config.Database.ClickHouse.Nodes {
-			nodeConfigMap[node.Name] = node
-		}
-	}
+		nodes = make([]NodeInfo, 0, len(h.config.Database.ClickHouse.Nodes))
 
-	// Build response with node information
-	nodes := make([]NodeInfo, 0, len(nodeNames))
-	for _, nodeName := range nodeNames {
-		nodeInfo := NodeInfo{
-			Name:        nodeName,
-			Host:        "",
-			ClusterName: clusterName,
-		}
-
-		// Get host from config if available
-		if nodeConfig, exists := nodeConfigMap[nodeName]; exists {
-			nodeInfo.Host = nodeConfig.Host
+		// Check availability for each node
+		for _, nodeConfig := range h.config.Database.ClickHouse.Nodes {
+			available := h.checkNodeAvailability(ctx, nodeConfig)
+			nodeInfo := NodeInfo{
+				Name:        nodeConfig.Name,
+				Host:        nodeConfig.Host,
+				ClusterName: clusterName,
+				Available:   available,
+			}
+			nodes = append(nodes, nodeInfo)
 		}
 
-		nodes = append(nodes, nodeInfo)
+		// Sort nodes by name for consistent ordering
+		sort.Slice(nodes, func(i, j int) bool {
+			return nodes[i].Name < nodes[j].Name
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"nodes": nodes})
@@ -347,4 +389,52 @@ func normalizeStep(stepKey string, expectedStep time.Duration) (time.Duration, s
 	}
 
 	return stepDuration, effectiveStep, nil
+}
+
+// GetServerInfo returns server information including uptime and version
+// @Summary      Get server information
+// @Description  Returns server information (uptime and version) for a specific node
+// @Tags         metrics
+// @Security     BearerAuth
+// @Param        node  query  string  true  "Node name"
+// @Produce      json
+// @Success      200  {object}  models.ServerInfo
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      500  {object}  models.ErrorResponse
+// @Router       /api/v1/metrics/server-info [get]
+func (h *MetricsHandler) GetServerInfo(c *gin.Context) {
+	nodeName := c.Query("node")
+	if nodeName == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request",
+			Message: "node parameter is required",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	info, err := h.metricsRepo.GetServerInfo(ctx, nodeName)
+	if err != nil {
+		h.logger.Errorf("Failed to get server info for node %s: %v", nodeName, err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Failed to get server info",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Fill Host and Cluster from config
+	if h.config != nil && h.config.Database.ClickHouse.Nodes != nil {
+		info.Cluster = h.config.Database.ClickHouse.ClusterName
+		for _, node := range h.config.Database.ClickHouse.Nodes {
+			if node.Name == nodeName {
+				info.Host = node.Host
+				break
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, info)
 }

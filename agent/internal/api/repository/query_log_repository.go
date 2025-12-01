@@ -87,6 +87,7 @@ SELECT
 	node,
 	event_time,
 	event_time_microseconds,
+	query_start_time,
 	initial_user,
 	user,
 	query_id,
@@ -106,7 +107,17 @@ SELECT
 	exception,
 	client_hostname,
 	databases,
-	tables
+	tables,
+	ProfileEvents['UserTimeMicroseconds'] AS user_us,
+	ProfileEvents['SystemTimeMicroseconds'] AS system_us,
+	ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS virt_us,
+	ProfileEvents['OSCPUWaitMicroseconds'] AS wait_us,
+	peak_threads_usage AS num_cores,
+	query_duration_ms * 1000 AS real_us,
+	(((user_us + system_us + virt_us) / (real_us * num_cores))
+        +
+    (wait_us / (real_us * num_cores))) * 100
+     AS cpu_load
 FROM system.query_log
 WHERE %s
 ORDER BY event_time DESC
@@ -127,6 +138,7 @@ OFFSET ?`, whereClause)
 			node                  string
 			eventTime             time.Time
 			eventTimeMicroseconds time.Time
+			queryStartTime        time.Time
 			initialUser           string
 			user                  string
 			queryID               string
@@ -147,12 +159,20 @@ OFFSET ?`, whereClause)
 			clientHostname        string
 			databases             []string
 			tables                []string
+			userUs                uint64
+			systemUs              uint64
+			virtUs                uint64
+			waitUs                uint64
+			numCores              uint64
+			realUs                uint64
+			cpuLoad               float64
 		)
 
 		if err := rows.Scan(
 			&node,
 			&eventTime,
 			&eventTimeMicroseconds,
+			&queryStartTime,
 			&initialUser,
 			&user,
 			&queryID,
@@ -173,6 +193,13 @@ OFFSET ?`, whereClause)
 			&clientHostname,
 			&databases,
 			&tables,
+			&userUs,
+			&systemUs,
+			&virtUs,
+			&waitUs,
+			&numCores,
+			&realUs,
+			&cpuLoad,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan query log row: %w", err)
 		}
@@ -190,6 +217,7 @@ OFFSET ?`, whereClause)
 			Node:                  node,
 			EventTime:             eventTime.UTC().Format(time.RFC3339),
 			EventTimeMicroseconds: eventTimeMicroseconds.UTC().Format(microsecondLayout),
+			QueryStartTime:        queryStartTime.UTC().Format(time.RFC3339),
 			InitialUser:           initialUser,
 			User:                  user,
 			QueryID:               queryID,
@@ -207,6 +235,7 @@ OFFSET ?`, whereClause)
 			DurationMs:            durationMs,
 			ExceptionCode:         exceptionCode,
 			Exception:             exceptionText,
+			CPULoad:               cpuLoad,
 			ClientHostname:        clientHostname,
 			Databases:             databases,
 			Tables:                tables,
@@ -460,18 +489,19 @@ func (r *QueryLogRepository) buildProcessesWhereClause(filter QueryLogFilter) (s
 
 // QueryLoadEntry represents CPU and memory load data for a query.
 type QueryLoadEntry struct {
-	EventTime   time.Time
-	QueryID     string
-	User        string
-	DurationMs  uint64
-	MemoryUsage uint64
-	UserUs      uint64
-	SystemUs    uint64
-	VirtUs      uint64
-	WaitUs      uint64
-	NumCores    uint64
-	RealUs      uint64
-	CPULoad     float64
+	EventTime      time.Time
+	QueryStartTime time.Time
+	QueryID        string
+	User           string
+	DurationMs     uint64
+	MemoryUsage    uint64
+	UserUs         uint64
+	SystemUs       uint64
+	VirtUs         uint64
+	WaitUs         uint64
+	NumCores       uint64
+	RealUs         uint64
+	CPULoad        float64
 }
 
 // GetLoadData returns CPU and memory load data for queries matching the filter (without pagination).
@@ -500,6 +530,7 @@ func (r *QueryLogRepository) GetLoadData(ctx context.Context, filter QueryLogFil
 	loadQuery := fmt.Sprintf(`
 SELECT
 	event_time,
+	query_start_time,
 	query_id,
 	user,
 	query_duration_ms,
@@ -527,22 +558,24 @@ ORDER BY event_time DESC`, whereClause)
 	entries := make([]QueryLoadEntry, 0)
 	for rows.Next() {
 		var (
-			eventTime   time.Time
-			queryID     string
-			user        string
-			durationMs  uint64
-			memoryUsage uint64
-			userUs      uint64
-			systemUs    uint64
-			virtUs      uint64
-			waitUs      uint64
-			numCores    uint64
-			realUs      uint64
-			cpuLoad     float64
+			eventTime      time.Time
+			queryStartTime time.Time
+			queryID        string
+			user           string
+			durationMs     uint64
+			memoryUsage    uint64
+			userUs         uint64
+			systemUs       uint64
+			virtUs         uint64
+			waitUs         uint64
+			numCores       uint64
+			realUs         uint64
+			cpuLoad        float64
 		)
 
 		if err := rows.Scan(
 			&eventTime,
+			&queryStartTime,
 			&queryID,
 			&user,
 			&durationMs,
@@ -559,18 +592,19 @@ ORDER BY event_time DESC`, whereClause)
 		}
 
 		entry := QueryLoadEntry{
-			EventTime:   eventTime,
-			QueryID:     queryID,
-			User:        user,
-			DurationMs:  durationMs,
-			MemoryUsage: memoryUsage,
-			UserUs:      userUs,
-			SystemUs:    systemUs,
-			VirtUs:      virtUs,
-			WaitUs:      waitUs,
-			NumCores:    numCores,
-			RealUs:      realUs,
-			CPULoad:     cpuLoad,
+			EventTime:      eventTime,
+			QueryStartTime: queryStartTime,
+			QueryID:        queryID,
+			User:           user,
+			DurationMs:     durationMs,
+			MemoryUsage:    memoryUsage,
+			UserUs:         userUs,
+			SystemUs:       systemUs,
+			VirtUs:         virtUs,
+			WaitUs:         waitUs,
+			NumCores:       numCores,
+			RealUs:         realUs,
+			CPULoad:        cpuLoad,
 		}
 
 		entries = append(entries, entry)

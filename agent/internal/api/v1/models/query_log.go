@@ -5,6 +5,7 @@ type QueryLogEntry struct {
 	Node                  string   `json:"node"`
 	EventTime             string   `json:"event_time"`
 	EventTimeMicroseconds string   `json:"event_time_microseconds"`
+	QueryStartTime        string   `json:"query_start_time"`
 	InitialUser           string   `json:"initial_user"`
 	User                  string   `json:"user"`
 	QueryID               string   `json:"query_id"`
@@ -25,6 +26,7 @@ type QueryLogEntry struct {
 	ClientHostname        string   `json:"client_hostname,omitempty"`
 	Databases             []string `json:"databases,omitempty"`
 	Tables                []string `json:"tables,omitempty"`
+	CPULoad               float64  `json:"cpu_load"`
 }
 
 // QueryLogResponse wraps query log entries with pagination metadata.
@@ -57,12 +59,13 @@ type QueryLogStatsResponse struct {
 
 // QueryLoadEntry represents CPU and memory load data for a single query.
 type QueryLoadEntry struct {
-	EventTime   string  `json:"event_time"`
-	QueryID     string  `json:"query_id"`
-	User        string  `json:"user"`
-	DurationMs  uint64  `json:"duration_ms"`
-	MemoryUsage uint64  `json:"memory_usage"`
-	CPULoad     float64 `json:"cpu_load"`
+	EventTime      string  `json:"event_time"`
+	QueryStartTime string  `json:"query_start_time"`
+	QueryID        string  `json:"query_id"`
+	User           string  `json:"user"`
+	DurationMs     uint64  `json:"duration_ms"`
+	MemoryUsage    uint64  `json:"memory_usage"`
+	CPULoad        float64 `json:"cpu_load"`
 }
 
 // QueryLoadResponse wraps query load entries.

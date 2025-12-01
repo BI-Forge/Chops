@@ -16,6 +16,7 @@ export interface NodeInfo {
   name: string
   host: string
   cluster_name: string
+  available: boolean
 }
 
 export interface NodesResponse {
@@ -35,5 +36,16 @@ export interface MetricSeriesResponse {
   from: string
   to: string
   points: MetricSeriesPoint[]
+}
+
+export interface ServerInfo {
+  node_name: string
+  uptime: number
+  version_integer: number
+  total_memory: number
+  total_storage: number
+  available_storage: number
+  host: string
+  cluster: string
 }
 

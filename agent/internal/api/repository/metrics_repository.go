@@ -180,3 +180,42 @@ ORDER BY bucket
 
 	return points, nil
 }
+
+// GetServerInfo returns server information including uptime, version, memory and storage for a specific node
+func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) (*models.ServerInfo, error) {
+	type dbResult struct {
+		NodeName         string
+		Uptime           int64
+		VersionInteger   int64
+		TotalMemory      int64 `gorm:"column:os_memory_total"`
+		TotalStorage     int64 `gorm:"column:disk_total_space"`
+		AvailableStorage int64 `gorm:"column:disk_free_space"`
+	}
+
+	var dbRow dbResult
+	result := r.db.WithContext(ctx).
+		Table("ch_metrics").
+		Select("node_name, uptime, version_integer, os_memory_total, disk_total_space, disk_free_space").
+		Where("node_name = ?", nodeName).
+		Order("timestamp DESC").
+		Limit(1).
+		Scan(&dbRow)
+
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
+		}
+		return nil, fmt.Errorf("failed to get server info: %w", result.Error)
+	}
+
+	info := &models.ServerInfo{
+		NodeName:         dbRow.NodeName,
+		Uptime:           dbRow.Uptime,
+		VersionInteger:   dbRow.VersionInteger,
+		TotalMemory:      dbRow.TotalMemory,
+		TotalStorage:     dbRow.TotalStorage,
+		AvailableStorage: dbRow.AvailableStorage,
+	}
+
+	return info, nil
+}

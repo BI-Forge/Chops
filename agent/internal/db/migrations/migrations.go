@@ -31,6 +31,12 @@ func GetMigrations() []Migration {
 			Up:      createChMetricsTable,
 			Down:    dropChMetricsTable,
 		},
+		{
+			Version: 5,
+			Name:    "add_uptime_version_to_ch_metrics",
+			Up:      addUptimeVersionToChMetrics,
+			Down:    removeUptimeVersionFromChMetrics,
+		},
 	}
 }
 
@@ -198,7 +204,9 @@ func createChMetricsTable(tx *sql.Tx) error {
 			disk_free_space BIGINT,
 			disk_total_space BIGINT,
 			disk_unreserved_space BIGINT,
-			disk_keep_free_space BIGINT
+			disk_keep_free_space BIGINT,
+			uptime BIGINT,
+			version_integer BIGINT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_ch_metrics_timestamp ON ch_metrics(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_ch_metrics_node_name ON ch_metrics(node_name)`,
@@ -256,6 +264,8 @@ func createChMetricsTable(tx *sql.Tx) error {
 		`COMMENT ON COLUMN ch_metrics.disk_total_space IS 'Total disk space in bytes from system.disks'`,
 		`COMMENT ON COLUMN ch_metrics.disk_unreserved_space IS 'Unreserved disk space in bytes from system.disks'`,
 		`COMMENT ON COLUMN ch_metrics.disk_keep_free_space IS 'Keep free disk space in bytes from system.disks'`,
+		`COMMENT ON COLUMN ch_metrics.uptime IS 'Server uptime in seconds from system.asynchronous_metrics'`,
+		`COMMENT ON COLUMN ch_metrics.version_integer IS 'ClickHouse version as integer from system.metrics'`,
 	}
 	
 	return executeStatements(tx, statements, "create ch_metrics table")
@@ -268,5 +278,27 @@ func dropChMetricsTable(tx *sql.Tx) error {
 	}
 	
 	return executeStatements(tx, statements, "drop ch_metrics table")
+}
+
+// addUptimeVersionToChMetrics adds uptime and version_integer columns to ch_metrics table
+func addUptimeVersionToChMetrics(tx *sql.Tx) error {
+	statements := []string{
+		`ALTER TABLE ch_metrics ADD COLUMN IF NOT EXISTS uptime BIGINT`,
+		`ALTER TABLE ch_metrics ADD COLUMN IF NOT EXISTS version_integer BIGINT`,
+		`COMMENT ON COLUMN ch_metrics.uptime IS 'Server uptime in seconds from system.asynchronous_metrics'`,
+		`COMMENT ON COLUMN ch_metrics.version_integer IS 'ClickHouse version as integer from system.metrics'`,
+	}
+	
+	return executeStatements(tx, statements, "add uptime and version_integer to ch_metrics")
+}
+
+// removeUptimeVersionFromChMetrics removes uptime and version_integer columns from ch_metrics table
+func removeUptimeVersionFromChMetrics(tx *sql.Tx) error {
+	statements := []string{
+		`ALTER TABLE ch_metrics DROP COLUMN IF EXISTS uptime`,
+		`ALTER TABLE ch_metrics DROP COLUMN IF EXISTS version_integer`,
+	}
+	
+	return executeStatements(tx, statements, "remove uptime and version_integer from ch_metrics")
 }
 

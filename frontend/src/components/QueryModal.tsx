@@ -35,6 +35,14 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
   const [copied, setCopied] = useState(false);
   const { theme } = useTheme();
 
+  // Helper function to format values - replace 0 with dash
+  const formatValue = (value: string | undefined): string => {
+    if (!value || value === '0' || value === '0%' || value === '0 MB' || value === '0 GB' || value === '0 KB' || value === '0 B') {
+      return '—';
+    }
+    return value;
+  };
+
   // Block body scroll when modal is open
   useEffect(() => {
     if (isOpen) {
@@ -317,12 +325,12 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Rows Read</span>
-                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{query.rowsRead}</span>
+                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{formatValue(query.rowsRead)}</span>
                   </div>
                   <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />
                   <div className="flex items-center justify-between">
                     <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Bytes Read</span>
-                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{query.bytesRead}</span>
+                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{formatValue(query.bytesRead)}</span>
                   </div>
                   <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />
                   <div className="flex items-center justify-between">
@@ -330,7 +338,7 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                       <HardDrive className="w-4 h-4" />
                       Memory Usage
                     </div>
-                    <span className={`${theme === 'light' ? 'text-amber-700' : 'text-amber-400'} font-mono`}>{query.memoryUsage}</span>
+                    <span className={`${theme === 'light' ? 'text-amber-700' : 'text-amber-400'} font-mono`}>{formatValue(query.memoryUsage)}</span>
                   </div>
                   <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />
                   <div className="flex items-center justify-between">
@@ -338,7 +346,7 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                       <Cpu className="w-4 h-4" />
                       CPU Usage
                     </div>
-                    <span className={`${theme === 'light' ? 'text-orange-700' : 'text-orange-400'} font-mono`}>{query.cpuUsage}</span>
+                    <span className={`${theme === 'light' ? 'text-orange-700' : 'text-orange-400'} font-mono`}>{formatValue(query.cpuUsage)}</span>
                   </div>
                 </div>
               </div>
@@ -357,7 +365,6 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
 
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Error</span>
                       <span className={`${theme === 'light' ? 'text-red-800' : 'text-red-400'} font-mono`}>{query.errorMessage}</span>
                     </div>
                   </div>

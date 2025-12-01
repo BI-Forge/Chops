@@ -110,6 +110,7 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 					metrics.GET("/current", metricsHandler.GetCurrentMetrics)
 					metrics.GET("/stream", metricsHandler.StreamMetrics)
 					metrics.GET("/series", metricsHandler.GetMetricSeries)
+					metrics.GET("/server-info", metricsHandler.GetServerInfo)
 				}
 			}
 			if queryLogHandler != nil {
@@ -118,7 +119,6 @@ func SetupRouter(cfg RouterConfig) *gin.Engine {
 					queryLog.GET("", queryLogHandler.ListQueryLog)
 					queryLog.GET("/stats", queryLogHandler.GetQueryLogStats)
 					queryLog.GET("/stats/stream", queryLogHandler.StreamQueryLogStats)
-					queryLog.GET("/load", queryLogHandler.GetQueryLoadData)
 				}
 			}
 			if processHandler != nil {

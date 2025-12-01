@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/db"
+
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
@@ -64,7 +65,8 @@ func (ms *MetricsSyncer) Sync(ctx context.Context, conn driver.Conn) (SyncResult
 			'MemoryVirtual',
 			'MemoryResident',
 			'QueriesMemoryUsage',
-			'QueriesPeakMemoryUsage'
+			'QueriesPeakMemoryUsage',
+			'Uptime'
 		)
 		UNION ALL
 		SELECT metric, toFloat64(value) as value, description 
@@ -101,7 +103,8 @@ func (ms *MetricsSyncer) Sync(ctx context.Context, conn driver.Conn) (SyncResult
 			'PartsOutdated',
 			'PartsPreActive',
 			'PartsPreCommitted',
-			'PartsTemporary'
+			'PartsTemporary',
+			'VersionInteger'
 		)
 		UNION ALL
 		SELECT 'DiskFreeSpace' as metric, sum(toFloat64(free_space)) as value, '' as description
@@ -121,15 +124,15 @@ func (ms *MetricsSyncer) Sync(ctx context.Context, conn driver.Conn) (SyncResult
 	if err != nil {
 		// Check for specific error types to provide better error messages
 		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "does not exist") || 
-		   (strings.Contains(errStr, "table") && strings.Contains(errStr, "not found")) ||
-		   strings.Contains(errStr, "unknown table") {
+		if strings.Contains(errStr, "does not exist") ||
+			(strings.Contains(errStr, "table") && strings.Contains(errStr, "not found")) ||
+			strings.Contains(errStr, "unknown table") {
 			result.Error = fmt.Errorf("ClickHouse table not found (system tables may not be available): %w", err)
-		} else if strings.Contains(errStr, "connection") || 
-		          strings.Contains(errStr, "timeout") || 
-		          strings.Contains(errStr, "network") ||
-		          strings.Contains(errStr, "connection refused") ||
-		          strings.Contains(errStr, "no such host") {
+		} else if strings.Contains(errStr, "connection") ||
+			strings.Contains(errStr, "timeout") ||
+			strings.Contains(errStr, "network") ||
+			strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "no such host") {
 			result.Error = fmt.Errorf("ClickHouse connection error: %w", err)
 		} else {
 			result.Error = fmt.Errorf("failed to query ClickHouse metrics: %w", err)
@@ -155,7 +158,7 @@ func (ms *MetricsSyncer) Sync(ctx context.Context, conn driver.Conn) (SyncResult
 
 		// Convert metric name to column name (snake_case)
 		columnName := metricToColumnName(metric)
-		
+
 		// Store value (all values are now Float64 from query)
 		metricsMap[columnName] = value
 	}
@@ -164,6 +167,9 @@ func (ms *MetricsSyncer) Sync(ctx context.Context, conn driver.Conn) (SyncResult
 		result.Error = fmt.Errorf("error iterating metrics rows: %w", err)
 		return result, result.Error
 	}
+
+	// Convert float values to appropriate types based on column type
+	ms.convertMetricValues(metricsMap)
 
 	// Insert into PostgreSQL
 	recordsProcessed, err := ms.insertIntoPostgres(ctx, metricsMap)
@@ -184,67 +190,69 @@ func metricToColumnName(metric string) string {
 	// Map of metric names to column names
 	metricMap := map[string]string{
 		// Asynchronous metrics
-		"OSUserTimeNormalized":        "os_user_time_normalized",
-		"OSSystemTimeNormalized":      "os_system_time_normalized",
-		"OSIOWaitTimeNormalized":      "os_io_wait_time_normalized",
-		"OSIrqTimeNormalized":         "os_irq_time_normalized",
-		"OSGuestTimeNormalized":       "os_guest_time_normalized",
-		"OSNiceTimeNormalized":        "os_nice_time_normalized",
-		"OSStealTimeNormalized":       "os_steal_time_normalized",
-		"OSSoftIrqTimeNormalized":     "os_soft_irq_time_normalized",
-		"OSMemoryAvailable":           "os_memory_available",
-		"OSMemoryCached":              "os_memory_cached",
-		"OSMemorySwapCached":          "os_memory_swap_cached",
-		"OSMemoryBuffers":            "os_memory_buffers",
-		"OSMemoryTotal":              "os_memory_total",
-		"OSMemoryFreeWithoutCached":   "os_memory_free_without_cached",
-		"MemoryVirtual":              "memory_virtual",
-		"MemoryResident":             "memory_resident",
-		"QueriesMemoryUsage":         "queries_memory_usage",
-		"QueriesPeakMemoryUsage":      "queries_peak_memory_usage",
+		"OSUserTimeNormalized":      "os_user_time_normalized",
+		"OSSystemTimeNormalized":    "os_system_time_normalized",
+		"OSIOWaitTimeNormalized":    "os_io_wait_time_normalized",
+		"OSIrqTimeNormalized":       "os_irq_time_normalized",
+		"OSGuestTimeNormalized":     "os_guest_time_normalized",
+		"OSNiceTimeNormalized":      "os_nice_time_normalized",
+		"OSStealTimeNormalized":     "os_steal_time_normalized",
+		"OSSoftIrqTimeNormalized":   "os_soft_irq_time_normalized",
+		"OSMemoryAvailable":         "os_memory_available",
+		"OSMemoryCached":            "os_memory_cached",
+		"OSMemorySwapCached":        "os_memory_swap_cached",
+		"OSMemoryBuffers":           "os_memory_buffers",
+		"OSMemoryTotal":             "os_memory_total",
+		"OSMemoryFreeWithoutCached": "os_memory_free_without_cached",
+		"MemoryVirtual":             "memory_virtual",
+		"MemoryResident":            "memory_resident",
+		"QueriesMemoryUsage":        "queries_memory_usage",
+		"QueriesPeakMemoryUsage":    "queries_peak_memory_usage",
+		"Uptime":                    "uptime",
 		// Metrics
 		"Query":                      "query",
-		"Merge":                       "merge",
-		"MergeParts":                  "merge_parts",
-		"Move":                        "move",
-		"PartMutation":                "part_mutation",
-		"ReplicatedFetch":             "replicated_fetch",
-		"ReplicatedSend":              "replicated_send",
-		"ReplicatedChecks":             "replicated_checks",
-		"TCPConnection":               "tcp_connection",
-		"MySQLConnection":             "mysql_connection",
-		"HTTPConnection":              "http_connection",
-		"InterserverConnection":       "interserver_connection",
-		"PostgreSQLConnection":        "postgresql_connection",
-		"IOPrefetchThreads":           "io_prefetch_threads",
-		"IOPrefetchThreadsActive":     "io_prefetch_threads_active",
-		"IOPrefetchThreadsScheduled":  "io_prefetch_threads_scheduled",
-		"IOWriterThreads":             "io_writer_threads",
-		"IOWriterThreadsActive":       "io_writer_threads_active",
-		"IOWriterThreadsScheduled":    "io_writer_threads_scheduled",
-		"IOThreads":                   "io_threads",
-		"IOThreadsActive":             "io_threads_active",
-		"IOThreadsScheduled":          "io_threads_scheduled",
-		"PartsActive":                 "parts_active",
-		"PartsCommitted":              "parts_committed",
-		"PartsCompact":                "parts_compact",
-		"PartsDeleteOnDestroy":        "parts_delete_on_destroy",
-		"PartsDeleting":               "parts_deleting",
-		"PartsOutdated":               "parts_outdated",
-		"PartsPreActive":              "parts_pre_active",
-		"PartsPreCommitted":           "parts_pre_committed",
-		"PartsTemporary":              "parts_temporary",
+		"Merge":                      "merge",
+		"MergeParts":                 "merge_parts",
+		"Move":                       "move",
+		"PartMutation":               "part_mutation",
+		"ReplicatedFetch":            "replicated_fetch",
+		"ReplicatedSend":             "replicated_send",
+		"ReplicatedChecks":           "replicated_checks",
+		"TCPConnection":              "tcp_connection",
+		"MySQLConnection":            "mysql_connection",
+		"HTTPConnection":             "http_connection",
+		"InterserverConnection":      "interserver_connection",
+		"PostgreSQLConnection":       "postgresql_connection",
+		"IOPrefetchThreads":          "io_prefetch_threads",
+		"IOPrefetchThreadsActive":    "io_prefetch_threads_active",
+		"IOPrefetchThreadsScheduled": "io_prefetch_threads_scheduled",
+		"IOWriterThreads":            "io_writer_threads",
+		"IOWriterThreadsActive":      "io_writer_threads_active",
+		"IOWriterThreadsScheduled":   "io_writer_threads_scheduled",
+		"IOThreads":                  "io_threads",
+		"IOThreadsActive":            "io_threads_active",
+		"IOThreadsScheduled":         "io_threads_scheduled",
+		"PartsActive":                "parts_active",
+		"PartsCommitted":             "parts_committed",
+		"PartsCompact":               "parts_compact",
+		"PartsDeleteOnDestroy":       "parts_delete_on_destroy",
+		"PartsDeleting":              "parts_deleting",
+		"PartsOutdated":              "parts_outdated",
+		"PartsPreActive":             "parts_pre_active",
+		"PartsPreCommitted":          "parts_pre_committed",
+		"PartsTemporary":             "parts_temporary",
+		"VersionInteger":             "version_integer",
 		// Disk metrics
-		"DiskFreeSpace":               "disk_free_space",
-		"DiskTotalSpace":              "disk_total_space",
-		"DiskUnreservedSpace":         "disk_unreserved_space",
-		"DiskKeepFreeSpace":           "disk_keep_free_space",
+		"DiskFreeSpace":       "disk_free_space",
+		"DiskTotalSpace":      "disk_total_space",
+		"DiskUnreservedSpace": "disk_unreserved_space",
+		"DiskKeepFreeSpace":   "disk_keep_free_space",
 	}
-	
+
 	if colName, ok := metricMap[metric]; ok {
 		return colName
 	}
-	
+
 	// Fallback: convert to snake_case
 	columnName := strings.ToLower(metric)
 	// Insert underscore before capital letters (except first)
@@ -256,6 +264,69 @@ func metricToColumnName(metric string) string {
 		result.WriteRune(r)
 	}
 	return result.String()
+}
+
+// convertMetricValues converts float64 values to appropriate types for PostgreSQL columns
+func (ms *MetricsSyncer) convertMetricValues(metricsMap map[string]interface{}) {
+	// Columns that should be BIGINT (integer values)
+	bigintColumns := map[string]bool{
+		"os_memory_available":           true,
+		"os_memory_cached":              true,
+		"os_memory_swap_cached":         true,
+		"os_memory_buffers":             true,
+		"os_memory_total":               true,
+		"os_memory_free_without_cached": true,
+		"memory_virtual":                true,
+		"memory_resident":               true,
+		"queries_memory_usage":          true,
+		"queries_peak_memory_usage":     true,
+		"query":                         true,
+		"merge":                         true,
+		"merge_parts":                   true,
+		"move":                          true,
+		"part_mutation":                 true,
+		"replicated_fetch":              true,
+		"replicated_send":               true,
+		"replicated_checks":             true,
+		"tcp_connection":                true,
+		"mysql_connection":              true,
+		"http_connection":               true,
+		"interserver_connection":        true,
+		"postgresql_connection":         true,
+		"io_prefetch_threads":           true,
+		"io_prefetch_threads_active":    true,
+		"io_prefetch_threads_scheduled": true,
+		"io_writer_threads":             true,
+		"io_writer_threads_active":      true,
+		"io_writer_threads_scheduled":   true,
+		"io_threads":                    true,
+		"io_threads_active":             true,
+		"io_threads_scheduled":          true,
+		"parts_active":                  true,
+		"parts_committed":               true,
+		"parts_compact":                 true,
+		"parts_delete_on_destroy":       true,
+		"parts_deleting":                true,
+		"parts_outdated":                true,
+		"parts_pre_active":              true,
+		"parts_pre_committed":           true,
+		"parts_temporary":               true,
+		"disk_free_space":               true,
+		"disk_total_space":              true,
+		"disk_unreserved_space":         true,
+		"disk_keep_free_space":          true,
+		"uptime":                        true,
+		"version_integer":               true,
+	}
+
+	// Convert float64 values to int64 for BIGINT columns
+	for col, val := range metricsMap {
+		if bigintColumns[col] {
+			if floatVal, ok := val.(float64); ok {
+				metricsMap[col] = int64(floatVal)
+			}
+		}
+	}
 }
 
 // insertIntoPostgres inserts metrics data into PostgreSQL
@@ -280,11 +351,12 @@ func (ms *MetricsSyncer) insertIntoPostgres(ctx context.Context, metricsMap map[
 		"parts_delete_on_destroy", "parts_deleting", "parts_outdated",
 		"parts_pre_active", "parts_pre_committed", "parts_temporary",
 		"disk_free_space", "disk_total_space", "disk_unreserved_space", "disk_keep_free_space",
+		"uptime", "version_integer",
 	}
 
 	placeholders := make([]string, len(columns))
 	values := make([]interface{}, len(columns))
-	
+
 	for i, col := range columns {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 		if val, ok := metricsMap[col]; ok {
@@ -314,15 +386,15 @@ func (ms *MetricsSyncer) insertIntoPostgres(ctx context.Context, metricsMap map[
 	if err != nil {
 		// Check for specific PostgreSQL errors to provide better error messages
 		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "does not exist") || 
-		   (strings.Contains(errStr, "relation") && strings.Contains(errStr, "does not exist")) ||
-		   strings.Contains(errStr, "table") && strings.Contains(errStr, "does not exist") {
+		if strings.Contains(errStr, "does not exist") ||
+			(strings.Contains(errStr, "relation") && strings.Contains(errStr, "does not exist")) ||
+			strings.Contains(errStr, "table") && strings.Contains(errStr, "does not exist") {
 			return 0, fmt.Errorf("PostgreSQL table ch_metrics does not exist (migration may not have run): %w", err)
-		} else if strings.Contains(errStr, "connection") || 
-		          strings.Contains(errStr, "timeout") || 
-		          strings.Contains(errStr, "network") ||
-		          strings.Contains(errStr, "connection refused") ||
-		          strings.Contains(errStr, "no connection") {
+		} else if strings.Contains(errStr, "connection") ||
+			strings.Contains(errStr, "timeout") ||
+			strings.Contains(errStr, "network") ||
+			strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "no connection") {
 			return 0, fmt.Errorf("PostgreSQL connection error: %w", err)
 		} else {
 			return 0, fmt.Errorf("failed to execute INSERT: %w", err)
@@ -346,4 +418,3 @@ func (ms *MetricsSyncer) GetLastTimestamp(ctx context.Context, conn driver.Conn)
 func (ms *MetricsSyncer) UpdateLastTimestamp(ctx context.Context, conn driver.Conn, timestamp time.Time) error {
 	return nil
 }
-

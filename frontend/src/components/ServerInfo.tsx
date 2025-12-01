@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { metricsAPI } from '../services/metricsAPI';
+import type { ServerInfo as ServerInfoType } from '../types/metrics';
 import { 
   Server, 
   Database, 
@@ -7,11 +9,8 @@ import {
   Network, 
   Clock, 
   CheckCircle, 
-  Activity,
   Zap,
-  Users,
   Globe,
-  Shield,
   Copy,
   ChevronDown,
   ChevronUp
@@ -76,12 +75,79 @@ function InfoCard({ label, value, icon, status, copyable }: InfoCardProps) {
   );
 }
 
-export function ServerInfo() {
+interface ServerInfoProps {
+  selectedNode?: string;
+}
+
+export function ServerInfo({ selectedNode }: ServerInfoProps) {
   const [expandedSection, setExpandedSection] = useState<string | null>('general');
+  const [serverInfo, setServerInfo] = useState<ServerInfoType | null>(null);
+  const [loading, setLoading] = useState(false);
   const { theme } = useTheme();
   
+  // Load server info when node changes
+  useEffect(() => {
+    if (!selectedNode) {
+      setServerInfo(null);
+      return;
+    }
+
+    const loadServerInfo = async () => {
+      try {
+        setLoading(true);
+        const info = await metricsAPI.getServerInfo(selectedNode);
+        setServerInfo(info);
+      } catch (error) {
+        console.error('Failed to load server info:', error);
+        setServerInfo(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadServerInfo();
+  }, [selectedNode]);
+
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
+  };
+
+  // Format version integer to readable version string
+  // ClickHouse version format: XX.XX.XX.XXX (e.g., 23802007 = 23.8.2.7)
+  const formatVersion = (versionInteger: number): string => {
+    if (!versionInteger || versionInteger === 0) return 'Unknown';
+    const versionStr = versionInteger.toString().padStart(8, '0');
+    const major = parseInt(versionStr.substring(0, 2));
+    const minor = parseInt(versionStr.substring(2, 4));
+    const patch = parseInt(versionStr.substring(4, 6));
+    const build = parseInt(versionStr.substring(6, 8));
+    return `${major}.${minor}.${patch}.${build}`;
+  };
+
+  // Format uptime in seconds to readable format
+  const formatUptime = (seconds: number): string => {
+    if (!seconds || seconds === 0) return '0s';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (secs > 0 && parts.length === 0) parts.push(`${secs}s`);
+    
+    return parts.join(' ') || '0s';
+  };
+
+  // Format bytes to human readable format
+  const formatBytes = (bytes: number): string => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   };
   
   return (
@@ -109,7 +175,7 @@ export function ServerInfo() {
                 <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-500'}>•</span>
                 <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>Healthy</span>
                 <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-500'}>•</span>
-                <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>production-node-01</span>
+                <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>{selectedNode || 'No node selected'}</span>
               </div>
             </div>
           </div>
@@ -146,17 +212,31 @@ export function ServerInfo() {
             <div className={`p-4 ${
               theme === 'light' ? 'bg-gray-50/50' : 'bg-gray-800/10'
             } grid grid-cols-1 md:grid-cols-2 gap-4`}>
-              <InfoCard
-                label="Version"
-                value="23.8.2.7"
-                icon={<Zap className="w-4 h-4" />}
-                status="success"
-              />
-              <InfoCard
-                label="Uptime"
-                value="15d 7h 32m"
-                icon={<Clock className="w-4 h-4" />}
-              />
+              {loading ? (
+                <div className="col-span-2 flex items-center justify-center py-4">
+                  <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Loading...</div>
+                </div>
+              ) : serverInfo ? (
+                <>
+                  <InfoCard
+                    label="Version"
+                    value={formatVersion(serverInfo.version_integer)}
+                    icon={<Zap className="w-4 h-4" />}
+                    status="success"
+                  />
+                  <InfoCard
+                    label="Uptime"
+                    value={formatUptime(serverInfo.uptime)}
+                    icon={<Clock className="w-4 h-4" />}
+                  />
+                </>
+              ) : (
+                <div className="col-span-2 flex items-center justify-center py-4">
+                  <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
+                    {selectedNode ? 'No data available' : 'Select a node to view server information'}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -188,28 +268,43 @@ export function ServerInfo() {
           {expandedSection === 'resources' && (
             <div className={`p-4 ${
               theme === 'light' ? 'bg-gray-50/50' : 'bg-gray-800/10'
-            } grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4`}>
-              <InfoCard
-                label="CPU Cores"
-                value="32 vCPU"
-                icon={<Cpu className="w-4 h-4" />}
-              />
-              <InfoCard
-                label="Total Memory"
-                value="128 GB"
-                icon={<Database className="w-4 h-4" />}
-              />
-              <InfoCard
-                label="Total Storage"
-                value="2 TB NVMe"
-                icon={<HardDrive className="w-4 h-4" />}
-              />
-              <InfoCard
-                label="Available Storage"
-                value="500 GB"
-                icon={<HardDrive className="w-4 h-4" />}
-                status="success"
-              />
+            } grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3`}>
+              {loading ? (
+                <div className="col-span-4 flex items-center justify-center py-4">
+                  <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Loading...</div>
+                </div>
+              ) : serverInfo ? (
+                <>
+                  {serverInfo.total_memory > 0 && (
+                    <InfoCard
+                      label="Total Memory"
+                      value={formatBytes(serverInfo.total_memory)}
+                      icon={<Database className="w-4 h-4" />}
+                    />
+                  )}
+                  {serverInfo.total_storage > 0 && (
+                    <InfoCard
+                      label="Total Storage"
+                      value={formatBytes(serverInfo.total_storage)}
+                      icon={<HardDrive className="w-4 h-4" />}
+                    />
+                  )}
+                  {serverInfo.available_storage > 0 && (
+                    <InfoCard
+                      label="Available Storage"
+                      value={formatBytes(serverInfo.available_storage)}
+                      icon={<HardDrive className="w-4 h-4" />}
+                      status="success"
+                    />
+                  )}
+                </>
+              ) : (
+                <div className="col-span-4 flex items-center justify-center py-4">
+                  <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
+                    {selectedNode ? 'No data available' : 'Select a node to view resources'}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -241,30 +336,36 @@ export function ServerInfo() {
           {expandedSection === 'network' && (
             <div className={`p-4 ${
               theme === 'light' ? 'bg-gray-50/50' : 'bg-gray-800/10'
-            } grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4`}>
-              <InfoCard
-                label="Host"
-                value="ch-prod-01.local"
-                icon={<Globe className="w-4 h-4" />}
-                copyable
-              />
-              <InfoCard
-                label="Port"
-                value="9000"
-                icon={<Network className="w-4 h-4" />}
-                copyable
-              />
-              <InfoCard
-                label="HTTP Port"
-                value="8123"
-                icon={<Network className="w-4 h-4" />}
-                copyable
-              />
-              <InfoCard
-                label="Cluster"
-                value="production-cluster-01"
-                icon={<Server className="w-4 h-4" />}
-              />
+            } grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-2`}>
+              {loading ? (
+                <div className="col-span-4 flex items-center justify-center py-4">
+                  <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Loading...</div>
+                </div>
+              ) : serverInfo ? (
+                <>
+                  {serverInfo.host && (
+                    <InfoCard
+                      label="Host"
+                      value={serverInfo.host}
+                      icon={<Globe className="w-4 h-4" />}
+                      copyable
+                    />
+                  )}
+                  {serverInfo.cluster && (
+                    <InfoCard
+                      label="Cluster"
+                      value={serverInfo.cluster}
+                      icon={<Server className="w-4 h-4" />}
+                    />
+                  )}
+                </>
+              ) : (
+                <div className="col-span-4 flex items-center justify-center py-4">
+                  <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
+                    {selectedNode ? 'No data available' : 'Select a node to view network information'}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

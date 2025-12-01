@@ -14,3 +14,15 @@ type SystemMetrics struct {
 	ActiveConns   int64   `json:"active_conns" gorm:"column:active_conns;->"`       // Total active connections (tcp + mysql + http + interserver + postgresql)
 	ActiveQueries int64   `json:"active_queries" gorm:"column:active_queries;->"`   // Active queries count
 }
+
+// ServerInfo represents server information including uptime and version
+type ServerInfo struct {
+	NodeName         string `json:"node_name" gorm:"column:node_name;->"`
+	Uptime           int64  `json:"uptime" gorm:"column:uptime;->"`                   // Server uptime in seconds
+	VersionInteger   int64  `json:"version_integer" gorm:"column:version_integer;->"` // ClickHouse version as integer
+	TotalMemory      int64  `json:"total_memory"`                                     // Total memory in bytes
+	TotalStorage     int64  `json:"total_storage"`                                    // Total storage in bytes
+	AvailableStorage int64  `json:"available_storage"`                                // Available storage in bytes
+	Host             string `json:"host"`                                             // Host from config
+	Cluster          string `json:"cluster"`                                          // Cluster name from config
+}
