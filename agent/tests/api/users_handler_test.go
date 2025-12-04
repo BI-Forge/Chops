@@ -1,12 +1,10 @@
 package api_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/tests/api/testutil"
@@ -22,27 +20,11 @@ func TestUsersHandlerReturnsUsers(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_users_user_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_users@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_users_user")
 
 	// Test GET /api/v1/users with node parameter
-	req, _ := http.NewRequest("GET", "/api/v1/users?node=test_node", nil)
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users?node=test_node", token, nil)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -63,27 +45,11 @@ func TestUsersHandlerReturnsUsersWithoutNode(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_users_no_node_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_users_no_node@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_users_no_node")
 
 	// Test GET /api/v1/users without node parameter
-	req, _ := http.NewRequest("GET", "/api/v1/users", nil)
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users", token, nil)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -102,27 +68,11 @@ func TestUsersHandlerHandlesNodeWithWhitespace(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_users_whitespace_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_users_whitespace@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_users_whitespace")
 
 	// Test GET /api/v1/users with whitespace in node parameter
-	req, _ := http.NewRequest("GET", "/api/v1/users?node=%20test_node%20", nil)
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users?node=%20test_node%20", token, nil)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

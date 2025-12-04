@@ -30,7 +30,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
   return (
     <div className="w-full">
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" data-testid="login-form">
         {/* Username Input */}
         <div className="space-y-2 group">
           <label htmlFor="username" className={`${theme === 'light' ? 'text-gray-900 font-medium' : 'text-gray-300'} text-sm flex items-center gap-2`}>
@@ -121,6 +121,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         <button
           type="submit"
           disabled={isLoading}
+          data-testid="login-submit-button"
           className="relative w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-gray-900 rounded-xl transition-all duration-300 shadow-lg shadow-yellow-500/30 hover:shadow-yellow-500/50 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group overflow-hidden hover:scale-[1.02] active:scale-[0.98]"
         >
           {/* Shine effect */}

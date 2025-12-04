@@ -1,19 +1,17 @@
 services:
-  frontend:
-    container_name: frontend-prod
-    image: frontend-prod
+  chops_front:
+    container_name: chops_front-prod
     build:
       context: ./frontend
       dockerfile: build/docker/Dockerfile
     ports:
       - "80:80"
     depends_on:
-      - ops_agent
+      - chops_app
     networks:
       - ch_ops
-  ops_agent:
-    container_name: ops_agent-prod
-    image: ops_agent-prod
+  chops_app:
+    container_name: chops_app-prod
     build:
       context: ./agent
       dockerfile: ./Dockerfile
@@ -21,19 +19,19 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      ops_db:
+      chops_db:
         condition: service_healthy
-      ops_clickhouse:
+      chops_ch:
         condition: service_started
-      ops_clickhouse_2:
+      chops_ch_2:
         condition: service_started
     networks:
       - ch_ops
-  ops_db:
+  chops_db:
     image: postgres:13.11
-    container_name: ops_db
+    container_name: chops_db
     environment:
-      - POSTGRES_HOST=ops_db
+      - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - POSTGRES_PASSWORD=12345
       - POSTGRES_USER=ops
@@ -51,9 +49,9 @@ services:
         max-file: "3"
     networks:
       - ch_ops
-  ops_clickhouse:
+  chops_ch:
     image: clickhouse/clickhouse-server:latest
-    container_name: ops_clickhouse
+    container_name: chops_ch
     ports:
       - "8121:8123"
       - "9005:9000"
@@ -66,16 +64,11 @@ services:
       nofile:
         soft: 262144
         hard: 262144
-#    healthcheck:
-#      test: [ "CMD", "curl", "--fail", "http://localhost:8123/" ]
-#      interval: 30s
-#      timeout: 10s
-#      retries: 3
     networks:
       - ch_ops
-  ops_clickhouse_2:
+  chops_ch_2:
     image: clickhouse/clickhouse-server:latest
-    container_name: ops_clickhouse_2
+    container_name: chops_ch_2
     ports:
       - "8120:8123"
       - "9006:9000"
@@ -88,11 +81,6 @@ services:
       nofile:
         soft: 262144
         hard: 262144
-    #    healthcheck:
-    #      test: [ "CMD", "curl", "--fail", "http://localhost:8123/" ]
-    #      interval: 30s
-    #      timeout: 10s
-    #      retries: 3
     networks:
       - ch_ops
 networks:

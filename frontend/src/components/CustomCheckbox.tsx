@@ -6,9 +6,12 @@ interface CustomCheckboxProps {
   checked: boolean;
   onChange: () => void;
   onClick?: (e: React.MouseEvent) => void;
+  id?: string;
+  testId?: string;
 }
 
-export function CustomCheckbox({ checked, onChange, onClick }: CustomCheckboxProps) {
+// CustomCheckbox renders a themed checkbox toggle for forms.
+export function CustomCheckbox({ checked, onChange, onClick, id, testId }: CustomCheckboxProps) {
   const { theme } = useTheme();
   
   return (
@@ -18,8 +21,10 @@ export function CustomCheckbox({ checked, onChange, onClick }: CustomCheckboxPro
     >
       <input
         type="checkbox"
+        id={id}
         checked={checked}
         onChange={onChange}
+        data-testid={testId}
         className="sr-only"
       />
       <div 

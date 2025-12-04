@@ -3,20 +3,19 @@ package api
 import (
 	"time"
 
-	"clickhouse-ops/internal/api/v1"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 )
 
 // ConvertToRouterConfig converts app config to API router config
-func ConvertToRouterConfig(cfg *config.Config, appLogger *logger.Logger) (v1.RouterConfig, error) {
+func ConvertToRouterConfig(cfg *config.Config, appLogger *logger.Logger) (RouterConfig, error) {
 	// Parse JWT token duration
 	tokenDuration := 24 * time.Hour // default
 	if cfg.Server.JWTTokenDuration != "" {
 		var err error
 		tokenDuration, err = time.ParseDuration(cfg.Server.JWTTokenDuration)
 		if err != nil {
-			return v1.RouterConfig{}, err
+			return RouterConfig{}, err
 		}
 	}
 
@@ -37,7 +36,7 @@ func ConvertToRouterConfig(cfg *config.Config, appLogger *logger.Logger) (v1.Rou
 		rateLimitBurst = 200 // Default burst size
 	}
 
-	return v1.RouterConfig{
+	return RouterConfig{
 		JWTSecretKey:     jwtSecret,
 		JWTTokenDuration: tokenDuration,
 		RateLimitRPS:     rateLimitRPS,
@@ -48,8 +47,8 @@ func ConvertToRouterConfig(cfg *config.Config, appLogger *logger.Logger) (v1.Rou
 }
 
 // GetDefaultRouterConfig returns default router configuration
-func GetDefaultRouterConfig(appLogger *logger.Logger) v1.RouterConfig {
-	return v1.RouterConfig{
+func GetDefaultRouterConfig(appLogger *logger.Logger) RouterConfig {
+	return RouterConfig{
 		JWTSecretKey:     "default-secret-key-change-in-production",
 		JWTTokenDuration: 24 * time.Hour,
 		RateLimitRPS:     100,

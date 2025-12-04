@@ -13,6 +13,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// getWorkingDir returns current working directory for error messages
+func getWorkingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "unknown"
+	}
+	return wd
+}
+
 // Config represents the application configuration
 type Config struct {
 	App      AppConfig      `yaml:"app"`
@@ -128,14 +137,22 @@ type SyncConfig struct {
 
 // Load loads configuration from YAML file
 func Load(configPath string) (*Config, error) {
-	// Default config path if not provided
+	// Use parameter if provided, otherwise check environment variable
+	if configPath == "" {
+		if envConfigPath := os.Getenv("OPS_AGENT_CONFIG_PATH"); envConfigPath != "" {
+			configPath = envConfigPath
+		}
+	}
+
+	// Default config path if still not provided
 	if configPath == "" {
 		configPath = "configs/ops-agent.yaml"
 	}
 
 	// Check if file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file not found: %s", configPath)
+		return nil, fmt.Errorf("config file not found: %s (working directory: %s, OPS_AGENT_CONFIG_PATH: %s)",
+			configPath, getWorkingDir(), os.Getenv("OPS_AGENT_CONFIG_PATH"))
 	}
 
 	// Read config file

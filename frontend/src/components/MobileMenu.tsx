@@ -119,6 +119,7 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
         } shadow-2xl transform transition-transform duration-300 ease-out md:hidden ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        data-testid="mobile-menu"
       >
         <div className="flex flex-col h-full">
           {/* Header */}
@@ -203,6 +204,7 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
                   ? 'text-red-700 hover:bg-red-50'
                   : 'text-red-400 hover:bg-red-500/10'
               }`}
+              data-testid="mobile-menu-logout"
             >
               <LogOut className="w-5 h-5" />
               <span className="font-medium">Logout</span>

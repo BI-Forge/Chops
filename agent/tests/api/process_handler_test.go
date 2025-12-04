@@ -1,12 +1,10 @@
 package api_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/tests/api/testutil"
@@ -22,27 +20,11 @@ func TestProcessHandlerGetCurrentProcesses(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_process_get_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_process_get@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_process_get")
 
 	// Test GET /api/v1/processes with node parameter
-	req, _ := http.NewRequest("GET", "/api/v1/processes?node=test_node", nil)
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/processes?node=test_node", token, nil)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -61,27 +43,11 @@ func TestProcessHandlerGetCurrentProcessesWithoutNode(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_process_no_node_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_process_no_node@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_process_no_node")
 
 	// Test GET /api/v1/processes without node parameter
-	req, _ := http.NewRequest("GET", "/api/v1/processes", nil)
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/processes", token, nil)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -100,39 +66,23 @@ func TestProcessHandlerKillProcess(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_process_kill_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_process_kill@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_process_kill")
 
 	// Test POST /api/v1/processes/kill
 	killReq := models.KillProcessRequest{
 		QueryID: "test-query-123",
-			Node:    "test_node",
+		Node:    "test_node",
 	}
 	reqBody, _ := json.Marshal(killReq)
 
-	req, _ := http.NewRequest("POST", "/api/v1/processes/kill", bytes.NewBuffer(reqBody))
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	// May return 200 or 500 depending on whether query exists
-	assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, w.Code)
+	assert.Contains(t, []int{http.StatusOK}, w.Code)
 }
 
 func TestProcessHandlerKillProcessInvalidRequest(t *testing.T) {
@@ -142,33 +92,17 @@ func TestProcessHandlerKillProcessInvalidRequest(t *testing.T) {
 	}
 
 	// Register user and get token
-	username := "test_process_kill_invalid_" + time.Now().Format("20060102150405")
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
-		Username: username,
-		Email:    "test_process_kill_invalid@example.com",
-		Password: "securepass123",
-	})
-
-	registerReq, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
-	registerReq.Header.Set("Content-Type", "application/json")
-	registerW := httptest.NewRecorder()
-	router.ServeHTTP(registerW, registerReq)
-	require.Equal(t, http.StatusCreated, registerW.Code)
-
-	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, registerResponse.Token)
+	token := testutil.RegisterTestUser(t, router, "test_process_kill_invalid")
 
 	// Test with empty request body
-	req, _ := http.NewRequest("POST", "/api/v1/processes/kill", nil)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, nil)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	// Should return 400 for invalid JSON or missing query_id
-	assert.True(t, w.Code == http.StatusBadRequest || w.Code == http.StatusInternalServerError)
+	assert.True(t, w.Code == http.StatusBadRequest)
 }
 
 func TestProcessHandlerRequiresAuth(t *testing.T) {
@@ -183,4 +117,96 @@ func TestProcessHandlerRequiresAuth(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestProcessHandlerKillProcessWithMissingQueryID(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_process_kill_no_queryid")
+
+	// Test with missing query_id
+	killReq := models.KillProcessRequest{
+		Node: "test_node",
+	}
+	reqBody, _ := json.Marshal(killReq)
+
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 400 for missing query_id
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestProcessHandlerKillProcessWithMissingNode(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_process_kill_no_node")
+
+	// Test with missing node
+	killReq := models.KillProcessRequest{
+		QueryID: "test-query-123",
+	}
+	reqBody, _ := json.Marshal(killReq)
+
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 400 for missing node
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestProcessHandlerKillProcessWithInvalidJSON(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_process_kill_invalid_json")
+
+	// Test with invalid JSON
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, []byte("{invalid json}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 400 for invalid JSON
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestProcessHandlerKillProcessWithEmptyQueryID(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_process_kill_empty_queryid")
+
+	// Test with empty query_id
+	killReq := models.KillProcessRequest{
+		QueryID: "",
+		Node:    "test_node",
+	}
+	reqBody, _ := json.Marshal(killReq)
+
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 400 for empty query_id
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

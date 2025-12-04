@@ -351,7 +351,7 @@ func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter
 			return repository.QueryLogFilter{}, fmt.Errorf("limit must be a positive integer")
 		}
 		if value > maxQueryLogLimit {
-			value = maxQueryLogLimit
+			return repository.QueryLogFilter{}, fmt.Errorf("limit cannot exceed %d", maxQueryLogLimit)
 		}
 		limit = value
 	}
@@ -497,4 +497,3 @@ func (h *QueryLogHandler) parseFilterForStats(c *gin.Context) (repository.QueryL
 		RangePreset: preset,
 	}, nil
 }
-

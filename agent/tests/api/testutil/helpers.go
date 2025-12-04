@@ -1,31 +1,33 @@
 package testutil
 
 import (
-	"context"
+	"bytes"
 	"database/sql"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"time"
 
-	v1 "clickhouse-ops/internal/api/v1"
+	"clickhouse-ops/internal/api"
+	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/internal/logger"
+	"clickhouse-ops/tests/fixtures"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 var (
-	testPostgresDSN = getEnv("TEST_POSTGRES_DSN", "postgres://test_ops:test12345@test_postgres:5432/test_public?sslmode=disable")
-	testCHHost      = getEnv("TEST_CLICKHOUSE_HOST", "test_clickhouse")
-	testCHPort      = getEnvInt("TEST_CLICKHOUSE_PORT", 9000)
-	testCHDatabase  = getEnv("TEST_CLICKHOUSE_DATABASE", "default")
-	testCHUser      = getEnv("TEST_CLICKHOUSE_USER", "ops")
-	testCHPassword  = getEnv("TEST_CLICKHOUSE_PASSWORD", "12345")
-	testCHNodeName  = getEnv("TEST_CLICKHOUSE_NODE_NAME", "test_node")
+	// testConfigPath is the path to the test configuration file
+	// Can be overridden via OPS_AGENT_CONFIG_PATH environment variable
+	testConfigPath = getEnv("OPS_AGENT_CONFIG_PATH", "configs/ops-agent.test.yaml")
 )
 
 // SetupTestEnvironmentWithDB sets up test environment with real databases
@@ -37,59 +39,23 @@ func SetupTestEnvironmentWithDB(t TestingT) (*gorm.DB, driver.Conn, *gin.Engine)
 }
 
 // SetupTestEnvironmentWithHandlers sets up test environment and returns handlers for cleanup
-func SetupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.Engine, *v1.RouterWithHandlers) {
+func SetupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.Engine, *api.RouterWithHandlers) {
 	return setupTestEnvironmentWithHandlers(t)
 }
 
 // setupTestEnvironmentWithHandlers sets up test environment and returns handlers for cleanup
-func setupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.Engine, *v1.RouterWithHandlers) {
-	// Check if we're running in test environment
-	if os.Getenv("TEST_DB_ENABLED") != "true" {
-		t.Fatalf("TEST_DB_ENABLED not set - functional tests require database connection")
+func setupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.Engine, *api.RouterWithHandlers) {
+	// Load configuration from test config file
+	cfg, err := config.Load(testConfigPath)
+	if err != nil {
+		t.Fatalf("Failed to load test configuration from %s: %v", testConfigPath, err)
 		return nil, nil, nil, nil
-	}
-
-	// Initialize database instance for handlers
-	cfg := &config.Config{
-		Database: config.DatabaseConfig{
-			Postgres: config.DatabaseDSN{
-				DSN: testPostgresDSN,
-			},
-			ClickHouse: config.ClickHouseConfig{
-				Nodes: []config.ClickHouseNode{
-					{
-						Name:     testCHNodeName,
-						Host:     testCHHost,
-						Port:     testCHPort,
-						Database: testCHDatabase,
-						Username: testCHUser,
-						Password: testCHPassword,
-					},
-				},
-				GlobalSettings: config.ClickHouseGlobalSettings{
-					DialTimeout:      "5s",
-					ReadTimeout:      "10s",
-					WriteTimeout:     "10s",
-					ConnMaxLifetime:  "1h",
-					MaxOpenConns:     10,
-					MaxIdleConns:     5,
-					RetryMaxAttempts: 3,
-				},
-			},
-		},
-		Server: config.ServerConfig{
-			JWTSecretKey:     "test-secret-key-for-testing-only",
-			JWTTokenDuration: "24h",
-		},
-		Sync: config.SyncConfig{
-			RetentionDays: 10,
-		},
 	}
 
 	log := logger.New(logger.InfoLevel, "text")
 
 	// Use the same connection methods as the main application
-	err := db.Connect(cfg, log)
+	err = db.Connect(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to connect to PostgreSQL database: %v", err)
 		return nil, nil, nil, nil
@@ -134,14 +100,14 @@ func setupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.E
 	}
 
 	// Initialize ClickHouse test fixtures (creates system.query_log table by executing queries)
-	SetupTestClickHouseFixtures(t, chConn)
+	fixtures.SetupClickHouseFixtures(t, chConn)
 
 	// Clean up test data
 	CleanupTestData(t, gormDB)
 
 	// Setup router with handlers for cleanup
 	gin.SetMode(gin.TestMode)
-	routerCfg := v1.RouterConfig{
+	routerCfg := api.RouterConfig{
 		JWTSecretKey:     "test-secret-key-for-testing-only",
 		JWTTokenDuration: 24 * time.Hour,
 		RateLimitRPS:     0, // Disable rate limiting for tests
@@ -149,46 +115,9 @@ func setupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.E
 		Logger:           logger.New(logger.InfoLevel, "text"),
 		Config:           cfg,
 	}
-	router, routerWithHandlers := v1.SetupRouterWithHandlers(routerCfg)
+	router, routerWithHandlers := api.SetupRouterWithHandlers(routerCfg)
 
 	return gormDB, chConn, router, routerWithHandlers
-}
-
-// SetupTestClickHouseFixtures initializes ClickHouse test fixtures
-// Executes test queries to ensure system.query_log table is created and populated
-func SetupTestClickHouseFixtures(t TestingT, chConn driver.Conn) {
-	if chConn == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Execute several test queries to initialize system.query_log table
-	// These queries will be logged in system.query_log
-	testQueries := []string{
-		"SELECT 1",
-		"SELECT 2 + 2",
-		"SELECT now()",
-		"SELECT version()",
-		"SELECT database()",
-		"SELECT count() FROM system.tables",
-		"SELECT name FROM system.databases LIMIT 5",
-	}
-
-	for _, query := range testQueries {
-		rows, err := chConn.Query(ctx, query)
-		if err != nil {
-			// Log but don't fail - query_log might not be ready yet
-			continue
-		}
-		if rows != nil {
-			rows.Close()
-		}
-	}
-
-	// Wait a bit for query_log to be flushed
-	time.Sleep(500 * time.Millisecond)
 }
 
 // CleanupTestData cleans up test data from databases
@@ -206,7 +135,7 @@ func CleanupTestData(t TestingT, gormDB *gorm.DB) {
 func SetupTestRouter(t TestingT, gormDB *gorm.DB, sqlDB *sql.DB, appCfg *config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 
-	cfg := v1.RouterConfig{
+	cfg := api.RouterConfig{
 		JWTSecretKey:     "test-secret-key-for-testing-only",
 		JWTTokenDuration: 24 * time.Hour,
 		RateLimitRPS:     0, // Disable rate limiting for tests
@@ -216,13 +145,13 @@ func SetupTestRouter(t TestingT, gormDB *gorm.DB, sqlDB *sql.DB, appCfg *config.
 	}
 
 	// Setup router - it will use db.GetInstance() from setupTestEnvironment
-	router := v1.SetupRouter(cfg)
+	router := api.SetupRouter(cfg)
 
 	return router
 }
 
 // StopAllPublishers stops all publishers in handlers (useful for test cleanup)
-func StopAllPublishers(routerWithHandlers *v1.RouterWithHandlers) {
+func StopAllPublishers(routerWithHandlers *api.RouterWithHandlers) {
 	if routerWithHandlers == nil {
 		return
 	}
@@ -259,4 +188,67 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// RegisterTestUser registers a new test user and returns the authentication token
+func RegisterTestUser(t TestingT, router *gin.Engine, usernamePrefix string) string {
+	username := usernamePrefix + "_" + time.Now().Format("20060102150405")
+	email := usernamePrefix + "@example.com"
+	password := "securepass123"
+
+	registerPayload, err := json.Marshal(models.RegisterRequest{
+		Username: username,
+		Email:    email,
+		Password: password,
+	})
+	require.NoError(t, err)
+
+	registerReq, err := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
+	require.NoError(t, err)
+	registerReq.Header.Set("Content-Type", "application/json")
+
+	registerW := httptest.NewRecorder()
+	router.ServeHTTP(registerW, registerReq)
+	require.Equal(t, http.StatusCreated, registerW.Code, "User registration should succeed")
+
+	var registerResponse models.TokenResponse
+	err = json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
+	require.NoError(t, err)
+	require.NotEmpty(t, registerResponse.Token, "Token should not be empty")
+
+	return registerResponse.Token
+}
+
+// MakeAuthenticatedRequest creates an HTTP request with authentication token
+func MakeAuthenticatedRequest(method, url, token string, body []byte) (*http.Request, error) {
+	var req *http.Request
+	var err error
+
+	if body != nil {
+		req, err = http.NewRequest(method, url, bytes.NewBuffer(body))
+	} else {
+		req, err = http.NewRequest(method, url, nil)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	return req, nil
+}
+
+// InsertTestMetricsData inserts test data into ch_metrics table using fixtures
+func InsertTestMetricsData(t TestingT, nodeName string) error {
+	gormDB, err := fixtures.GetDBConnection()
+	if err != nil {
+		return err
+	}
+
+	data := fixtures.DefaultMetricsData(nodeName)
+	fixtures.InsertMetricsData(t, gormDB, data)
+	return nil
 }

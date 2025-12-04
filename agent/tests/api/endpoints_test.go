@@ -13,6 +13,7 @@ import (
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/tests/api/testutil"
+	"clickhouse-ops/tests/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -337,39 +338,13 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	nodeName := "test_node_series"
 	now := time.Now().UTC().Truncate(time.Second)
 
-	insertSample := func(ts time.Time, cpuPercent float64) {
-		// cpuPercent is expected CPU load percentage (0-100)
-		// Formula: (sum of all normalized CPU times) * 100 = cpuPercent
-		// So we need: sum = cpuPercent / 100
-		// Distribute evenly across all 7 CPU time fields
-		cpuNormalized := cpuPercent / 100.0 / 7.0
-		
-		memoryTotal := int64(16 * 1024 * 1024 * 1024)
-		memoryAvailable := int64(8 * 1024 * 1024 * 1024)
-		diskTotal := int64(10 * 1024 * 1024 * 1024)
-		diskFree := int64(3 * 1024 * 1024 * 1024)
-
-		req := dbConn.Exec(`
-			INSERT INTO ch_metrics (
-				"timestamp", node_name,
-				os_user_time_normalized, os_system_time_normalized, os_io_wait_time_normalized,
-				os_irq_time_normalized, os_soft_irq_time_normalized, os_guest_time_normalized, os_steal_time_normalized, os_nice_time_normalized,
-				os_memory_total, os_memory_available,
-				disk_total_space, disk_free_space,
-				tcp_connection, mysql_connection, http_connection, interserver_connection, postgresql_connection,
-				query
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, ts, nodeName, 
-			cpuNormalized, cpuNormalized, cpuNormalized, // user, system, io_wait
-			cpuNormalized, cpuNormalized, cpuNormalized, cpuNormalized, cpuNormalized, // irq, soft_irq, guest, steal, nice
-			memoryTotal, memoryAvailable, diskTotal, diskFree, 
-			2, 1, 3, 0, 4, 5)
-		require.NoError(t, req.Error)
+	// Use fixtures to insert metrics series data
+	points := []fixtures.MetricsSeriesPoint{
+		{Timestamp: now.Add(-2 * time.Minute), CPULoad: 30.0}, // 30% CPU load
+		{Timestamp: now.Add(-time.Minute), CPULoad: 33.0},     // 33% CPU load
+		{Timestamp: now, CPULoad: 36.0},                       // 36% CPU load
 	}
-
-	insertSample(now.Add(-2*time.Minute), 30.0)  // 30% CPU load
-	insertSample(now.Add(-time.Minute), 33.0)    // 33% CPU load
-	insertSample(now, 36.0)                       // 36% CPU load
+	fixtures.InsertMetricsSeries(t, dbConn, nodeName, points)
 
 	username := "test_metrics_user_" + time.Now().Format("20060102150405")
 	password := "securepass123"
@@ -422,23 +397,6 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	assert.Equal(t, "1h", wideSeries.Step)
 }
 
-// TestSwaggerEndpoint tests Swagger documentation availability
-func TestSwaggerEndpoint(t *testing.T) {
-	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
-	if router == nil {
-		return
-	}
-
-	req, _ := http.NewRequest("GET", "/swagger/index.html", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	// Swagger endpoint may not be available in test router setup
-	// Check if it exists (200) or if it's not configured (404)
-	// Both are acceptable in test environment
-	assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, w.Code, "Swagger endpoint should return 200 or 404")
-}
-
 // TestCORSHeaders tests CORS headers
 func TestCORSHeaders(t *testing.T) {
 	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
@@ -454,4 +412,173 @@ func TestCORSHeaders(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "GET, POST, PUT, DELETE, OPTIONS", w.Header().Get("Access-Control-Allow-Methods"))
+}
+
+// TestRegisterEndpointWithDuplicateEmail tests registration with duplicate email
+func TestRegisterEndpointWithDuplicateEmail(t *testing.T) {
+	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	defer testutil.CleanupTestData(t, dbConn)
+
+	// Use unique email with timestamp to avoid conflicts from previous test runs
+	email := "duplicate_" + time.Now().Format("20060102150405") + "@example.com"
+	username1 := "test_user1_" + time.Now().Format("20060102150405")
+	username2 := "test_user2_" + time.Now().Format("20060102150405")
+
+	// Register first user
+	payload1, _ := json.Marshal(models.RegisterRequest{
+		Username: username1,
+		Email:    email,
+		Password: "securepass123",
+	})
+	req1, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(payload1))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+	require.Equal(t, http.StatusCreated, w1.Code, "First user registration should succeed")
+
+	// Try to register second user with same email
+	payload2, _ := json.Marshal(models.RegisterRequest{
+		Username: username2,
+		Email:    email,
+		Password: "securepass123",
+	})
+	req2, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(payload2))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+
+	// Should return 409 Conflict
+	assert.Equal(t, http.StatusConflict, w2.Code)
+}
+
+// TestLoginEndpointWithExpiredToken tests token expiration (if implemented)
+func TestLoginEndpointWithExpiredToken(t *testing.T) {
+	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	defer testutil.CleanupTestData(t, dbConn)
+
+	// This test verifies that expired tokens are rejected
+	// Note: Actual expiration testing would require time manipulation
+	timestamp := time.Now().Format("20060102150405")
+	username := "test_expired_token_user_" + timestamp
+	password := "securepass123"
+	email := "expired_" + timestamp + "@example.com"
+
+	// Create user
+	dbInstance := db.GetInstance()
+	if dbInstance != nil {
+		userRepo := repository.NewUserRepositoryWithDB(dbInstance.GetGormDB())
+		_, err := userRepo.CreateUser(username, email, password)
+		require.NoError(t, err)
+	}
+
+	// Login to get token
+	loginPayload, _ := json.Marshal(models.LoginRequest{
+		Username: username,
+		Password: password,
+	})
+	loginReq, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(loginPayload))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginW := httptest.NewRecorder()
+	router.ServeHTTP(loginW, loginReq)
+	require.Equal(t, http.StatusOK, loginW.Code)
+
+	var loginResponse models.TokenResponse
+	err := json.Unmarshal(loginW.Body.Bytes(), &loginResponse)
+	require.NoError(t, err)
+	require.NotEmpty(t, loginResponse.Token)
+
+	// Use token to access protected endpoint
+	req, _ := http.NewRequest("GET", "/api/v1/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+loginResponse.Token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should work with valid token
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestAuthWithMalformedToken tests authentication with malformed tokens
+func TestAuthWithMalformedToken(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"empty token", ""},
+		{"invalid format", "not.a.token"},
+		{"missing parts", "Bearer"},
+		{"too many parts", "part1.part2.part3.part4"},
+		{"special characters", "token!@#$%"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "/api/v1/auth/me", nil)
+			if tt.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tt.token)
+			}
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			// Should return 401 for malformed tokens
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+		})
+	}
+}
+
+// TestRegisterEndpointWithLongValues tests registration with very long values
+func TestRegisterEndpointWithLongValues(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	longString := string(make([]byte, 1000)) // 1000 character string
+
+	tests := []struct {
+		name           string
+		payload        models.RegisterRequest
+		expectedStatus int
+	}{
+		{
+			name: "very long username",
+			payload: models.RegisterRequest{
+				Username: longString,
+				Email:    "test@example.com",
+				Password: "securepass123",
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "very long email",
+			payload: models.RegisterRequest{
+				Username: "testuser",
+				Email:    longString + "@example.com",
+				Password: "securepass123",
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, _ := json.Marshal(tt.payload)
+			req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(payload))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/internal/httpserver"
 	"clickhouse-ops/internal/logger"
+
 	"github.com/spf13/cobra"
 )
 
@@ -80,11 +81,12 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
 		appLogger.Info("Starting ClickHouse Operations Agent")
 		appLogger.Infof("Server will start on port: %s", cfg.Server.Port)
 		appLogger.Infof("Log level: %s, Format: %s", cfg.Logging.Level, cfg.Logging.Format)
+		appLogger.Infof("PostgreSQL DSN: %s", maskPasswordInDSN(cfg.Database.Postgres.DSN))
 
 		// Connect to PostgreSQL database and run migrations
 		appLogger.Info("Connecting to PostgreSQL database...")
@@ -102,7 +104,7 @@ var rootCmd = &cobra.Command{
 			appLogger.Warning("Application will continue running, ClickHouse will be retried in background")
 		} else {
 			appLogger.Info("ClickHouse database connection initialized successfully")
-			
+
 			// ClickHouse migrations are deactivated
 			// // Run ClickHouse migrations
 			// appLogger.Info("Running ClickHouse migrations...")
@@ -113,7 +115,7 @@ var rootCmd = &cobra.Command{
 			// } else {
 			// 	appLogger.Info("ClickHouse migrations completed successfully")
 			// }
-			
+
 			// Wait for system tables to be ready
 			appLogger.Info("Waiting for ClickHouse system tables to be ready...")
 			err = clickhouse.WaitForSystemTablesReady(appLogger)
@@ -123,7 +125,7 @@ var rootCmd = &cobra.Command{
 			} else {
 				appLogger.Info("ClickHouse system tables are ready")
 			}
-			
+
 			// Initialize table synchronization
 			appLogger.Info("Initializing table synchronization...")
 			err = initializeTableSync(cfg, appLogger)
@@ -147,7 +149,6 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-
 func init() {
 	// Add flags dynamically from AllConfigFlags
 	for _, flagConfig := range AllConfigFlags {
@@ -157,16 +158,16 @@ func init() {
 			rootCmd.Flags().String(flagConfig.FlagName, "", flagConfig.FlagDescription)
 		}
 	}
-	
+
 	// Add special flags
 	rootCmd.Flags().String("config", config.GetConfigPath(), "Path to config file")
 	rootCmd.Flags().Bool("version", false, "Print version and exit")
 	rootCmd.Flags().Bool("print-config", false, "Print current configuration and exit")
-	
+
 	// Add ClickHouse migration management commands
 	initMigrationCommands()
 	rootCmd.AddCommand(clickhouseMigrationCmd)
-	
+
 	// Add table synchronization management commands
 	initSyncCommands()
 	rootCmd.AddCommand(syncCmd)
@@ -195,26 +196,34 @@ func loadConfig(cmd *cobra.Command) *config.Config {
 	// Get config file path from flag
 	configPath, _ := cmd.Flags().GetString("config")
 
+	// If config path is default value, check environment variable first
+	defaultConfigPath := config.GetConfigPath()
+	if configPath == defaultConfigPath {
+		// Check environment variable - it has priority over default
+		if envConfigPath := os.Getenv("OPS_AGENT_CONFIG_PATH"); envConfigPath != "" {
+			configPath = envConfigPath
+		}
+	}
+
 	// Load config from file
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		// If config file not found, create default config
-		cfg = &config.Config{}
+		panic(fmt.Sprintf("Failed to load config file: %v", err))
 	}
 
 	// Get environment variables (highest priority)
 	envVars := getAllEnvVars()
-	
+
 	// Get flags (medium priority)
 	flags := getAllFlags(cmd)
-	
+
 	// Apply with priority: env -> flags -> yaml
 	// Convert AllConfigFlags to []interface{}
 	flagConfigs := make([]interface{}, len(AllConfigFlags))
 	for i, flagConfig := range AllConfigFlags {
 		flagConfigs[i] = flagConfig
 	}
-	
+
 	// First apply flags, then env (env will override flags)
 	cfg.OverrideWithFlags(flags, flagConfigs)
 	cfg.OverrideWithFlags(envVars, flagConfigs)
@@ -230,28 +239,28 @@ func loadConfig(cmd *cobra.Command) *config.Config {
 // getAllFlags automatically collects all flag values
 func getAllFlags(cmd *cobra.Command) map[string]string {
 	flags := make(map[string]string)
-	
+
 	// Collect all flag values using the shared flag list
 	for _, flagConfig := range AllConfigFlags {
 		if value, err := cmd.Flags().GetString(flagConfig.FlagName); err == nil && value != "" {
 			flags[flagConfig.FlagName] = value
 		}
 	}
-	
+
 	return flags
 }
 
 // getAllEnvVars automatically collects all environment variables
 func getAllEnvVars() map[string]string {
 	envVars := make(map[string]string)
-	
+
 	// Collect all environment variables using the shared flag list
 	for _, flagConfig := range AllConfigFlags {
 		if envValue := os.Getenv(flagConfig.EnvName); envValue != "" {
 			envVars[flagConfig.FlagName] = envValue
 		}
 	}
-	
+
 	return envVars
 }
 
@@ -260,7 +269,7 @@ func printVersion(cmd *cobra.Command) {
 	// Load config to get app name and version
 	configPath, _ := cmd.Flags().GetString("config")
 	cfg, err := config.Load(configPath)
-	
+
 	var appName, appVersion string
 	if err != nil {
 		// Set defaults if config not found
@@ -270,15 +279,15 @@ func printVersion(cmd *cobra.Command) {
 		appName = cfg.App.Name
 		appVersion = cfg.App.Version
 	}
-	
+
 	// Create a simple logger for version output
 	logger := logger.New(logger.InfoLevel, "text")
-	
+
 	logger.Info(fmt.Sprintf("%s v%s", appName, appVersion))
 	logger.Info("")
 	logger.Info("Available configuration flags:")
 	logger.Info("=============================")
-	
+
 	for _, flagConfig := range AllConfigFlags {
 		logger.Info(fmt.Sprintf("  --%-20s %s", flagConfig.FlagName, flagConfig.FlagDescription))
 		if flagConfig.EnvName != "" {
@@ -286,7 +295,7 @@ func printVersion(cmd *cobra.Command) {
 		}
 		logger.Info("")
 	}
-	
+
 	logger.Info("Special flags:")
 	logger.Info("==============")
 	logger.Info("  --version             Print version and exit")
@@ -301,20 +310,20 @@ func printConfig(cfg *config.Config) {
 	if err != nil {
 		logLevel = logger.InfoLevel
 	}
-	
+
 	appLogger := logger.New(logLevel, cfg.Logging.Format)
-	
+
 	appLogger.Info("Current Configuration:")
 	appLogger.Info("=====================")
-	
+
 	// Print config using reflection
 	v := reflect.ValueOf(cfg).Elem()
 	t := reflect.TypeOf(cfg).Elem()
-	
+
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
-		
+
 		if field.Kind() == reflect.Struct {
 			appLogger.Info(fmt.Sprintf("%s:", fieldType.Name))
 			printStructWithLogger(field, 2, appLogger)
@@ -329,19 +338,19 @@ func maskPasswordInDSN(dsn string) string {
 	if dsn == "" {
 		return dsn
 	}
-	
+
 	// For PostgreSQL DSN: postgres://user:password@host:port/db
 	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		re := regexp.MustCompile(`(://[^:]+:)([^@]+)(@)`)
 		return re.ReplaceAllString(dsn, "$1****$3")
 	}
-	
+
 	// For ClickHouse DSN: tcp://user:password@host:port
 	if strings.HasPrefix(dsn, "tcp://") {
 		re := regexp.MustCompile(`(://[^:]+:)([^@]+)(@)`)
 		return re.ReplaceAllString(dsn, "$1****$3")
 	}
-	
+
 	return dsn
 }
 
@@ -362,14 +371,14 @@ func shouldMaskField(fieldName string) bool {
 		"Auth",
 		"auth",
 	}
-	
+
 	fieldNameLower := strings.ToLower(fieldName)
 	for _, sensitive := range sensitiveFields {
 		if strings.Contains(fieldNameLower, strings.ToLower(sensitive)) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -378,7 +387,7 @@ func maskPassword(password string) string {
 	if password == "" {
 		return password
 	}
-	
+
 	// Completely mask the password with asterisks
 	return "****"
 }
@@ -386,16 +395,16 @@ func maskPassword(password string) string {
 // printStructWithLogger recursively prints struct fields with indentation using logger
 func printStructWithLogger(v reflect.Value, indent int, logger *logger.Logger) {
 	t := v.Type()
-	
+
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
-		
+
 		indentStr := ""
 		for j := 0; j < indent; j++ {
 			indentStr += "  "
 		}
-		
+
 		if field.Kind() == reflect.Struct {
 			logger.Info(fmt.Sprintf("%s%s:", indentStr, fieldType.Name))
 			printStructWithLogger(field, indent+1, logger)
@@ -417,17 +426,17 @@ func printStructWithLogger(v reflect.Value, indent int, logger *logger.Logger) {
 			}
 		} else {
 			value := field.Interface()
-			
+
 			// Mask password in DSN fields
 			if fieldType.Name == "DSN" && reflect.TypeOf(value).Kind() == reflect.String {
 				value = maskPasswordInDSN(value.(string))
 			}
-			
+
 			// Mask password fields
 			if shouldMaskField(fieldType.Name) && reflect.TypeOf(value).Kind() == reflect.String {
 				value = maskPassword(value.(string))
 			}
-			
+
 			logger.Info(fmt.Sprintf("%s%s: %v", indentStr, fieldType.Name, value))
 		}
 	}
@@ -436,32 +445,32 @@ func printStructWithLogger(v reflect.Value, indent int, logger *logger.Logger) {
 // printStruct recursively prints struct fields with indentation (deprecated, use printStructWithLogger)
 func printStruct(v reflect.Value, indent int) {
 	t := v.Type()
-	
+
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
-		
+
 		indentStr := ""
 		for j := 0; j < indent; j++ {
 			indentStr += "  "
 		}
-		
+
 		if field.Kind() == reflect.Struct {
 			fmt.Printf("%s%s:\n", indentStr, fieldType.Name)
 			printStruct(field, indent+1)
 		} else {
 			value := field.Interface()
-			
+
 			// Mask password in DSN fields
 			if fieldType.Name == "DSN" && reflect.TypeOf(value).Kind() == reflect.String {
 				value = maskPasswordInDSN(value.(string))
 			}
-			
+
 			// Mask password fields
 			if shouldMaskField(fieldType.Name) && reflect.TypeOf(value).Kind() == reflect.String {
 				value = maskPassword(value.(string))
 			}
-			
+
 			fmt.Printf("%s%s: %v\n", indentStr, fieldType.Name, value)
 		}
 	}
@@ -481,36 +490,36 @@ var deleteMigrationCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		migrationID := args[0]
-		
+
 		// Load configuration
 		cfg := loadConfig(cmd)
-		
+
 		// Create logger
 		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
-		
+
 		// Connect to databases
 		appLogger.Info("Connecting to databases...")
 		err = db.Connect(cfg, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to connect to PostgreSQL database: %v", err)
 		}
-		
+
 		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to connect to ClickHouse database: %v", err)
 		}
-		
+
 		// Parse migration ID
 		id, err := strconv.Atoi(migrationID)
 		if err != nil {
 			appLogger.Fatalf("Invalid migration ID: %v", err)
 		}
-		
+
 		// Create migrator and delete record
 		chManager := clickhouse.GetInstance()
 		dbManager := db.GetInstance()
@@ -520,12 +529,12 @@ var deleteMigrationCmd = &cobra.Command{
 			cfg,
 			appLogger,
 		)
-		
+
 		err = migrator.DeleteMigrationRecord(id)
 		if err != nil {
 			appLogger.Fatalf("Failed to delete migration record: %v", err)
 		}
-		
+
 		appLogger.Infof("Successfully deleted migration record with ID %d", id)
 	},
 }
@@ -537,30 +546,30 @@ var deleteNodeMigrationsCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		nodeName := args[0]
-		
+
 		// Load configuration
 		cfg := loadConfig(cmd)
-		
+
 		// Create logger
 		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
-		
+
 		// Connect to databases
 		appLogger.Info("Connecting to databases...")
 		err = db.Connect(cfg, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to connect to PostgreSQL database: %v", err)
 		}
-		
+
 		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to connect to ClickHouse database: %v", err)
 		}
-		
+
 		// Create migrator and delete records
 		chManager := clickhouse.GetInstance()
 		dbManager := db.GetInstance()
@@ -570,12 +579,12 @@ var deleteNodeMigrationsCmd = &cobra.Command{
 			cfg,
 			appLogger,
 		)
-		
+
 		err = migrator.DeleteMigrationRecordsByNode(nodeName)
 		if err != nil {
 			appLogger.Fatalf("Failed to delete migration records for node: %v", err)
 		}
-		
+
 		appLogger.Infof("Successfully deleted migration records for node %s", nodeName)
 	},
 }
@@ -587,16 +596,16 @@ var forceUpMigrationCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load configuration
 		cfg := loadConfig(cmd)
-		
+
 		// Create logger
 		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
 		appLogger.Info("Force running ClickHouse migrations...")
-		
+
 		// Connect to PostgreSQL database
 		appLogger.Info("Connecting to PostgreSQL database...")
 		err = db.Connect(cfg, appLogger)
@@ -604,7 +613,7 @@ var forceUpMigrationCmd = &cobra.Command{
 			appLogger.Fatalf("Failed to connect to PostgreSQL database: %v", err)
 		}
 		appLogger.Info("PostgreSQL database connected successfully")
-		
+
 		// Connect to ClickHouse database
 		appLogger.Info("Connecting to ClickHouse database...")
 		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
@@ -612,13 +621,13 @@ var forceUpMigrationCmd = &cobra.Command{
 			appLogger.Fatalf("Failed to connect to ClickHouse database: %v", err)
 		}
 		appLogger.Info("ClickHouse database connected successfully")
-		
+
 		// Force run migrations
 		err = runClickHouseMigrations(cfg, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to run ClickHouse migrations: %v", err)
 		}
-		
+
 		appLogger.Info("ClickHouse migrations completed successfully")
 	},
 }
@@ -678,7 +687,7 @@ func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
 
 	// Create and register syncers
 	factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
-	
+
 	// Parse sync frequency from config
 	metricsInterval := 1 * time.Second // Default
 	if cfg.Sync.MetricsFrequency != "" {
@@ -689,7 +698,7 @@ func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
 			metricsInterval = parsedInterval
 		}
 	}
-	
+
 	syncers, err := factory.CreateAllDefaultSyncersWithInterval(metricsInterval)
 	if err != nil {
 		return fmt.Errorf("failed to create syncers: %w", err)
@@ -760,52 +769,52 @@ var syncRunCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load configuration
 		cfg := loadConfig(cmd)
-		
+
 		// Create logger
 		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
-		
+
 		// Connect to ClickHouse
 		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to connect to ClickHouse: %v", err)
 		}
-		
+
 		// Get cluster manager
 		chManager := clickhouse.GetInstance()
 		clusterManager := chManager.GetClusterManager()
-		
+
 		// Get table and node names
 		tableName := args[0]
 		nodeName := ""
 		if len(args) > 1 {
 			nodeName = args[1]
 		}
-		
+
 		// Create factory and syncers
 		factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
 		syncers, err := factory.CreateAllDefaultSyncers()
 		if err != nil {
 			appLogger.Fatalf("Failed to create syncers: %v", err)
 		}
-		
+
 		// Find and run the syncer
 		found := false
 		for _, syncer := range syncers {
 			if syncer.GetConfig().TableName == tableName {
 				found = true
-				
+
 				if nodeName != "" {
 					// Run on specific node
 					node := findNodeByName(clusterManager, nodeName)
 					if node.Name == "" {
 						appLogger.Fatalf("Node %s not found", nodeName)
 					}
-					
+
 					appLogger.Infof("Running sync for table %s on node %s", tableName, nodeName)
 					runSingleSync(cmd.Context(), appLogger, clusterManager, syncer, node)
 				} else {
@@ -819,11 +828,11 @@ var syncRunCmd = &cobra.Command{
 				break
 			}
 		}
-		
+
 		if !found {
 			appLogger.Fatalf("Table %s not found in syncers", tableName)
 		}
-		
+
 		appLogger.Info("Sync completed successfully")
 	},
 }
@@ -835,51 +844,51 @@ var syncStatusCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load configuration
 		cfg := loadConfig(cmd)
-		
+
 		// Create logger
 		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
-		
+
 		// Connect to ClickHouse
 		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
 		if err != nil {
 			appLogger.Fatalf("Failed to connect to ClickHouse: %v", err)
 		}
-		
+
 		// Get cluster manager and create sync manager
 		chManager := clickhouse.GetInstance()
 		clusterManager := chManager.GetClusterManager()
 		syncManager := sync.NewManager(appLogger, clusterManager)
-		
+
 		// Create and register syncers
 		factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
 		syncers, err := factory.CreateAllDefaultSyncers()
 		if err != nil {
 			appLogger.Fatalf("Failed to create syncers: %v", err)
 		}
-		
+
 		for _, syncer := range syncers {
 			syncManager.RegisterSyncer(syncer)
 		}
-		
+
 		// Show status
 		status := syncManager.GetStatus()
 		if len(status) == 0 {
 			appLogger.Info("No synchronization status available")
 			return
 		}
-		
+
 		appLogger.Info("Synchronization Status:")
 		appLogger.Info("======================")
 		for key, result := range status {
 			if result.Error != nil {
 				appLogger.Errorf("  %s: ERROR - %v", key, result.Error)
 			} else {
-				appLogger.Infof("  %s: OK - %d records in %v", 
+				appLogger.Infof("  %s: OK - %d records in %v",
 					key, result.RecordsProcessed, result.Duration)
 			}
 		}
@@ -893,16 +902,16 @@ var syncHistoryCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load configuration
 		cfg := loadConfig(cmd)
-		
+
 		// Create logger
 		logLevel, err := logger.ParseLogLevel(cfg.Logging.Level)
 		if err != nil {
 			panic(fmt.Sprintf("Invalid log level: %v", err))
 		}
-		
+
 		appLogger := logger.New(logLevel, cfg.Logging.Format)
 		appLogger.Info("Retrieving sync history from PostgreSQL...")
-		
+
 		// Connect to PostgreSQL database
 		appLogger.Info("Connecting to PostgreSQL database...")
 		err = db.Connect(cfg, appLogger)
@@ -910,35 +919,35 @@ var syncHistoryCmd = &cobra.Command{
 			appLogger.Fatalf("Failed to connect to PostgreSQL database: %v", err)
 		}
 		appLogger.Info("PostgreSQL database connected successfully")
-		
+
 		// Get sync history
 		statuses, err := db.GetSyncStatus("", "", 50) // Get last 50 records
 		if err != nil {
 			appLogger.Fatalf("Failed to get sync history: %v", err)
 		}
-		
+
 		appLogger.Info("Sync History:")
 		appLogger.Info("============")
-		
+
 		if len(statuses) == 0 {
 			appLogger.Info("No sync history found")
 			return
 		}
-		
+
 		for _, status := range statuses {
-			statusStr := fmt.Sprintf("Table: %s, Node: %s, Status: %s, Records: %d", 
+			statusStr := fmt.Sprintf("Table: %s, Node: %s, Status: %s, Records: %d",
 				status.TableName, status.NodeName, status.Status, status.RecordsProcessed)
-			
+
 			if status.DurationMs != nil {
 				statusStr += fmt.Sprintf(", Duration: %dms", *status.DurationMs)
 			}
-			
+
 			if status.ErrorMessage != nil {
 				statusStr += fmt.Sprintf(", Error: %s", *status.ErrorMessage)
 			}
-			
+
 			statusStr += fmt.Sprintf(", Time: %s", status.CreatedAt.Format("2006-01-02 15:04:05"))
-			
+
 			appLogger.Info(statusStr)
 		}
 	},
@@ -970,20 +979,20 @@ func runSingleSync(ctx context.Context, logger *logger.Logger, clusterManager *c
 		logger.Errorf("Failed to get connection for node %s: %v", node.Name, err)
 		return
 	}
-	
+
 	// Run sync
 	result, err := syncer.Sync(ctx, conn)
 	if err != nil {
 		logger.Errorf("Sync failed for table %s on node %s: %v", syncer.GetConfig().TableName, node.Name, err)
 		return
 	}
-	
+
 	// Log status to PostgreSQL
 	status := "success"
 	if result.Error != nil {
 		status = "error"
 	}
-	
+
 	var lastTimestamp *time.Time
 	if !result.LastTimestamp.IsZero() {
 		lastTimestamp = &result.LastTimestamp
@@ -995,9 +1004,9 @@ func runSingleSync(ctx context.Context, logger *logger.Logger, clusterManager *c
 		errMsg := result.Error.Error()
 		errorMessage = &errMsg
 	}
-	
+
 	db.LogSyncStatus(syncer.GetConfig().TableName, node.Name, status, result.RecordsProcessed, lastTimestamp, durationMs, errorMessage)
-	
+
 	logger.Infof("Sync completed for table %s on node %s: %d records in %v", syncer.GetConfig().TableName, node.Name, result.RecordsProcessed, result.Duration)
 }
 

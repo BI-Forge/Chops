@@ -228,17 +228,25 @@ func (h *ProcessHandler) KillProcess(c *gin.Context) {
 		return
 	}
 
+	if req.Node == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request",
+			Message: "node is required",
+		})
+		return
+	}
+
 	// Create unique key for this kill request (queryId + node)
 	killKey := fmt.Sprintf("%s:%s", req.QueryID, req.Node)
-	
+
 	// Get or create mutex for this kill request
 	mu, _ := killQueryLocks.LoadOrStore(killKey, &sync.Mutex{})
 	lock := mu.(*sync.Mutex)
-	
+
 	// Lock to prevent concurrent execution
 	lock.Lock()
 	defer lock.Unlock()
-	
+
 	// Clean up the lock after a delay to prevent memory leak
 	defer func() {
 		go func() {

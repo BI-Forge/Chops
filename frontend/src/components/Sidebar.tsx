@@ -29,6 +29,7 @@ interface SidebarProps {
   onCollapse?: (collapsed: boolean) => void;
 }
 
+// Sidebar renders the navigation menu with profile controls.
 export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarProps) {
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -129,6 +130,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
       } backdrop-blur-md border-r transition-all duration-300 h-screen flex flex-col ${
         collapsed ? 'w-20' : 'w-64'
       }`}
+      data-testid="sidebar"
     >
       {/* Logo Header */}
       <div className={`px-4 py-4 border-b ${theme === 'light' ? 'border-amber-500/30' : 'border-yellow-500/20'} h-[73px] flex items-center`}>
@@ -214,6 +216,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
                 ? 'bg-amber-50/50 border-amber-500/30 hover:border-amber-500/50'
                 : 'bg-gray-800/30 border-yellow-500/20 hover:border-yellow-500/40'
             } border text-gray-900 transition-all flex items-center justify-center`}
+            data-testid="user-menu-toggle"
           >
             <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarGradient} flex items-center justify-center text-white text-sm`}>
               {userInitial}
@@ -227,6 +230,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
                 ? 'bg-amber-50/50 border-amber-500/30 hover:border-amber-500/50'
                 : 'bg-gray-800/30 border-yellow-500/20 hover:border-yellow-500/40'
             } border transition-all group`}
+            data-testid="user-menu-toggle"
           >
             <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarGradient} flex items-center justify-center text-white text-sm`}>
               {userInitial}
@@ -270,6 +274,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
               } transition-all text-sm border-t ${
                 theme === 'light' ? 'border-amber-500/30' : 'border-yellow-500/20'
               }`}
+              data-testid="user-menu-logout"
             >
               <LogOut className="w-4 h-4" />
               Logout

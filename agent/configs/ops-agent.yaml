@@ -16,7 +16,7 @@ server:
 # Database Configuration
 database:
   postgres:
-    dsn: "postgres://ops:12345@ops_db:5432/public?sslmode=disable"
+    dsn: "postgres://ops:12345@chops_db:5432/public?sslmode=disable"
   clickhouse:
     # Cluster name for operations
     cluster_name: "ops_cluster"
@@ -24,7 +24,7 @@ database:
     # Cluster configuration with individual node settings
     nodes:
       - name: "primary"
-        host: "ops_clickhouse"
+        host: "chops_ch"
         port: 9000
         username: "ops"
         password: "12345"
@@ -32,7 +32,7 @@ database:
         weight: 3
         priority: 1
       - name: "primary2"
-        host: "ops_clickhouse_2"
+        host: "chops_ch_2"
         port: 9000
         username: "ops"
         password: "12345"

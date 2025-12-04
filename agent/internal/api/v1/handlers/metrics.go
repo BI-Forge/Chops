@@ -11,10 +11,10 @@ import (
 	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gin-gonic/gin"
 )
 
@@ -121,42 +121,16 @@ func (h *MetricsHandler) checkNodeAvailability(ctx context.Context, node config.
 		return false
 	}
 
-	// Parse timeouts
-	dialTimeout, err := time.ParseDuration(h.config.Database.ClickHouse.GlobalSettings.DialTimeout)
-	if err != nil {
-		dialTimeout = 2 * time.Second // Default timeout
-	}
-
-	readTimeout, err := time.ParseDuration(h.config.Database.ClickHouse.GlobalSettings.ReadTimeout)
-	if err != nil {
-		readTimeout = 5 * time.Second // Default timeout
-	}
-
-	// Use shorter timeout for health check
-	testCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	// Build connection options
-	options := &clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", node.Host, node.Port)},
-		Auth: clickhouse.Auth{
-			Database: node.Database,
-			Username: node.Username,
-			Password: node.Password,
-		},
-		DialTimeout: dialTimeout,
-		ReadTimeout: readTimeout,
-	}
-
-	// Configure TLS if secure (TLS configuration handled by driver)
-	// Note: TLS is configured automatically by the driver when using secure connections
-
-	// Attempt to connect
-	conn, err := clickhouse.Open(options)
+	// Use unified connection method
+	conn, err := clickhouse.OpenConnection(node, &h.config.Database.ClickHouse)
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
+
+	// Use shorter timeout for health check
+	testCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 
 	// Try to ping
 	err = conn.Ping(testCtx)

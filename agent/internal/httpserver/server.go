@@ -2,9 +2,9 @@ package httpserver
 
 import (
 	"clickhouse-ops/internal/api"
-	v1 "clickhouse-ops/internal/api/v1"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
+
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -36,7 +36,7 @@ func New(cfg Config) *Server {
 	}
 
 	// Setup API v1 router
-	router := v1.SetupRouter(routerCfg)
+	router := api.SetupRouter(routerCfg)
 
 	// Add Swagger documentation
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -55,9 +55,9 @@ func New(cfg Config) *Server {
 }
 
 // SetupRoutes configures all HTTP routes
-// Routes are now set up in v1.SetupRouter, this method is kept for compatibility
+// Routes are now set up in api.SetupRouter, this method is kept for compatibility
 func (s *Server) SetupRoutes() {
-	// Routes are already configured in New() via v1.SetupRouter
+	// Routes are already configured in New() via api.SetupRouter
 	// This method is kept for backward compatibility
 }
 

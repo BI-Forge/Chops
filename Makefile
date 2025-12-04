@@ -1,38 +1,38 @@
-.PHONY: help test test-clickhouse test-api test-db-up test-db-down swagger
-
-# Default target
-help:
-	@echo "ClickHouse Operations - Makefile Commands"
-	@echo "========================================="
-	@echo ""
-	@echo "Tests (run in Docker):"
-	@echo "  Backend:"
-	@echo "    test                - Run all Go tests"
-	@echo "    test-clickhouse     - Run ClickHouse tests only"
-	@echo "    test-api            - Run API unit tests only (with mocks)"
-	@echo "    test-db-up          - Start test databases (PostgreSQL and ClickHouse)"
-	@echo "    test-db-down        - Stop test databases"
-	@echo ""
-
-# Run all tests
+# Run all Go tests in Docker (with test databases)
 test:
-	@cd agent && $(MAKE) test
+	docker compose -f docker-compose.test.yml stop
+	docker compose -f docker-compose.test.yml up -d --build chops_app_test
+	docker compose -f docker-compose.test.yml exec -T chops_app_test go test -v ./tests/...
+	docker compose -f docker-compose.test.yml down
 
-# Run ClickHouse tests
+# Run ClickHouse tests in Docker (with test databases)
 test-clickhouse:
-	@cd agent && $(MAKE) test-clickhouse
+	docker compose -f docker-compose.test.yml stop
+	docker compose -f docker-compose.test.yml up -d --build chops_app_test
+	docker compose -f docker-compose.test.yml exec -T chops_app_test go test -v ./tests/clickhouse/...
+	docker compose -f docker-compose.test.yml down
 
-# Run API tests
+# Run API tests in Docker (with test databases)
 test-api:
-	@cd agent && $(MAKE) test-api
+	docker compose -f docker-compose.test.yml stop
+	docker compose -f docker-compose.test.yml up -d --build chops_app_test
+	docker compose -f docker-compose.test.yml exec -T chops_app_test go test -v ./tests/api/...
+	docker compose -f docker-compose.test.yml down
 
-# Start test databases
-test-db-up:
-	@cd agent && $(MAKE) test-db-up
+# Run frontend E2E tests in Docker
+test-e2e:
+	docker compose -f docker-compose.test.yml stop
+	docker compose -f docker-compose.test.yml up -d --build chops_app_test chops_front_test
+	docker compose -f docker-compose.test.yml run --rm test_playwright
+	docker compose -f docker-compose.test.yml down
 
-# Stop test databases
-test-db-down:
-	@cd agent && $(MAKE) test-db-down
+# Run frontend E2E tests in Docker (headed mode)
+# Note: This requires X11 forwarding or VNC for GUI display in Docker
+test-e2e-headed:
+	docker compose -f docker-compose.test.yml stop
+	docker compose -f docker-compose.test.yml up -d --build chops_app_test chops_front_test
+	docker compose -f docker-compose.test.yml run --rm -e DISPLAY=$$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix test_playwright npx playwright test --headed
+	docker compose -f docker-compose.test.yml down
 
 # Test configuration
 swagger:

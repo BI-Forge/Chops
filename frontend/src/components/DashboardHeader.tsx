@@ -37,6 +37,7 @@ export function DashboardHeader({
               ? 'hover:bg-amber-100 text-gray-700'
               : 'hover:bg-gray-800 text-gray-400 hover:text-yellow-400'
           }`}
+          data-testid="mobile-menu-button"
         >
           <Menu className="w-6 h-6" />
         </button>

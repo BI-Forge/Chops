@@ -7,6 +7,7 @@ interface RegisterFormProps {
   onRegister: (username: string, email: string, password: string) => Promise<void>;
 }
 
+// RegisterForm renders the registration form and handles submission.
 export function RegisterForm({ onRegister }: RegisterFormProps) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -269,12 +270,14 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
             <CustomCheckbox
               checked={agreeToTerms}
               onChange={() => setAgreeToTerms(!agreeToTerms)}
+              id="register-terms-checkbox"
+              testId="register-terms-checkbox"
             />
           </div>
           <label
-            htmlFor="terms"
+            htmlFor="register-terms-checkbox"
             className={`${theme === 'light' ? 'text-gray-900' : 'text-gray-400'} text-sm cursor-pointer`}
-            onClick={() => setAgreeToTerms(!agreeToTerms)}
+            data-testid="register-terms-checkbox-label"
           >
             I agree to the{' '}
             <button type="button" className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors`}>
@@ -291,6 +294,7 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
         <button
           type="submit"
           disabled={isLoading}
+          data-testid="register-submit-button"
           className="relative w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-gray-900 rounded-xl transition-all duration-300 shadow-lg shadow-yellow-500/30 hover:shadow-yellow-500/50 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group overflow-hidden hover:scale-[1.02] active:scale-[0.98]"
         >
           {/* Shine effect */}

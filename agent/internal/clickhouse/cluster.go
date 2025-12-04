@@ -10,7 +10,6 @@ import (
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
@@ -216,81 +215,10 @@ func (cm *ClusterManager) getClickHouseVersion(conn driver.Conn) (string, error)
 
 // connectToNode creates a connection to a specific node
 func (cm *ClusterManager) connectToNode(node config.ClickHouseNode) (driver.Conn, error) {
-	// Parse timeouts from global settings
-	dialTimeout, err := time.ParseDuration(cm.config.GlobalSettings.DialTimeout)
+	// Use unified connection method
+	conn, err := OpenConnection(node, cm.config)
 	if err != nil {
-		return nil, fmt.Errorf("invalid dial_timeout: %w", err)
-	}
-
-	readTimeout, err := time.ParseDuration(cm.config.GlobalSettings.ReadTimeout)
-	if err != nil {
-		return nil, fmt.Errorf("invalid read_timeout: %w", err)
-	}
-
-	_, err = time.ParseDuration(cm.config.GlobalSettings.WriteTimeout)
-	if err != nil {
-		return nil, fmt.Errorf("invalid write_timeout: %w", err)
-	}
-
-	connMaxLifetime, err := time.ParseDuration(cm.config.GlobalSettings.ConnMaxLifetime)
-	if err != nil {
-		return nil, fmt.Errorf("invalid conn_max_lifetime: %w", err)
-	}
-
-	// Build connection options
-	options := &clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", node.Host, node.Port)},
-		Auth: clickhouse.Auth{
-			Database: node.Database,
-			Username: node.Username,
-			Password: node.Password,
-		},
-		DialTimeout: dialTimeout,
-		ReadTimeout: readTimeout,
-		Settings: clickhouse.Settings{
-			"max_execution_time": 60,
-		},
-		MaxOpenConns:    cm.config.GlobalSettings.MaxOpenConns,
-		MaxIdleConns:    cm.config.GlobalSettings.MaxIdleConns,
-		ConnMaxLifetime: connMaxLifetime,
-	}
-
-	// Configure TLS if secure (use node-specific or global setting)
-	useSecure := false
-	if node.Secure != nil {
-		useSecure = *node.Secure
-	} else {
-		useSecure = cm.config.GlobalSettings.Secure
-	}
-
-	if useSecure {
-		// TLS configuration will be handled by the driver
-		// Note: TLS configuration may need to be set differently based on driver version
-	}
-
-	// Configure compression (use node-specific or global setting)
-	compression := cm.config.GlobalSettings.Compression
-	if node.Compression != "" {
-		compression = node.Compression
-	}
-
-	if compression != "" {
-		switch compression {
-		case "lz4":
-			options.Compression = &clickhouse.Compression{Method: clickhouse.CompressionLZ4}
-		case "gzip":
-			options.Compression = &clickhouse.Compression{Method: clickhouse.CompressionGZIP}
-		case "deflate":
-			options.Compression = &clickhouse.Compression{Method: clickhouse.CompressionDeflate}
-		case "brotli":
-			options.Compression = &clickhouse.Compression{Method: clickhouse.CompressionBrotli}
-		}
-	}
-
-	// Connect to the node
-	conn, err := clickhouse.Open(options)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s:%d: %w", node.Host, node.Port, err)
+		return nil, err
 	}
 
 	// Test the connection
