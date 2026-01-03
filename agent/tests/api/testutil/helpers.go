@@ -2,8 +2,10 @@ package testutil
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +31,11 @@ var (
 	// Can be overridden via OPS_AGENT_CONFIG_PATH environment variable
 	testConfigPath = getEnv("OPS_AGENT_CONFIG_PATH", "configs/ops-agent.test.yaml")
 )
+
+// GetTestConfigPath returns the test configuration file path
+func GetTestConfigPath() string {
+	return testConfigPath
+}
 
 // SetupTestEnvironmentWithDB sets up test environment with real databases
 // Uses the same connection methods as the main application
@@ -122,13 +129,41 @@ func setupTestEnvironmentWithHandlers(t TestingT) (*gorm.DB, driver.Conn, *gin.E
 
 // CleanupTestData cleans up test data from databases
 func CleanupTestData(t TestingT, gormDB *gorm.DB) {
-	if gormDB == nil {
-		return
+	if gormDB != nil {
+		// Clean PostgreSQL test data
+		gormDB.Exec("DELETE FROM users WHERE username LIKE 'test_%'")
 	}
 
-	// Clean PostgreSQL test data
-	gormDB.Exec("DELETE FROM users WHERE username LIKE 'test_%'")
-	gormDB.Exec("DELETE FROM ch_metrics WHERE node_name LIKE 'test_%'")
+	// Clean ClickHouse metrics data
+	chManager := clickhouse.GetInstance()
+	if chManager != nil {
+		cluster := chManager.GetCluster()
+		if cluster != nil {
+			cfg, err := config.Load(testConfigPath)
+			if err == nil {
+				ctx := context.Background()
+				for _, node := range cfg.Database.ClickHouse.Nodes {
+					conn, _, err := cluster.GetConnectionByNodeName(node.Name)
+					if err != nil {
+						continue
+					}
+
+					schema := node.MetricsSchema
+					table := node.MetricsTable
+					if schema == "" {
+						schema = "ops"
+					}
+					if table == "" {
+						table = "metrics_snapshot"
+					}
+
+					// Try to delete test data (table might not exist)
+					deleteQuery := fmt.Sprintf("ALTER TABLE %s.%s DELETE WHERE 1=1", schema, table)
+					_ = conn.Exec(ctx, deleteQuery)
+				}
+			}
+		}
+	}
 }
 
 // SetupTestRouter creates a test router
@@ -241,14 +276,99 @@ func MakeAuthenticatedRequest(method, url, token string, body []byte) (*http.Req
 	return req, nil
 }
 
-// InsertTestMetricsData inserts test data into ch_metrics table using fixtures
+// InsertTestMetricsData inserts test data into ClickHouse metrics_snapshot table
 func InsertTestMetricsData(t TestingT, nodeName string) error {
-	gormDB, err := fixtures.GetDBConnection()
-	if err != nil {
-		return err
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
 	}
 
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		return fmt.Errorf("Failed to get ClickHouse connection for node %s: %v", nodeName, err)
+	}
+
+	// Get config to find metrics schema and table
+	cfg, err := config.Load(testConfigPath)
+	if err != nil {
+		return fmt.Errorf("Failed to load config: %v", err)
+	}
+
+	var nodeConfig config.ClickHouseNode
+	for _, node := range cfg.Database.ClickHouse.Nodes {
+		if node.Name == nodeName {
+			nodeConfig = node
+			break
+		}
+	}
+
+	if nodeConfig.Name == "" {
+		return fmt.Errorf("Node %s not found in config", nodeName)
+	}
+
+	schema := nodeConfig.MetricsSchema
+	table := nodeConfig.MetricsTable
+	if schema == "" {
+		schema = "ops"
+	}
+	if table == "" {
+		table = "metrics_snapshot"
+	}
+
+	// Create schema and table if they don't exist
+	ctx := context.Background()
+	createSchemaQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", schema)
+	if err := conn.Exec(ctx, createSchemaQuery); err != nil {
+		return fmt.Errorf("Failed to create schema: %v", err)
+	}
+
+	createTableQuery := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s.%s
+		(
+			timestamp DateTime,
+			profile Map(String, Float64)
+		)
+		ENGINE = MergeTree
+		PARTITION BY toDate(timestamp)
+		ORDER BY timestamp
+		SETTINGS index_granularity = 8192
+	`, schema, table)
+	if err := conn.Exec(ctx, createTableQuery); err != nil {
+		return fmt.Errorf("Failed to create table: %v", err)
+	}
+
+	// Insert test metrics data
 	data := fixtures.DefaultMetricsData(nodeName)
-	fixtures.InsertMetricsData(t, gormDB, data)
+	profile := map[string]float64{
+		"OSUserTimeNormalized":    data.CPULoad / 100.0 / 7.0,
+		"OSSystemTimeNormalized":  data.CPULoad / 100.0 / 7.0,
+		"OSIOWaitTimeNormalized":  0.0,
+		"OSIrqTimeNormalized":     data.CPULoad / 100.0 / 7.0,
+		"OSSoftIrqTimeNormalized": data.CPULoad / 100.0 / 7.0,
+		"OSGuestTimeNormalized":   data.CPULoad / 100.0 / 7.0,
+		"OSStealTimeNormalized":   data.CPULoad / 100.0 / 7.0,
+		"OSNiceTimeNormalized":    data.CPULoad / 100.0 / 7.0,
+		"OSMemoryTotal":           float64(data.MemoryTotal),
+		"OSMemoryAvailable":       float64(data.MemoryAvail),
+		"DiskTotalSpace":          float64(data.DiskTotal),
+		"DiskFreeSpace":           float64(data.DiskFree),
+		"TCPConnection":           float64(data.Connections.TCP),
+		"MySQLConnection":         float64(data.Connections.MySQL),
+		"HTTPConnection":          float64(data.Connections.HTTP),
+		"InterserverConnection":   float64(data.Connections.Interserver),
+		"PostgreSQLConnection":    float64(data.Connections.PostgreSQL),
+		"Query":                   float64(data.QueryCount),
+	}
+
+	insertQuery := fmt.Sprintf("INSERT INTO %s.%s (timestamp, profile) VALUES (?, ?)", schema, table)
+	if err := conn.Exec(ctx, insertQuery, data.Timestamp, profile); err != nil {
+		return fmt.Errorf("Failed to insert metrics data: %v", err)
+	}
+
 	return nil
 }

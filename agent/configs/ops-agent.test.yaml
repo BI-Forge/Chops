@@ -31,6 +31,8 @@ database:
         database: "default"
         weight: 1
         priority: 1
+        metrics_schema: "ops"
+        metrics_table: "metrics_snapshot"
     
     # Global settings (applied to all nodes unless overridden)
     global_settings:

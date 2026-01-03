@@ -223,8 +223,8 @@ func TestQueryLogHandlerWithLimitBoundaries(t *testing.T) {
 	}{
 		{"zero limit", "0", http.StatusBadRequest},
 		{"negative limit", "-1", http.StatusBadRequest},
-		{"max limit", "500", http.StatusOK},
-		{"over max limit", "501", http.StatusBadRequest},
+		{"max limit", "10000", http.StatusOK},
+		{"over max limit", "10001", http.StatusBadRequest},
 		{"valid limit", "10", http.StatusOK},
 	}
 

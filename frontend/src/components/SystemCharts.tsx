@@ -57,12 +57,15 @@ const convertToChartData = (
     // Use the timestamp from the first available point
     const timestamp = cpuPoint?.timestamp || memoryPercentPoint?.timestamp || memoryGBPoint?.timestamp || diskPoint?.timestamp || queriesPoint?.timestamp;
     
+    // Storage value is already in GB (not percentage)
+    const storageGB = diskPoint ? diskPoint.value : 0;
+    
     data.push({
       time: formatTime(timestamp || new Date().toISOString(), interval),
       cpu: cpuPoint ? Math.round(cpuPoint.value) : 0,
       memory: memoryPercentPoint ? Math.round(memoryPercentPoint.value) : 0,
       memoryGB: memoryGBPoint ? Math.round(memoryGBPoint.value * 10) / 10 : 0, // Round to 1 decimal place
-      storage: diskPoint ? Math.round(diskPoint.value) : 0,
+      storage: Math.round(storageGB * 10) / 10, // Round to 1 decimal place
       queries: queriesPoint ? Math.round(queriesPoint.value) : 0,
     });
   }
@@ -71,7 +74,7 @@ const convertToChartData = (
 };
 
 // Component for custom tooltip
-const CustomTooltip = ({ active, payload, label, theme }: any) => {
+const CustomTooltip = ({ active, payload, label, theme, unit }: any) => {
   if (active && payload && payload.length) {
     return (
       <div className={`${
@@ -82,7 +85,7 @@ const CustomTooltip = ({ active, payload, label, theme }: any) => {
         <p className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-sm mb-2`}>{label}</p>
         {payload.map((entry: any, index: number) => (
           <p key={index} className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-300'} text-xs`} style={{ color: entry.color }}>
-            {entry.name}: {entry.value}{entry.unit || '%'}
+            {entry.name}: {entry.value}{unit || entry.unit || '%'}
           </p>
         ))}
       </div>
@@ -163,6 +166,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [memoryTotalGB, setMemoryTotalGB] = useState<number>(0);
+  const [diskTotalGB, setDiskTotalGB] = useState<number>(1000);
   const { theme } = useTheme();
 
   // Save period to sessionStorage when it changes
@@ -203,9 +207,10 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
     try {
       const { apiPeriod, step } = getPeriodConfig();
 
-      // Load current metrics to get memory_total_gb for YAxis
+      // Load current metrics to get memory_total_gb and disk_total_gb for YAxis
       const currentMetrics = await metricsAPI.getCurrentMetrics(selectedNode);
       setMemoryTotalGB(Math.round(currentMetrics.memory_total_gb));
+      setDiskTotalGB(Math.round(currentMetrics.disk_total_gb) || 1000);
 
       // Load all metrics in parallel
       const [cpuData, memoryPercentData, memoryGBData, diskData, queriesData] = await Promise.all([
@@ -386,7 +391,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         title="Storage Used"
         icon={<HardDrive className="w-5 h-5" />}
         currentValue={data.length > 0 ? data[data.length - 1].storage : 0}
-        unit="%"
+        unit=" GB"
       >
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data.length > 0 ? data : []}>
@@ -407,9 +412,9 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               stroke="#9ca3af" 
               style={{ fontSize: '12px' }}
               tick={{ fill: '#9ca3af' }}
-              domain={[0, 100]}
+              domain={[0, diskTotalGB || 1000]}
             />
-            <Tooltip content={<CustomTooltip theme={theme} />} />
+            <Tooltip content={<CustomTooltip theme={theme} unit=" GB" />} />
             <Bar
               dataKey="storage"
               fill="url(#storageGradient)"

@@ -46,7 +46,7 @@ func TestMetricsHandlerGetCurrentMetrics(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_metrics_current")
 
-	// Add test data to ch_metrics table using MetricsSyncer functionality
+	// Add test data to ch_metrics table using MetricsSnapshot functionality
 	err := testutil.InsertTestMetricsData(t, "test_node")
 	require.NoError(t, err, "Failed to insert test metrics data")
 
@@ -75,6 +75,10 @@ func TestMetricsHandlerGetServerInfo(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_metrics_server_info")
 
+	// Add test data to metrics
+	err := testutil.InsertTestMetricsData(t, "test_node")
+	require.NoError(t, err, "Failed to insert test metrics data")
+
 	// Test GET /api/v1/metrics/server-info
 	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/server-info?node=test_node", token, nil)
 	require.NoError(t, err)
@@ -82,8 +86,8 @@ func TestMetricsHandlerGetServerInfo(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// May return 200 or 500 depending on ClickHouse connection
-	assert.Contains(t, []int{http.StatusOK}, w.Code)
+	// Should return 200 with metrics data
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestMetricsHandlerRequiresAuth(t *testing.T) {

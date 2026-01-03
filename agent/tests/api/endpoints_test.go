@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 
 	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/tests/api/testutil"
 	"clickhouse-ops/tests/fixtures"
@@ -335,16 +338,78 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	}
 	defer testutil.CleanupTestData(t, dbConn)
 
-	nodeName := "test_node_series"
+	nodeName := "test_node"
 	now := time.Now().UTC().Truncate(time.Second)
 
-	// Use fixtures to insert metrics series data
-	points := []fixtures.MetricsSeriesPoint{
-		{Timestamp: now.Add(-2 * time.Minute), CPULoad: 30.0}, // 30% CPU load
-		{Timestamp: now.Add(-time.Minute), CPULoad: 33.0},     // 33% CPU load
-		{Timestamp: now, CPULoad: 36.0},                       // 36% CPU load
+	// Insert metrics series data into ClickHouse
+	chManager := clickhouse.GetInstance()
+	require.NotNil(t, chManager, "ClickHouse manager should be initialized")
+	cluster := chManager.GetCluster()
+	require.NotNil(t, cluster, "ClickHouse cluster should be initialized")
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	require.NoError(t, err, "Failed to get ClickHouse connection")
+
+	cfg, err := config.Load(testutil.GetTestConfigPath())
+	require.NoError(t, err)
+
+	var nodeConfig config.ClickHouseNode
+	for _, node := range cfg.Database.ClickHouse.Nodes {
+		if node.Name == nodeName {
+			nodeConfig = node
+			break
+		}
 	}
-	fixtures.InsertMetricsSeries(t, dbConn, nodeName, points)
+	require.NotEmpty(t, nodeConfig.Name, "Node should be found in config")
+
+	schema := nodeConfig.MetricsSchema
+	table := nodeConfig.MetricsTable
+	if schema == "" {
+		schema = "ops"
+	}
+	if table == "" {
+		table = "metrics_snapshot"
+	}
+
+	ctx := context.Background()
+	// Ensure schema and table exist
+	createSchemaQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", schema)
+	_ = conn.Exec(ctx, createSchemaQuery)
+	createTableQuery := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s.%s
+		(
+			timestamp DateTime,
+			profile Map(String, Float64)
+		)
+		ENGINE = MergeTree
+		PARTITION BY toDate(timestamp)
+		ORDER BY timestamp
+		SETTINGS index_granularity = 8192
+	`, schema, table)
+	_ = conn.Exec(ctx, createTableQuery)
+
+	// Insert metrics series points
+	points := []fixtures.MetricsSeriesPoint{
+		{Timestamp: now.Add(-2 * time.Minute), CPULoad: 30.0},
+		{Timestamp: now.Add(-time.Minute), CPULoad: 33.0},
+		{Timestamp: now, CPULoad: 36.0},
+	}
+
+	for _, point := range points {
+		profile := map[string]float64{
+			"OSUserTimeNormalized":    point.CPULoad / 100.0 / 7.0,
+			"OSSystemTimeNormalized":  point.CPULoad / 100.0 / 7.0,
+			"OSIOWaitTimeNormalized":  0.0,
+			"OSIrqTimeNormalized":     point.CPULoad / 100.0 / 7.0,
+			"OSSoftIrqTimeNormalized": point.CPULoad / 100.0 / 7.0,
+			"OSGuestTimeNormalized":   point.CPULoad / 100.0 / 7.0,
+			"OSStealTimeNormalized":   point.CPULoad / 100.0 / 7.0,
+			"OSNiceTimeNormalized":    point.CPULoad / 100.0 / 7.0,
+			"Query":                   10.0,
+		}
+		insertQuery := fmt.Sprintf("INSERT INTO %s.%s (timestamp, profile) VALUES (?, ?)", schema, table)
+		execErr := conn.Exec(ctx, insertQuery, point.Timestamp, profile)
+		require.NoError(t, execErr, "Failed to insert metrics point")
+	}
 
 	username := "test_metrics_user_" + time.Now().Format("20060102150405")
 	password := "securepass123"
@@ -363,7 +428,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusCreated, registerW.Code)
 
 	var registerResponse models.TokenResponse
-	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
+	err = json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
 

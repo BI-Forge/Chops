@@ -120,6 +120,10 @@ type ClickHouseNode struct {
 	// Load balancing settings
 	Weight   int `yaml:"weight"`   // Load balancing weight
 	Priority int `yaml:"priority"` // Connection priority
+
+	// Metrics synchronization settings
+	MetricsSchema string `yaml:"metrics_schema"` // Schema name for metrics table (e.g., "ch_ops")
+	MetricsTable  string `yaml:"metrics_table"`  // Table name for metrics (e.g., "metrics")
 }
 
 // LoggingConfig holds logging configuration

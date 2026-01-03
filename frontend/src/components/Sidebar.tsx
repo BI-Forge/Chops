@@ -6,13 +6,14 @@ import {
   FileText, 
   Settings, 
   Users, 
-  BarChart3,
   ChevronLeft,
   ChevronRight,
   LogOut,
   ChevronDown,
   Sun,
-  Moon
+  Moon,
+  Table,
+  Shield
 } from 'lucide-react';
 import { ClickhouseOpsLogo } from './ClickhouseOpsLogo';
 import { useTheme } from '../contexts/ThemeContext';
@@ -44,6 +45,11 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
   const getActiveItem = () => {
     if (location.pathname === '/dashboard') return 'dashboard';
     if (location.pathname === '/query-history') return 'queries';
+    if (location.pathname === '/backups') return 'backups';
+    if (location.pathname === '/tables') return 'tables';
+    if (location.pathname === '/users') return 'users';
+    if (location.pathname === '/settings') return 'settings';
+    if (location.pathname === '/admin-settings') return 'admin-settings';
     return 'dashboard';
   };
   
@@ -84,8 +90,17 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
       navigate('/dashboard');
     } else if (pageId === 'queries') {
       navigate('/query-history');
+    } else if (pageId === 'backups') {
+      navigate('/backups');
+    } else if (pageId === 'tables') {
+      navigate('/tables');
+    } else if (pageId === 'users') {
+      navigate('/users');
+    } else if (pageId === 'settings') {
+      navigate('/settings');
+    } else if (pageId === 'admin-settings') {
+      navigate('/admin-settings');
     }
-    // Other pages can be added later
   };
 
   const menuItems: MenuItem[] = [
@@ -100,8 +115,8 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
       icon: <FileText className="w-5 h-5" />,
     },
     {
-      id: 'batches',
-      label: 'Batches',
+      id: 'backups',
+      label: 'Backups',
       icon: <Database className="w-5 h-5" />,
     },
     {
@@ -112,7 +127,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
     {
       id: 'tables',
       label: 'Tables',
-      icon: <BarChart3 className="w-5 h-5" />,
+      icon: <Table className="w-5 h-5" />,
     },
     {
       id: 'settings',
@@ -251,12 +266,29 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
               : 'bg-gray-800 border-yellow-500/20'
           } backdrop-blur-md border rounded-lg shadow-xl overflow-hidden`}>
             <button 
-              onClick={toggleTheme}
+              onClick={() => {
+                setUserMenuOpen(false);
+                handlePageChange('admin-settings');
+              }}
               className={`w-full flex items-center gap-3 px-4 py-2.5 ${
                 theme === 'light'
                   ? 'text-gray-700 hover:bg-amber-50'
                   : 'text-gray-300 hover:bg-gray-700/50'
               } transition-all text-sm`}
+            >
+              <Shield className="w-4 h-4" />
+              Admin Settings
+            </button>
+            
+            <button 
+              onClick={toggleTheme}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 ${
+                theme === 'light'
+                  ? 'text-gray-700 hover:bg-amber-50'
+                  : 'text-gray-300 hover:bg-gray-700/50'
+              } transition-all text-sm border-t ${
+                theme === 'light' ? 'border-amber-500/30' : 'border-yellow-500/20'
+              }`}
             >
               {theme === 'light' ? (
                 <><Moon className="w-4 h-4" /> Dark Mode</>

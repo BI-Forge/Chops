@@ -29,3 +29,6 @@ yarn-error.log*
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# Design directory (reference only, not part of the project)
+figma/

@@ -9,19 +9,14 @@ import (
 type SyncerType string
 
 const (
-	QueryRawSyncerType    SyncerType = "query_raw"
-	ThreadRawSyncerType   SyncerType = "thread_raw"
-	PartLogRawSyncerType  SyncerType = "part_log_raw"
-	QueryAggMinSyncerType SyncerType = "query_agg_min"
-	StorageMinSyncerType  SyncerType = "storage_min"
-	MetricsSyncerType     SyncerType = "metrics"
+	MetricsSnapshotType SyncerType = "metrics"
 )
 
 // SyncerConfig represents configuration for creating a syncer
 type SyncerConfig struct {
 	Type     SyncerType
 	Interval time.Duration
-	Cluster  string // For query_agg_min and storage_min syncers
+	Cluster  string // For metrics snapshot
 }
 
 // SyncerFactory creates table syncers based on configuration
@@ -39,18 +34,8 @@ func NewSyncerFactory(clusterName string) *SyncerFactory {
 // CreateSyncer creates a syncer based on the provided configuration
 func (sf *SyncerFactory) CreateSyncer(config SyncerConfig) (TableSyncer, error) {
 	switch config.Type {
-	case QueryRawSyncerType:
-		return NewQueryRawSyncer(config.Interval), nil
-	case ThreadRawSyncerType:
-		return NewThreadRawSyncer(config.Interval), nil
-	case PartLogRawSyncerType:
-		return NewPartLogRawSyncer(config.Interval), nil
-	case QueryAggMinSyncerType:
-		return NewQueryAggMinSyncer(config.Interval, config.Cluster), nil
-	case StorageMinSyncerType:
-		return NewStorageMinSyncer(config.Interval, config.Cluster), nil
-	case MetricsSyncerType:
-		return NewMetricsSyncer(config.Interval, config.Cluster), nil
+	case MetricsSnapshotType:
+		return NewMetricsSnapshot(config.Interval, config.Cluster), nil
 	default:
 		return nil, fmt.Errorf("unknown syncer type: %s", config.Type)
 	}
@@ -59,31 +44,8 @@ func (sf *SyncerFactory) CreateSyncer(config SyncerConfig) (TableSyncer, error) 
 // GetDefaultConfigs returns default configurations for all available syncers
 func (sf *SyncerFactory) GetDefaultConfigs() map[SyncerType]SyncerConfig {
 	return map[SyncerType]SyncerConfig{
-		// Other syncers are deactivated for now
-		// QueryRawSyncerType: {
-		// 	Type:     QueryRawSyncerType,
-		// 	Interval: 1 * time.Minute, // Sync every minute
-		// },
-		// ThreadRawSyncerType: {
-		// 	Type:     ThreadRawSyncerType,
-		// 	Interval: 1 * time.Minute, // Sync every minute
-		// },
-		// PartLogRawSyncerType: {
-		// 	Type:     PartLogRawSyncerType,
-		// 	Interval: 1 * time.Minute, // Sync every minute
-		// },
-		// QueryAggMinSyncerType: {
-		// 	Type:     QueryAggMinSyncerType,
-		// 	Interval: 5 * time.Minute, // Sync every 5 minutes (aggregation)
-		// 	Cluster:  sf.clusterName,  // Use cluster name from factory
-		// },
-		// StorageMinSyncerType: {
-		// 	Type:     StorageMinSyncerType,
-		// 	Interval: 1 * time.Minute, // Sync every minute
-		// 	Cluster:  sf.clusterName,  // Use cluster name from factory
-		// },
-		MetricsSyncerType: {
-			Type:     MetricsSyncerType,
+		MetricsSnapshotType: {
+			Type:     MetricsSnapshotType,
 			Interval: 1 * time.Second, // Default: sync every second
 			Cluster:  sf.clusterName,  // Use cluster name from factory
 		},
@@ -93,9 +55,9 @@ func (sf *SyncerFactory) GetDefaultConfigs() map[SyncerType]SyncerConfig {
 // GetDefaultConfigsWithInterval returns default configurations with custom interval for metrics
 func (sf *SyncerFactory) GetDefaultConfigsWithInterval(metricsInterval time.Duration) map[SyncerType]SyncerConfig {
 	configs := sf.GetDefaultConfigs()
-	if metricsConfig, ok := configs[MetricsSyncerType]; ok {
+	if metricsConfig, ok := configs[MetricsSnapshotType]; ok {
 		metricsConfig.Interval = metricsInterval
-		configs[MetricsSyncerType] = metricsConfig
+		configs[MetricsSnapshotType] = metricsConfig
 	}
 	return configs
 }

@@ -82,6 +82,11 @@ func NewMetricsHandler(logger *logger.Logger, cfg *config.Config) (*MetricsHandl
 		return nil, fmt.Errorf("failed to create metrics repository: %w", err)
 	}
 
+	// Set config in repository for accessing node configurations
+	if cfg != nil {
+		metricsRepo.SetConfig(cfg)
+	}
+
 	retentionDays := 0
 	if cfg != nil && cfg.Sync.RetentionDays > 0 {
 		retentionDays = cfg.Sync.RetentionDays

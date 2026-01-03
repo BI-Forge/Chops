@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Activity, CheckCircle, XCircle, Search, User, Calendar, Filter, Play, Square, Eye, ChevronLeft, ChevronRight, Database, Clock, TrendingUp, AlertTriangle, Copy, Check, Cpu, HardDrive, FileText, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { QueryModal } from '../components/QueryModal';
 import { BackgroundPattern } from '../components/BackgroundPattern';
 import { Sidebar } from '../components/Sidebar';

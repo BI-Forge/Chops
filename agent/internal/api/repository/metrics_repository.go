@@ -3,218 +3,409 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
-	"clickhouse-ops/internal/db"
+	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/config"
 
-	"gorm.io/gorm"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-// MetricExpressions contains SQL expressions for calculating metrics.
-// These expressions are used consistently across GetLatestMetrics and GetMetricSeries
-// to ensure calculations are synchronized.
-var MetricExpressions = struct {
-	CPULoad           string
-	MemoryLoad        string
-	MemoryUsedGB      string
-	MemoryTotalGB     string
-	DiskUsage         string
-	DiskUsedGB        string
-	DiskTotalGB       string
-	ActiveConnections string
-	ActiveQueries     string
-}{
+// MetricsRepository mediates metrics reads from ClickHouse metrics_snapshot table.
+type MetricsRepository struct {
+	config *config.Config
+}
+
+// NewMetricsRepository creates a new metrics repository.
+func NewMetricsRepository() (*MetricsRepository, error) {
+	// Config will be set via SetConfig method
+	return &MetricsRepository{}, nil
+}
+
+// SetConfig sets the configuration for the repository.
+func (r *MetricsRepository) SetConfig(cfg *config.Config) {
+	r.config = cfg
+}
+
+// getNodeConfig returns the configuration for a specific node.
+func (r *MetricsRepository) getNodeConfig(nodeName string) (config.ClickHouseNode, error) {
+	if r.config == nil {
+		return config.ClickHouseNode{}, fmt.Errorf("config not set")
+	}
+
+	for _, node := range r.config.Database.ClickHouse.Nodes {
+		if node.Name == nodeName {
+			return node, nil
+		}
+	}
+
+	return config.ClickHouseNode{}, fmt.Errorf("node %s not found in config", nodeName)
+}
+
+// getSchemaAndTable returns schema and table name for metrics for a specific node.
+func (r *MetricsRepository) getSchemaAndTable(nodeName string) (string, string, error) {
+	node, err := r.getNodeConfig(nodeName)
+	if err != nil {
+		return "", "", err
+	}
+
+	schema := node.MetricsSchema
+	table := node.MetricsTable
+
+	if schema == "" {
+		schema = "ops" // Default schema
+	}
+	if table == "" {
+		table = "metrics_snapshot" // Default table
+	}
+
+	return schema, table, nil
+}
+
+// getConnection gets ClickHouse connection for a specific node.
+func (r *MetricsRepository) getConnection(nodeName string) (driver.Conn, error) {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return nil, fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	clusterManager := chManager.GetClusterManager()
+	if clusterManager == nil {
+		return nil, fmt.Errorf("ClickHouse cluster manager not initialized")
+	}
+
+	conn, _, err := clusterManager.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
+	}
+
+	return conn, nil
+}
+
+// getMetricValue extracts a metric value from profile Map.
+func getMetricValue(profile map[string]float64, metricName string) float64 {
+	if val, ok := profile[metricName]; ok {
+		return val
+	}
+	return 0
+}
+
+// calculateMetrics calculates all metrics from profile Map.
+func calculateMetrics(profile map[string]float64) *models.SystemMetrics {
 	// CPU load: sum of all normalized CPU time components
-	CPULoad: `(COALESCE(os_user_time_normalized, 0) + COALESCE(os_system_time_normalized, 0) + COALESCE(os_irq_time_normalized, 0) + COALESCE(os_soft_irq_time_normalized, 0) + COALESCE(os_guest_time_normalized, 0) + COALESCE(os_steal_time_normalized, 0) + COALESCE(os_nice_time_normalized, 0)) * 100`,
+	cpuLoad := (getMetricValue(profile, "OSUserTimeNormalized") +
+		getMetricValue(profile, "OSSystemTimeNormalized") +
+		getMetricValue(profile, "OSIrqTimeNormalized") +
+		getMetricValue(profile, "OSSoftIrqTimeNormalized") +
+		getMetricValue(profile, "OSGuestTimeNormalized") +
+		getMetricValue(profile, "OSStealTimeNormalized") +
+		getMetricValue(profile, "OSNiceTimeNormalized")) * 100
+
+	// Memory values
+	memoryTotal := getMetricValue(profile, "OSMemoryTotal")
+	memoryAvailable := getMetricValue(profile, "OSMemoryAvailable")
+	memoryUsed := memoryTotal - memoryAvailable
 
 	// Memory load: percentage of used memory
-	MemoryLoad: `CASE WHEN os_memory_total > 0 THEN ((os_memory_total - COALESCE(os_memory_available, 0))::float / os_memory_total::float) * 100 ELSE 0 END`,
+	var memoryLoad float64
+	if memoryTotal > 0 {
+		memoryLoad = (memoryUsed / memoryTotal) * 100
+	}
 
-	// Memory used in GB
-	MemoryUsedGB: `(COALESCE(os_memory_total, 0) - COALESCE(os_memory_available, 0))::float / (1024.0 * 1024.0 * 1024.0)`,
+	// Memory in GB
+	memoryUsedGB := memoryUsed / (1024 * 1024 * 1024)
+	memoryTotalGB := memoryTotal / (1024 * 1024 * 1024)
 
-	// Memory total in GB
-	MemoryTotalGB: `os_memory_total::float / (1024.0 * 1024.0 * 1024.0)`,
+	// Disk values
+	diskTotal := getMetricValue(profile, "DiskTotalSpace")
+	diskFree := getMetricValue(profile, "DiskFreeSpace")
+	diskKeepFree := getMetricValue(profile, "DiskKeepFreeSpace")
+	diskUsed := diskTotal - diskFree - diskKeepFree
 
 	// Disk usage: percentage of used disk space
-	DiskUsage: `CASE WHEN disk_total_space > 0 THEN ((disk_total_space - COALESCE(disk_free_space, 0) - COALESCE(disk_keep_free_space, 0))::float / disk_total_space::float) * 100 ELSE 0 END`,
+	var diskUsage float64
+	if diskTotal > 0 {
+		diskUsage = (diskUsed / diskTotal) * 100
+	}
 
-	// Disk used in GB
-	DiskUsedGB: `(COALESCE(disk_total_space, 0) - COALESCE(disk_free_space, 0) - COALESCE(disk_keep_free_space, 0))::float / (1024.0 * 1024.0 * 1024.0)`,
-
-	// Disk total in GB
-	DiskTotalGB: `disk_total_space::float / (1024.0 * 1024.0 * 1024.0)`,
+	// Disk in GB
+	diskUsedGB := diskUsed / (1024 * 1024 * 1024)
+	diskTotalGB := diskTotal / (1024 * 1024 * 1024)
 
 	// Active connections: sum of all connection types
-	ActiveConnections: `COALESCE(tcp_connection, 0) + COALESCE(mysql_connection, 0) + COALESCE(http_connection, 0) + COALESCE(interserver_connection, 0) + COALESCE(postgresql_connection, 0)`,
+	activeConns := int64(getMetricValue(profile, "TCPConnection") +
+		getMetricValue(profile, "MySQLConnection") +
+		getMetricValue(profile, "HTTPConnection") +
+		getMetricValue(profile, "InterserverConnection") +
+		getMetricValue(profile, "PostgreSQLConnection"))
 
 	// Active queries
-	ActiveQueries: `COALESCE(query, 0)`,
+	activeQueries := int64(getMetricValue(profile, "Query"))
+
+	return &models.SystemMetrics{
+		CPULoad:       cpuLoad,
+		MemoryUsage:   memoryLoad,
+		MemoryUsedGB:  memoryUsedGB,
+		MemoryTotalGB: memoryTotalGB,
+		DiskUsage:     diskUsage,
+		DiskUsedGB:    diskUsedGB,
+		DiskTotalGB:   diskTotalGB,
+		ActiveConns:   activeConns,
+		ActiveQueries: activeQueries,
+	}
 }
 
-// metricSeriesExpressions maps metric type names to SQL expressions for series queries.
-// These expressions use the same base calculations as MetricExpressions but cast to float8.
-var metricSeriesExpressions = map[string]string{
-	"cpu_load":           fmt.Sprintf("(%s)::float8", MetricExpressions.CPULoad),
-	"memory_load":        fmt.Sprintf("(%s)::float8", MetricExpressions.MemoryLoad),
-	"memory_used_gb":     fmt.Sprintf("(%s)::float8", MetricExpressions.MemoryUsedGB),
-	"storage_used":       fmt.Sprintf("(%s)::float8", MetricExpressions.DiskUsedGB),
-	"active_connections": fmt.Sprintf("(%s)::float8", MetricExpressions.ActiveConnections),
-	"active_queries":     fmt.Sprintf("(%s)::float8", MetricExpressions.ActiveQueries),
-}
-
-// MetricsRepository mediates metrics reads through the application database.
-type MetricsRepository struct {
-	db *gorm.DB
-}
-
-// NewMetricsRepository attaches to the shared GORM connection and errors when it is unavailable.
-func NewMetricsRepository() (*MetricsRepository, error) {
-	gormDB, err := db.GetPostgresConnection()
+// GetLatestMetrics returns the most recent metrics row for the node.
+func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName string) (*models.SystemMetrics, error) {
+	schema, table, err := r.getSchemaAndTable(nodeName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to obtain postgres connection: %w", err)
+		return nil, err
 	}
 
-	return &MetricsRepository{db: gormDB}, nil
-}
+	conn, err := r.getConnection(nodeName)
+	if err != nil {
+		return nil, err
+	}
 
-// GetLatestMetrics returns the most recent metrics row for the node or reports when no data exists.
-// Uses MetricExpressions to ensure calculations are consistent with GetMetricSeries.
-func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName string) (*models.SystemMetrics, error) {
 	query := fmt.Sprintf(`
 		SELECT 
-			node_name,
-			TO_CHAR(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS timestamp,
-			%s as cpu_load,
-			%s as memory_usage,
-			%s as memory_used_gb,
-			%s as memory_total_gb,
-			%s as disk_usage,
-			%s as disk_used_gb,
-			%s as disk_total_gb,
-			%s as active_conns,
-			%s as active_queries
-		FROM ch_metrics
-		WHERE node_name = ?
+			timestamp,
+			profile
+		FROM %s.%s
 		ORDER BY timestamp DESC
 		LIMIT 1
-	`,
-		MetricExpressions.CPULoad,
-		MetricExpressions.MemoryLoad,
-		MetricExpressions.MemoryUsedGB,
-		MetricExpressions.MemoryTotalGB,
-		MetricExpressions.DiskUsage,
-		MetricExpressions.DiskUsedGB,
-		MetricExpressions.DiskTotalGB,
-		MetricExpressions.ActiveConnections,
-		MetricExpressions.ActiveQueries,
-	)
+	`, schema, table)
 
-	metrics := &models.SystemMetrics{}
-
-	result := r.db.WithContext(ctx).Raw(query, nodeName).Scan(metrics)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get metrics: %w", result.Error)
+	rows, err := conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
-	if result.RowsAffected == 0 {
+	defer rows.Close()
+
+	if !rows.Next() {
 		return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
 	}
+
+	var timestamp time.Time
+	var profile map[string]float64
+
+	if err := rows.Scan(&timestamp, &profile); err != nil {
+		return nil, fmt.Errorf("failed to scan metrics: %w", err)
+	}
+
+	metrics := calculateMetrics(profile)
+	metrics.NodeName = nodeName
+	metrics.Timestamp = timestamp.UTC().Format(time.RFC3339)
 
 	return metrics, nil
 }
 
-// GetAvailableNodes lists distinct node names collected in the metrics store.
+// GetAvailableNodes lists distinct node names from the metrics store.
 func (r *MetricsRepository) GetAvailableNodes(ctx context.Context) ([]string, error) {
+	if r.config == nil {
+		return nil, fmt.Errorf("config not set")
+	}
+
 	var nodes []string
-	result := r.db.WithContext(ctx).
-		Table("ch_metrics").
-		Distinct("node_name").
-		Order("node_name").
-		Pluck("node_name", &nodes)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get nodes: %w", result.Error)
+	for _, node := range r.config.Database.ClickHouse.Nodes {
+		nodes = append(nodes, node.Name)
 	}
 
 	return nodes, nil
 }
 
 // GetMetricSeries returns aggregated metric values for the requested time range and step.
+// This method loads all metrics data in a single query and then extracts the requested metric type.
 func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string, metricType string, from, to time.Time, step time.Duration) ([]models.MetricSeriesPoint, error) {
-	expr, ok := metricSeriesExpressions[metricType]
-	if !ok {
-		return nil, fmt.Errorf("unsupported metric type: %s", metricType)
+	schema, table, err := r.getSchemaAndTable(nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := r.getConnection(nodeName)
+	if err != nil {
+		return nil, err
 	}
 
 	if step <= 0 {
 		return nil, fmt.Errorf("step must be positive")
 	}
 
-	stepSeconds := step.Seconds()
-
+	// Load all data in a single query
 	query := fmt.Sprintf(`
-WITH samples AS (
-    SELECT timestamp, %s AS metric_value
-    FROM ch_metrics
-    WHERE node_name = ?
-      AND timestamp BETWEEN ? AND ?
-),
- bucketed AS (
-    SELECT to_timestamp(floor(extract(epoch FROM timestamp)::numeric / ?) * ?) AT TIME ZONE 'UTC' AS bucket,
-           metric_value
-    FROM samples
- )
-SELECT
-    to_char(bucket, 'YYYY-MM-DD"T"HH24:MI:SSZ') AS timestamp,
-    AVG(metric_value)::float8 AS value
-FROM bucketed
-GROUP BY bucket
-ORDER BY bucket
-`, expr)
+		SELECT 
+			timestamp,
+			profile
+		FROM %s.%s
+		WHERE timestamp >= ?
+			AND timestamp <= ?
+		ORDER BY timestamp
+	`, schema, table)
 
-	var points []models.MetricSeriesPoint
-	result := r.db.WithContext(ctx).Raw(query, nodeName, from, to, stepSeconds, stepSeconds).Scan(&points)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to load metric series: %w", result.Error)
+	rows, err := conn.Query(ctx, query, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metric series: %w", err)
 	}
+	defer rows.Close()
+
+	// Process all rows and calculate metrics
+	var samples []sampleData
+
+	for rows.Next() {
+		var s sampleData
+		if err := rows.Scan(&s.timestamp, &s.profile); err != nil {
+			return nil, fmt.Errorf("failed to scan metric point: %w", err)
+		}
+		samples = append(samples, s)
+	}
+
+	if len(samples) == 0 {
+		return []models.MetricSeriesPoint{}, nil
+	}
+
+	// Aggregate samples by time buckets
+	points := r.aggregateSamples(samples, metricType, step)
 
 	return points, nil
 }
 
-// GetServerInfo returns server information including uptime, version, memory and storage for a specific node
-func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) (*models.ServerInfo, error) {
-	type dbResult struct {
-		NodeName         string
-		Uptime           int64
-		VersionInteger   int64
-		TotalMemory      int64 `gorm:"column:os_memory_total"`
-		TotalStorage     int64 `gorm:"column:disk_total_space"`
-		AvailableStorage int64 `gorm:"column:disk_free_space"`
+// sampleData represents a single metrics sample
+type sampleData struct {
+	timestamp time.Time
+	profile   map[string]float64
+}
+
+// aggregateSamples groups samples by time buckets and calculates metric values
+func (r *MetricsRepository) aggregateSamples(samples []sampleData, metricType string, step time.Duration) []models.MetricSeriesPoint {
+	if len(samples) == 0 {
+		return []models.MetricSeriesPoint{}
 	}
 
-	var dbRow dbResult
-	result := r.db.WithContext(ctx).
-		Table("ch_metrics").
-		Select("node_name, uptime, version_integer, os_memory_total, disk_total_space, disk_free_space").
-		Where("node_name = ?", nodeName).
-		Order("timestamp DESC").
-		Limit(1).
-		Scan(&dbRow)
+	// Group samples by bucket
+	buckets := make(map[int64][]map[string]float64)
+	for _, sample := range samples {
+		bucketTime := sample.timestamp.Truncate(step).Unix()
+		buckets[bucketTime] = append(buckets[bucketTime], sample.profile)
+	}
 
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
+	// Calculate metric value for each bucket (average of all samples in bucket)
+	points := make([]models.MetricSeriesPoint, 0, len(buckets))
+	for bucketTime, profiles := range buckets {
+		var sum float64
+		for _, profile := range profiles {
+			value := r.calculateMetricValue(profile, metricType)
+			sum += value
 		}
-		return nil, fmt.Errorf("failed to get server info: %w", result.Error)
+		avgValue := sum / float64(len(profiles))
+
+		bucketTimestamp := time.Unix(bucketTime, 0).UTC()
+		points = append(points, models.MetricSeriesPoint{
+			Timestamp: bucketTimestamp.Format(time.RFC3339),
+			Value:     avgValue,
+		})
+	}
+
+	// Sort by timestamp
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Timestamp < points[j].Timestamp
+	})
+
+	return points
+}
+
+// calculateMetricValue calculates a specific metric value from profile Map.
+func (r *MetricsRepository) calculateMetricValue(profile map[string]float64, metricType string) float64 {
+	switch metricType {
+	case "cpu_load":
+		return (getMetricValue(profile, "OSUserTimeNormalized") +
+			getMetricValue(profile, "OSSystemTimeNormalized") +
+			getMetricValue(profile, "OSIrqTimeNormalized") +
+			getMetricValue(profile, "OSSoftIrqTimeNormalized") +
+			getMetricValue(profile, "OSGuestTimeNormalized") +
+			getMetricValue(profile, "OSStealTimeNormalized") +
+			getMetricValue(profile, "OSNiceTimeNormalized")) * 100
+
+	case "memory_load":
+		memoryTotal := getMetricValue(profile, "OSMemoryTotal")
+		if memoryTotal > 0 {
+			memoryAvailable := getMetricValue(profile, "OSMemoryAvailable")
+			return ((memoryTotal - memoryAvailable) / memoryTotal) * 100
+		}
+		return 0
+
+	case "memory_used_gb":
+		memoryTotal := getMetricValue(profile, "OSMemoryTotal")
+		memoryAvailable := getMetricValue(profile, "OSMemoryAvailable")
+		return (memoryTotal - memoryAvailable) / (1024 * 1024 * 1024)
+
+	case "storage_used":
+		diskTotal := getMetricValue(profile, "DiskTotalSpace")
+		diskFree := getMetricValue(profile, "DiskFreeSpace")
+		diskKeepFree := getMetricValue(profile, "DiskKeepFreeSpace")
+		return (diskTotal - diskFree - diskKeepFree) / (1024 * 1024 * 1024)
+
+	case "active_connections":
+		return getMetricValue(profile, "TCPConnection") +
+			getMetricValue(profile, "MySQLConnection") +
+			getMetricValue(profile, "HTTPConnection") +
+			getMetricValue(profile, "InterserverConnection") +
+			getMetricValue(profile, "PostgreSQLConnection")
+
+	case "active_queries":
+		return getMetricValue(profile, "Query")
+
+	default:
+		return 0
+	}
+}
+
+// GetServerInfo returns server information including uptime, version, memory and storage for a specific node.
+func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) (*models.ServerInfo, error) {
+	schema, table, err := r.getSchemaAndTable(nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := r.getConnection(nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT 
+			timestamp,
+			profile
+		FROM %s.%s
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`, schema, table)
+
+	rows, err := conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query server info: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
+	}
+
+	var timestamp time.Time
+	var profile map[string]float64
+
+	if err := rows.Scan(&timestamp, &profile); err != nil {
+		return nil, fmt.Errorf("failed to scan server info: %w", err)
 	}
 
 	info := &models.ServerInfo{
-		NodeName:         dbRow.NodeName,
-		Uptime:           dbRow.Uptime,
-		VersionInteger:   dbRow.VersionInteger,
-		TotalMemory:      dbRow.TotalMemory,
-		TotalStorage:     dbRow.TotalStorage,
-		AvailableStorage: dbRow.AvailableStorage,
+		NodeName:         nodeName,
+		Uptime:           int64(getMetricValue(profile, "Uptime")),
+		VersionInteger:   int64(getMetricValue(profile, "VersionInteger")),
+		TotalMemory:      int64(getMetricValue(profile, "OSMemoryTotal")),
+		TotalStorage:     int64(getMetricValue(profile, "DiskTotalSpace")),
+		AvailableStorage: int64(getMetricValue(profile, "DiskFreeSpace")),
 	}
 
 	return info, nil

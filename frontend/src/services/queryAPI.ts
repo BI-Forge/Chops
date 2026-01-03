@@ -141,8 +141,14 @@ export const queryAPI = {
       if (filter.node) params.append('node', filter.node)
       if (filter.search) params.append('search', filter.search)
       if (filter.status && filter.status !== 'all') params.append('status', filter.status)
-      if (filter.limit) params.append('limit', filter.limit.toString())
-      if (filter.offset) params.append('offset', filter.offset.toString())
+      // Only send limit if it's a valid positive number
+      if (filter.limit !== undefined && filter.limit !== null && filter.limit > 0) {
+        params.append('limit', filter.limit.toString())
+      }
+      // Only send offset if it's a valid non-negative number
+      if (filter.offset !== undefined && filter.offset !== null && filter.offset >= 0) {
+        params.append('offset', filter.offset.toString())
+      }
 
       const response = await api.get<QueryLogResponse>(`/query-log?${params.toString()}`)
       return response.data

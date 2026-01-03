@@ -20,7 +20,7 @@ import (
 
 const (
 	defaultQueryLogLimit  = 50
-	maxQueryLogLimit      = 500
+	maxQueryLogLimit      = 10000
 	queryLogTimeout       = 10 * time.Second
 	defaultRangePreset    = "1m"
 	isoNoTZLayout         = "2006-01-02 15:04:05"
@@ -124,7 +124,7 @@ func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepositor
 // @Param        node    query     string  false  "ClickHouse node hostname"
 // @Param        search  query     string  false  "Search query text (LIKE pattern in query column)"
 // @Param        status  query     string  false  "Filter by status: 'completed' (exception_code = 0) or 'failed' (exception_code != 0)"
-// @Param        limit   query     int     false  "Items per page (max 500)"
+// @Param        limit   query     int     false  "Items per page (max 10000)"
 // @Param        offset  query     int     false  "Offset for pagination"
 // @Success      200     {object}  models.QueryLogResponse
 // @Failure      400     {object}  models.ErrorResponse

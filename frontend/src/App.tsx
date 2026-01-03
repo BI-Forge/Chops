@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './services/AuthContext'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { QueriesPage } from './pages/QueriesPage'
+import { BackupsPage } from './pages/BackupsPage'
 import { AlertSystem } from './components/AlertSystem'
 
 // Protected Route Component
@@ -44,6 +45,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <QueriesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/backups"
+        element={
+          <ProtectedRoute>
+            <BackupsPage />
           </ProtectedRoute>
         }
       />

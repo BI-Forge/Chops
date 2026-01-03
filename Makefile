@@ -20,7 +20,7 @@ test-api:
 	docker compose -f docker-compose.test.yml down
 
 # Run frontend E2E tests in Docker
-test-e2e:
+test-frontend:
 	docker compose -f docker-compose.test.yml stop
 	docker compose -f docker-compose.test.yml up -d --build chops_app_test chops_front_test
 	docker compose -f docker-compose.test.yml run --rm test_playwright
@@ -28,7 +28,7 @@ test-e2e:
 
 # Run frontend E2E tests in Docker (headed mode)
 # Note: This requires X11 forwarding or VNC for GUI display in Docker
-test-e2e-headed:
+test-frontend-h:
 	docker compose -f docker-compose.test.yml stop
 	docker compose -f docker-compose.test.yml up -d --build chops_app_test chops_front_test
 	docker compose -f docker-compose.test.yml run --rm -e DISPLAY=$$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix test_playwright npx playwright test --headed

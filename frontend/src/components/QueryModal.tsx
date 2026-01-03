@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Clock, User, Database, Activity, CheckCircle, XCircle, AlertCircle, Zap, HardDrive, Cpu, Copy, Check, Settings, AlertTriangle } from 'lucide-react';
+import { XCircle, User, Database, Activity, CheckCircle, AlertCircle, HardDrive, Cpu, Copy, Check, Settings, AlertTriangle, Code } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { format } from 'sql-formatter';
 
 interface QueryModalProps {
   isOpen: boolean;
@@ -43,6 +45,14 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
     return value;
   };
 
+  const formatSQL = (sql: string): string => {
+    try {
+      return format(sql, { language: 'sql' });
+    } catch (error) {
+      return sql;
+    }
+  };
+
   // Block body scroll when modal is open
   useEffect(() => {
     if (isOpen) {
@@ -71,26 +81,27 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
   if (!isOpen || !query) return null;
 
   const handleCopyQuery = () => {
+    const formattedSQL = formatSQL(query.query);
     // Safe copy method with fallback
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(query.query).then(() => {
+        navigator.clipboard.writeText(formattedSQL).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         }).catch(() => {
-          fallbackCopyTextToClipboard();
+          fallbackCopyTextToClipboard(formattedSQL);
         });
       } else {
-        fallbackCopyTextToClipboard();
+        fallbackCopyTextToClipboard(formattedSQL);
       }
     } catch (err) {
-      fallbackCopyTextToClipboard();
+      fallbackCopyTextToClipboard(formattedSQL);
     }
   };
 
-  const fallbackCopyTextToClipboard = () => {
+  const fallbackCopyTextToClipboard = (text: string) => {
     const textArea = document.createElement('textarea');
-    textArea.value = query.query;
+    textArea.value = text;
     textArea.style.position = 'fixed';
     textArea.style.left = '-999999px';
     textArea.style.top = '-999999px';
@@ -125,20 +136,50 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
   const statusConfig = getStatusConfig(query.status);
   const StatusIcon = statusConfig.icon;
 
-  // Format SQL query with syntax highlighting
-  const formatSQL = (sql: string) => {
-    const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'GROUP BY', 'ORDER BY', 'LIMIT', 'AND', 'OR', 'AS', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'HAVING', 'DISTINCT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'TABLE'];
-    
-    const keywordClass = theme === 'light' ? 'text-amber-700 font-semibold' : 'text-yellow-400 font-semibold';
-    
-    let formatted = sql;
-    keywords.forEach(keyword => {
-      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
-      formatted = formatted.replace(regex, `<span class="${keywordClass}">${keyword}</span>`);
-    });
-    
-    return formatted;
-  };
+  // Custom yellow SQL syntax highlighting theme
+    const customSQLStyle = {
+        'code[class*="language-"]': {
+            color: '#ffffff',
+            background: 'transparent',
+            textShadow: 'none',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            fontSize: '0.875rem',
+            textAlign: 'left' as const,
+            whiteSpace: 'pre-wrap' as const,
+            wordSpacing: 'normal',
+            wordBreak: 'normal',
+            wordWrap: 'normal',
+            lineHeight: '1.5',
+            tabSize: 2,
+            hyphens: 'none' as const,
+        },
+        'pre[class*="language-"]': {
+            color: '#ffffff',
+            background: 'transparent',
+            textShadow: 'none',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            fontSize: '0.875rem',
+            textAlign: 'left' as const,
+            whiteSpace: 'pre-wrap' as const,
+            wordSpacing: 'normal',
+            wordBreak: 'normal',
+            wordWrap: 'normal',
+            lineHeight: '1.5',
+            tabSize: 2,
+            hyphens: 'none' as const,
+            padding: '0',
+            margin: '0',
+            overflow: 'visible',
+        },
+        'keyword': { color: '#facc15', fontWeight: 'bold' },
+        'builtin': { color: '#fcd34d' },
+        'function': { color: '#fde047' },
+        'string': { color: '#fef08a' },
+        'number': { color: '#fef3c7' },
+        'operator': { color: '#9ca3af' },
+        'punctuation': { color: '#6b7280' },
+        'comment': { color: '#4b5563', fontStyle: 'italic' },
+    };
 
   return createPortal(
     <div 
@@ -178,7 +219,7 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                 : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
             } border transition-all duration-200 flex items-center justify-center group`}
           >
-            <X className={`w-5 h-5 ${
+            <XCircle className={`w-5 h-5 ${
               theme === 'light' ? 'text-gray-700 group-hover:text-amber-700' : 'text-gray-400 group-hover:text-yellow-400'
             }`} />
           </button>
@@ -186,13 +227,17 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
 
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-100px)] custom-scrollbar">
-          <div className="grid lg:grid-cols-2 gap-6">
+          <div className="flex flex-col lg:!flex-row gap-6">
             {/* Left Column - SQL Query */}
-            <div className="space-y-4">
+            <div className={`flex-1 ${
+              theme === 'light'
+                ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-400/40'
+                : 'bg-gradient-to-br from-gray-800 to-gray-900 border-yellow-500/40'
+            } border-2 rounded-xl p-5 shadow-lg flex flex-col`}>
               <div className="flex items-center justify-between mb-3">
                 <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'}`}>
-                  <Database className="w-5 h-5" />
-                  <h3>SQL Query</h3>
+                  <Code className="w-5 h-5" />
+                  <h3 className="font-semibold">SQL Query</h3>
                 </div>
                 <button
                   onClick={handleCopyQuery}
@@ -216,19 +261,18 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                   )}
                 </button>
               </div>
-              
               <div className={`${
                 theme === 'light'
-                  ? 'bg-gray-50 border-amber-500/30'
-                  : 'bg-gray-950/50 border-yellow-500/20'
-              } border rounded-xl p-4 max-h-[400px] overflow-y-auto custom-scrollbar`}>
-                <pre className={`text-sm ${theme === 'light' ? 'text-gray-800' : 'text-gray-300'} font-mono leading-relaxed whitespace-pre-wrap break-words`}>
-                  <code dangerouslySetInnerHTML={{ __html: formatSQL(query.query) }} />
-                </pre>
+                  ? 'bg-gray-900 border-gray-700'
+                  : 'bg-gray-950 border-gray-800'
+              } border rounded-lg p-4 overflow-auto custom-scrollbar flex-1`}>
+                <SyntaxHighlighter language="sql" style={customSQLStyle}>
+                  {formatSQL(query.query)}
+                </SyntaxHighlighter>
               </div>
 
               {/* Query Type Badge */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mt-3">
                 <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Query Type:</span>
                 <span className={`px-3 py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border ${
                   theme === 'light' ? 'border-amber-500/40 text-amber-700' : 'border-yellow-500/30 text-yellow-400'
@@ -239,23 +283,10 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
             </div>
 
             {/* Right Column - Query Info */}
-            <div className="space-y-4">
+            <div className="flex-1 space-y-4">
               <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} mb-3`}>
                 <Activity className="w-5 h-5" />
                 <h3>Query Information</h3>
-              </div>
-
-              {/* Status */}
-              <div className={`${
-                theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-              } border rounded-xl p-4`}>
-                <div className="flex items-center justify-between mb-3">
-                  <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Status</span>
-                  <div className={`flex items-center gap-2 px-3 py-1 rounded-lg ${statusConfig.bg} border ${statusConfig.border}`}>
-                    <StatusIcon className={`w-4 h-4 ${statusConfig.color}`} />
-                    <span className={`text-sm capitalize ${statusConfig.color}`}>{query.status}</span>
-                  </div>
-                </div>
               </div>
 
               {/* User & Database */}
@@ -277,37 +308,6 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                     Database
                   </div>
                   <p className={theme === 'light' ? 'text-amber-700' : 'text-yellow-400'}>{query.database}</p>
-                </div>
-              </div>
-
-              {/* Time Info */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className={`${
-                  theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-                } border rounded-xl p-4`}>
-                  <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
-                    <Clock className="w-4 h-4" />
-                    Start Time
-                  </div>
-                  <p className={theme === 'light' ? 'text-gray-800' : 'text-white'}>{query.startTime}</p>
-                </div>
-                <div className={`${
-                  theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-                } border rounded-xl p-4`}>
-                  <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
-                    <Clock className="w-4 h-4" />
-                    End Time
-                  </div>
-                  <p className={theme === 'light' ? 'text-gray-800' : 'text-white'}>{query.endTime || '-'}</p>
-                </div>
-                <div className={`${
-                  theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-                } border rounded-xl p-4`}>
-                  <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
-                    <Zap className="w-4 h-4" />
-                    Duration
-                  </div>
-                  <p className={theme === 'light' ? 'text-gray-800' : 'text-white'}>{query.duration}</p>
                 </div>
               </div>
 
@@ -362,9 +362,9 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                     <AlertTriangle className="w-4 h-4" />
                     <span className="text-sm">Error Message</span>
                   </div>
-
+                  
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between">
                       <span className={`${theme === 'light' ? 'text-red-800' : 'text-red-400'} font-mono`}>{query.errorMessage}</span>
                     </div>
                   </div>
@@ -382,7 +382,7 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                     <Settings className="w-4 h-4" />
                     <span className="text-sm">Settings</span>
                   </div>
-
+                  
                   <div className="space-y-3">
                     {Object.entries(query.settings).map(([key, value], index, array) => (
                       <React.Fragment key={key}>

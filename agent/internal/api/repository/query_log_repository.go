@@ -32,9 +32,10 @@ type QueryLogFilter struct {
 
 // QueryLogRepository executes filtered reads against ClickHouse system.query_log.
 type QueryLogRepository struct {
-	manager     *clickhouse.Manager
-	logger      *logger.Logger
-	clusterName string
+	manager        *clickhouse.Manager
+	logger         *logger.Logger
+	clusterName    string
+	metricsSchemas map[string]bool // Set of metrics schemas to exclude from query log
 }
 
 // NewQueryLogRepository creates a repository backed by the shared ClickHouse manager.
@@ -45,14 +46,24 @@ func NewQueryLogRepository(cfg *config.Config, log *logger.Logger) (*QueryLogRep
 	}
 
 	cluster := ""
+	metricsSchemas := make(map[string]bool)
 	if cfg != nil {
 		cluster = cfg.Database.ClickHouse.ClusterName
+		// Collect all unique metrics schemas from nodes
+		for _, node := range cfg.Database.ClickHouse.Nodes {
+			schema := node.MetricsSchema
+			if schema == "" {
+				schema = "ops" // Default schema
+			}
+			metricsSchemas[schema] = true
+		}
 	}
 
 	return &QueryLogRepository{
-		manager:     manager,
-		logger:      log,
-		clusterName: cluster,
+		manager:        manager,
+		logger:         log,
+		clusterName:    cluster,
+		metricsSchemas: metricsSchemas,
 	}, nil
 }
 
@@ -408,6 +419,11 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 
 	args := []any{filter.From, filter.To}
 
+	// Exclude queries to metrics schemas
+	for schema := range r.metricsSchemas {
+		conditions = append(conditions, fmt.Sprintf("NOT has(databases, '%s')", schema))
+	}
+
 	if filter.User != "" {
 		conditions = append(conditions, "(initial_user = ? OR user = ?)")
 		args = append(args, filter.User, filter.User)
@@ -441,6 +457,11 @@ func (r *QueryLogRepository) buildStatsWhereClause(filter QueryLogFilter) (strin
 	}
 
 	args := []any{filter.From, filter.To}
+
+	// Exclude queries to metrics schemas
+	for schema := range r.metricsSchemas {
+		conditions = append(conditions, fmt.Sprintf("NOT has(databases, '%s')", schema))
+	}
 
 	if filter.User != "" {
 		conditions = append(conditions, "(initial_user = ? OR user = ?)")
