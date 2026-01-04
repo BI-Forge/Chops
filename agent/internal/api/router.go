@@ -101,12 +101,13 @@ func initializeJWTManager(cfg RouterConfig) *auth.JWTManager {
 
 // handlersContainer holds all initialized handlers
 type handlersContainer struct {
-	AuthHandler    *handlers.AuthHandler
-	HealthHandler  *handlers.HealthHandler
-	MetricsHandler *handlers.MetricsHandler
+	AuthHandler     *handlers.AuthHandler
+	HealthHandler   *handlers.HealthHandler
+	MetricsHandler  *handlers.MetricsHandler
 	QueryLogHandler *handlers.QueryLogHandler
 	ProcessHandler  *handlers.ProcessHandler
 	UsersHandler    *handlers.UsersHandler
+	BackupHandler   *handlers.BackupHandler
 }
 
 // initializeHandlers creates and initializes all handlers
@@ -151,6 +152,13 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 	}
 	container.UsersHandler = usersHandler
 
+	// Initialize backup handler
+	backupHandler, err := handlers.NewBackupHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize backup handler: %v", err)
+	}
+	container.BackupHandler = backupHandler
+
 	return container
 }
 
@@ -192,6 +200,7 @@ func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, hand
 		setupQueryLogRoutes(protected, handlers)
 		setupProcessRoutes(protected, handlers)
 		setupUsersRoutes(protected, handlers)
+		setupBackupRoutes(protected, handlers)
 	}
 }
 
@@ -246,5 +255,20 @@ func setupUsersRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 	}
 
 	protected.GET("/users", handlers.UsersHandler.GetUsers)
+}
+
+// setupBackupRoutes configures backup endpoints
+func setupBackupRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.BackupHandler == nil {
+		return
+	}
+
+	backups := protected.Group("/backups")
+	{
+		backups.GET("/stats", handlers.BackupHandler.GetStats)
+		backups.GET("/in-progress", handlers.BackupHandler.GetInProgress)
+		backups.GET("/completed", handlers.BackupHandler.GetCompleted)
+		backups.GET("/:id", handlers.BackupHandler.GetByID)
+	}
 }
 

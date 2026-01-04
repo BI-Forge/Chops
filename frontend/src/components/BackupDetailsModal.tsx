@@ -3,25 +3,7 @@ import { Database, Activity, CheckCircle, XCircle, Clock, HardDrive, FileArchive
 import { useTheme } from '../contexts/ThemeContext';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { format } from 'sql-formatter';
-
-interface Backup {
-  id: string;
-  name: string;
-  base_backup_name: string;
-  query_id: string;
-  status: string; // BACKUP_CREATED, BACKUP_FAILED, etc.
-  error: string;
-  start_time: string;
-  end_time: string;
-  num_files: number;
-  total_size: number; // bytes
-  num_entries: number;
-  uncompressed_size: number; // bytes
-  compressed_size: number; // bytes
-  files_read: number;
-  bytes_read: number; // bytes
-  sql_query?: string; // SQL query used for backup
-}
+import type { Backup } from '../types/backup';
 
 interface BackupDetailsModalProps {
   isOpen: boolean;
@@ -107,7 +89,7 @@ export function BackupDetailsModal({ isOpen, onClose, backup, calculateDuration,
   };
 
   // Custom yellow SQL syntax highlighting theme
-  const customSQLStyle = {
+  const customSQLStyle: any = {
     'code[class*="language-"]': {
       color: '#ffffff',
       background: 'transparent',
@@ -117,8 +99,8 @@ export function BackupDetailsModal({ isOpen, onClose, backup, calculateDuration,
       textAlign: 'left' as const,
       whiteSpace: 'pre-wrap' as const,
       wordSpacing: 'normal',
-      wordBreak: 'normal',
-      wordWrap: 'normal',
+      wordBreak: 'normal' as any,
+      wordWrap: 'normal' as any,
       lineHeight: '1.5',
       tabSize: 2,
       hyphens: 'none' as const,

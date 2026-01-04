@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
 import { BackgroundPattern } from '../components/BackgroundPattern';
 import { Sidebar } from '../components/Sidebar';
 import { MobileMenu } from '../components/MobileMenu';
@@ -9,207 +8,172 @@ import { BackupStatsCards } from '../components/backups/BackupStatsCards';
 import { InProgressBackups } from '../components/backups/InProgressBackups';
 import { CompletedBackups } from '../components/backups/CompletedBackups';
 import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../services/AuthContext';
-
-interface Backup {
-  id: string;
-  name: string;
-  base_backup_name: string;
-  query_id: string;
-  status: string; // BACKUP_CREATED, BACKUP_FAILED, etc.
-  error: string;
-  start_time: string;
-  end_time: string;
-  num_files: number;
-  total_size: number; // bytes
-  num_entries: number;
-  uncompressed_size: number; // bytes
-  compressed_size: number; // bytes
-  files_read: number;
-  bytes_read: number; // bytes
-  sql_query?: string; // SQL query used for backup
-}
+import { backupAPI } from '../services/backupAPI';
+import { metricsAPI } from '../services/metricsAPI';
+import type { Backup } from '../types/backup';
+import type { NodeInfo } from '../types/metrics';
 
 export function BackupsPage() {
-  const navigate = useNavigate();
-  const { logout } = useAuth();
   const { theme } = useTheme();
   const [selectedBackup, setSelectedBackup] = useState<Backup | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // Data state
+  const [nodes, setNodes] = useState<NodeInfo[]>([]);
+  const [selectedNode, setSelectedNode] = useState<string>('');
+  const [loadingNodes, setLoadingNodes] = useState(true);
+  const [loadingCompleted, setLoadingCompleted] = useState(true);
+  const [stats, setStats] = useState({
+    total: 0,
+    inProgress: 0,
+    completed: 0,
+    failed: 0,
+  });
+  const [inProgressBackups, setInProgressBackups] = useState<Backup[]>([]);
+  const [completedBackups, setCompletedBackups] = useState<Backup[]>([]);
+  const [failedBackups, setFailedBackups] = useState<Backup[]>([]);
+  const [pagination, setPagination] = useState({
+    limit: 10,
+    offset: 0,
+    total: 0,
+    currentPage: 1,
+  });
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+
+  // Load nodes from API
+  useEffect(() => {
+    const loadNodes = async () => {
+      try {
+        setLoadingNodes(true);
+        const availableNodes = await metricsAPI.getAvailableNodes();
+        setNodes(availableNodes);
+        
+        // Get saved node from sessionStorage or use first node
+        const savedNode = sessionStorage.getItem('selectedBackupNode');
+        const savedNodeInfo = availableNodes.find(n => n.name === savedNode);
+        if (savedNodeInfo) {
+          setSelectedNode(savedNodeInfo.name);
+        } else if (availableNodes.length > 0) {
+          setSelectedNode(availableNodes[0].name);
+          sessionStorage.setItem('selectedBackupNode', availableNodes[0].name);
+        }
+      } catch (error) {
+        console.error('Failed to load nodes:', error);
+      } finally {
+        setLoadingNodes(false);
+      }
+    };
+
+    loadNodes();
+  }, []);
+
+  // Save selected node to sessionStorage
+  const handleNodeSelect = (node: string) => {
+    setSelectedNode(node);
+    sessionStorage.setItem('selectedBackupNode', node);
   };
 
-  const handlePageChange = (pageId: string) => {
-    if (pageId === 'dashboard') {
-      navigate('/dashboard');
-    } else if (pageId === 'queries') {
-      navigate('/query-history');
-    } else if (pageId === 'backups') {
-      navigate('/backups');
-    } else if (pageId === 'tables') {
-      navigate('/tables');
-    } else if (pageId === 'users') {
-      navigate('/users');
-    } else if (pageId === 'settings') {
-      navigate('/settings');
-    } else if (pageId === 'admin-settings') {
-      navigate('/admin-settings');
+  // Load backup stats
+  useEffect(() => {
+    if (!selectedNode) return;
+
+    const loadStats = async () => {
+      try {
+        const statsData = await backupAPI.getStats(selectedNode);
+        setStats({
+          total: statsData.total,
+          inProgress: statsData.in_progress,
+          completed: statsData.completed,
+          failed: statsData.failed,
+        });
+      } catch (error) {
+        console.error('Failed to load backup stats:', error);
+      }
+    };
+
+    loadStats();
+  }, [selectedNode]);
+
+  // Load in-progress backups
+  useEffect(() => {
+    if (!selectedNode) return;
+
+    const loadInProgress = async () => {
+      try {
+        const backups = await backupAPI.getInProgress(selectedNode);
+        setInProgressBackups(backups);
+      } catch (error) {
+        console.error('Failed to load in-progress backups:', error);
+      }
+    };
+
+    loadInProgress();
+    // Refresh every 10 seconds for in-progress backups
+    const interval = setInterval(loadInProgress, 10000);
+    return () => clearInterval(interval);
+  }, [selectedNode]);
+
+  // Load completed backups
+  useEffect(() => {
+    if (!selectedNode) return;
+
+    const loadCompleted = async () => {
+      try {
+        setLoadingCompleted(true);
+        const response = await backupAPI.getCompleted(
+          selectedNode,
+          pagination.limit,
+          (pagination.currentPage - 1) * pagination.limit
+        );
+        
+        // Separate completed and failed backups
+        const completed = response.items.filter(b => 
+          b.status === 'BACKUP_COMPLETED' || b.status === 'BACKUP_CREATED'
+        );
+        const failed = response.items.filter(b => b.status === 'BACKUP_FAILED');
+        
+        setCompletedBackups(completed);
+        setFailedBackups(failed);
+        setPagination(prev => ({
+          ...prev,
+          total: response.pagination.total,
+        }));
+      } catch (error) {
+        console.error('Failed to load completed backups:', error);
+      } finally {
+        setLoadingCompleted(false);
+      }
+    };
+
+    loadCompleted();
+  }, [selectedNode, pagination.currentPage, pagination.limit]);
+
+  // Load backup details when selected
+  useEffect(() => {
+    if (!selectedBackup || !selectedNode) return;
+
+    const loadBackupDetails = async () => {
+      try {
+        const backup = await backupAPI.getById(selectedBackup.id, selectedNode);
+        setSelectedBackup(backup);
+      } catch (error) {
+        console.error('Failed to load backup details:', error);
+      }
+    };
+
+    loadBackupDetails();
+  }, [selectedBackup?.id, selectedNode]);
+
+  // Handle pagination change
+  const handlePageChangePagination = (newPage: number) => {
+    const totalPages = Math.ceil(pagination.total / pagination.limit);
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPagination(prev => ({ ...prev, currentPage: newPage }));
     }
   };
 
-  // Mock data
-  const allBackups: Backup[] = [
-    {
-      id: 'backup-001',
-      name: 'backup_analytics_db_2024-12-04',
-      base_backup_name: 'analytics_base',
-      query_id: 'q-12345',
-      status: 'BACKUP_COMPLETED',
-      error: '',
-      start_time: '2024-12-04 14:23:15',
-      end_time: '2024-12-04 14:45:32',
-      num_files: 5678,
-      total_size: 214748364800, // 200 GB
-      num_entries: 234567,
-      uncompressed_size: 429496729600, // 400 GB
-      compressed_size: 214748364800, // 200 GB
-      files_read: 5678,
-      bytes_read: 214748364800, // 200 GB
-      sql_query: `BACKUP DATABASE rabbit_payments
-TO Disk ('s3_minio', '190/2025-12-04/rabbit_payments')
-SETTINGS
-    base_backup = Disk ('s3_minio', '190/2025-12-03/rabbit_payments'),
-    s3_strict_upload_part_size = 268435456,
-    s3_min_upload_part_size    = 134217728,
-    s3_max_single_part_upload_size = 67108864,
-    s3_max_inflight_parts_for_one_file = 0,
-    s3_max_put_rps = 0, s3_max_put_burst = 0,
-    s3_request_timeout_ms = 120000,
-    s3_retry_attempts = 10;`
-    },
-    {
-      id: 'backup-002',
-      name: 'hourly_backup_logs_2024-12-04-14',
-      base_backup_name: 'logs_base',
-      query_id: 'q-12346',
-      status: 'BACKUP_IN_PROGRESS',
-      error: '',
-      start_time: '2024-12-04 14:35:15',
-      end_time: '',
-      num_files: 567,
-      total_size: 8796093000, // 8.2 GB
-      num_entries: 23456,
-      uncompressed_size: 13002342400, // 12.1 GB
-      compressed_size: 8796093000, // 8.2 GB
-      files_read: 320,
-      bytes_read: 5153960704, // 4.8 GB
-      sql_query: 'BACKUP TABLE logs_db.access_logs TO Disk(\'s3_minio\', \'backups/hourly/logs_2024-12-04-14\') SETTINGS compression_level=3'
-    },
-    {
-      id: 'backup-003',
-      name: 'full_backup_production_2024-12-04',
-      base_backup_name: 'production_base',
-      query_id: 'q-12340',
-      status: 'BACKUP_COMPLETED',
-      error: '',
-      start_time: '2024-12-04 13:00:00',
-      end_time: '2024-12-04 13:45:32',
-      num_files: 3456,
-      total_size: 135281356800, // 125.8 GB
-      num_entries: 156789,
-      uncompressed_size: 263802240000, // 245.3 GB
-      compressed_size: 135281356800, // 125.8 GB
-      files_read: 3456,
-      bytes_read: 135281356800, // 125.8 GB
-      sql_query: 'BACKUP DATABASE production_db TO Disk(\'s3_minio\', \'backups/full/production_2024-12-04\') SETTINGS base_backup=Disk(\'s3_minio\', \'backups/full/production_base\')'
-    },
-    {
-      id: 'backup-004',
-      name: 'daily_backup_ecommerce_2024-12-04',
-      base_backup_name: 'ecommerce_base',
-      query_id: 'q-12341',
-      status: 'BACKUP_COMPLETED',
-      error: '',
-      start_time: '2024-12-04 12:00:00',
-      end_time: '2024-12-04 12:28:15',
-      num_files: 2134,
-      total_size: 72340224000, // 67.4 GB
-      num_entries: 89456,
-      uncompressed_size: 146486400000, // 134.2 GB
-      compressed_size: 72340224000, // 67.4 GB
-      files_read: 2134,
-      bytes_read: 72340224000, // 67.4 GB
-      sql_query: 'BACKUP TABLE ecommerce_db.orders TO Disk(\'s3_minio\', \'backups/daily/ecommerce_2024-12-04\') SETTINGS compression_method=\'lz4\', async=false'
-    },
-    {
-      id: 'backup-005',
-      name: 'backup_users_db_2024-12-04',
-      base_backup_name: 'users_base',
-      query_id: 'q-12342',
-      status: 'BACKUP_FAILED',
-      error: 'Connection timeout: Unable to reach backup storage',
-      start_time: '2024-12-04 11:30:00',
-      end_time: '2024-12-04 11:35:45',
-      num_files: 456,
-      total_size: 13218891776, // 12.3 GB
-      num_entries: 34567,
-      uncompressed_size: 25165824000, // 23.4 GB
-      compressed_size: 13218891776, // 12.3 GB
-      files_read: 234,
-      bytes_read: 7161600000 // 6.7 GB
-    },
-    {
-      id: 'backup-006',
-      name: 'incremental_backup_logs_2024-12-04',
-      base_backup_name: 'logs_base',
-      query_id: 'q-12343',
-      status: 'BACKUP_COMPLETED',
-      error: '',
-      start_time: '2024-12-04 10:00:00',
-      end_time: '2024-12-04 10:15:22',
-      num_files: 890,
-      total_size: 25264514560, // 23.5 GB
-      num_entries: 45678,
-      uncompressed_size: 48318382080, // 45.2 GB
-      compressed_size: 25264514560, // 23.5 GB
-      files_read: 890,
-      bytes_read: 25264514560 // 23.5 GB
-    },
-    {
-      id: 'backup-007',
-      name: 'weekly_backup_analytics_2024-12-01',
-      base_backup_name: 'analytics_base',
-      query_id: 'q-12344',
-      status: 'BACKUP_COMPLETED',
-      error: '',
-      start_time: '2024-12-01 02:00:00',
-      end_time: '2024-12-01 03:12:45',
-      num_files: 5678,
-      total_size: 252645145600, // 234.7 GB
-      num_entries: 345678,
-      uncompressed_size: 490737418240, // 456.8 GB
-      compressed_size: 252645145600, // 234.7 GB
-      files_read: 5678,
-      bytes_read: 252645145600 // 234.7 GB
-    }
-  ];
-
-  const inProgressBackups = allBackups.filter(b => b.status === 'BACKUP_IN_PROGRESS');
-  const completedBackups = allBackups.filter(b => b.status === 'BACKUP_COMPLETED');
-  const failedBackups = allBackups.filter(b => b.status === 'BACKUP_FAILED');
-
-  // Stats
-  const stats = {
-    total: allBackups.length,
-    inProgress: inProgressBackups.length,
-    completed: completedBackups.length,
-    failed: failedBackups.length
-  };
 
   const handleCopyId = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -249,11 +213,6 @@ SETTINGS
     }
     
     document.body.removeChild(textArea);
-  };
-
-  const formatBytes = (size: number) => {
-    const i = Math.floor(Math.log(size) / Math.log(1024));
-    return (size / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + ['B', 'KB', 'MB', 'GB', 'TB'][i];
   };
 
   const calculateDuration = (start: string, end: string) => {
@@ -298,10 +257,14 @@ SETTINGS
           <DashboardHeader 
             title="Backups" 
             onMenuOpen={() => setMobileMenuOpen(true)}
+            nodes={nodes}
+            selectedNode={selectedNode}
+            onSelectNode={handleNodeSelect}
+            loadingNodes={loadingNodes}
           />
 
           {/* Main Content */}
-          <main className={`flex-1 overflow-y-auto ${
+          <main className={`flex-1 overflow-y-auto custom-scrollbar ${
             theme === 'light' ? 'bg-gray-50/50' : 'bg-transparent'
           }`}>
             <div className="p-6 space-y-6">
@@ -319,7 +282,7 @@ SETTINGS
                 onSelectBackup={setSelectedBackup}
                 onCopyId={handleCopyId}
                 copiedId={copiedId}
-                calculateProgress={calculateProgress}
+                inProgressCount={stats.inProgress}
               />
 
               {/* Completed Backups */}
@@ -330,6 +293,10 @@ SETTINGS
                 onCopyId={handleCopyId}
                 copiedId={copiedId}
                 calculateDuration={calculateDuration}
+                pagination={pagination}
+                onPageChange={handlePageChangePagination}
+                loading={loadingCompleted}
+                totalCompletedCount={stats.completed + stats.failed}
               />
 
               {/* Backup Details Modal */}
