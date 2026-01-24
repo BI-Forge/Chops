@@ -109,13 +109,13 @@ function ChartCard({ title, icon, children, currentValue, unit, absoluteValue, a
   const { theme } = useTheme();
   return (
     <div className={`${
-      theme === 'light' ? 'bg-white/90 border-amber-500/30 hover:border-amber-500/50' : 'bg-gray-900/40 border-yellow-500/20 hover:border-yellow-500/40'
-    } backdrop-blur-md rounded-xl p-6 border hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group`}>
+      theme === 'light' ? 'bg-white/90 border-amber-500/30' : 'bg-gray-900/40 border-yellow-500/20'
+    } backdrop-blur-md rounded-xl p-6 border transition-all duration-300`}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={`${
-            theme === 'light' ? 'bg-amber-500/20 text-amber-700 group-hover:bg-amber-500/30' : 'bg-yellow-500/20 text-yellow-400 group-hover:bg-yellow-500/30'
-          } rounded-lg p-2 group-hover:scale-110 transition-all duration-300`}>
+            theme === 'light' ? 'bg-amber-500/20 text-amber-700' : 'bg-yellow-500/20 text-yellow-400'
+          } rounded-lg p-2`}>
             {icon}
           </div>
           <div>
@@ -147,9 +147,7 @@ function ChartCard({ title, icon, children, currentValue, unit, absoluteValue, a
           </div>
         </div>
       </div>
-      <div className="h-64 min-h-[256px]">
-        {children}
-      </div>
+      <div className="h-64 min-h-[256px] w-full">{children}</div>
     </div>
   );
 }
@@ -308,7 +306,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         currentValue={data.length > 0 ? data[data.length - 1].cpu : 0}
         unit="%"
       >
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height={256} minHeight={256}>
           <AreaChart data={data.length > 0 ? data : []}>
             <defs>
               <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
@@ -336,7 +334,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               stroke="#fbbf24"
               strokeWidth={2}
               fill="url(#cpuGradient)"
-              animationDuration={1000}
+              isAnimationActive={false}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -352,7 +350,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         absoluteUnit="%"
         swapDisplay={true}
       >
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height={256} minHeight={256}>
           <AreaChart data={data.length > 0 ? data : []}>
             <defs>
               <linearGradient id="memoryGradient" x1="0" y1="0" x2="0" y2="1">
@@ -380,7 +378,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               stroke="#f59e0b"
               strokeWidth={2}
               fill="url(#memoryGradient)"
-              animationDuration={1000}
+              isAnimationActive={false}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -393,7 +391,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         currentValue={data.length > 0 ? data[data.length - 1].storage : 0}
         unit=" GB"
       >
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height={256} minHeight={256}>
           <BarChart data={data.length > 0 ? data : []}>
             <defs>
               <linearGradient id="storageGradient" x1="0" y1="0" x2="0" y2="1">
@@ -419,7 +417,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               dataKey="storage"
               fill="url(#storageGradient)"
               radius={[4, 4, 0, 0]}
-              animationDuration={1000}
+              isAnimationActive={false}
             />
           </BarChart>
         </ResponsiveContainer>
@@ -432,7 +430,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         currentValue={data.length > 0 ? data[data.length - 1].queries : 0}
         unit=""
       >
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height={256} minHeight={256}>
           <AreaChart data={data.length > 0 ? data : []}>
             <defs>
               <linearGradient id="queriesGradient" x1="0" y1="0" x2="0" y2="1">
@@ -459,7 +457,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               stroke="#f59e0b"
               strokeWidth={2}
               fill="url(#queriesGradient)"
-              animationDuration={1000}
+              isAnimationActive={false}
             />
           </AreaChart>
         </ResponsiveContainer>

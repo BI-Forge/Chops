@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
+	"clickhouse-ops/internal/db/repository"
 	"clickhouse-ops/tests/api/testutil"
 	"clickhouse-ops/tests/fixtures"
 
@@ -330,7 +330,7 @@ func TestMeEndpoint(t *testing.T) {
 	}
 }
 
-// TestMetricsSeriesEndpoint tests the GET /api/v1/metrics/series endpoint
+// TestMetricsSeriesEndpoint tests the GET /api/v1/clickhouse/metrics/series endpoint
 func TestMetricsSeriesEndpoint(t *testing.T) {
 	dbConn, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {
@@ -432,7 +432,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
 
-	req, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=1h&step=1m", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/metrics/series?node="+nodeName+"&metric=cpu_load&period=1h&step=1m", nil)
 	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -450,7 +450,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 		assert.InDelta(t, 36.0, latest.Value, 0.5)
 	}
 
-	reqWide, _ := http.NewRequest("GET", "/api/v1/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=1h", nil)
+	reqWide, _ := http.NewRequest("GET", "/api/v1/clickhouse/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=1h", nil)
 	reqWide.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	wWide := httptest.NewRecorder()
 	router.ServeHTTP(wWide, reqWide)

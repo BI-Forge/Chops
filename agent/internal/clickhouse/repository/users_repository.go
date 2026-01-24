@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 
 	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
@@ -34,24 +36,9 @@ func NewUsersRepository(cfg *config.Config, log *logger.Logger) (*UsersRepositor
 
 // GetUsers returns list of ClickHouse users from a specific node.
 func (r *UsersRepository) GetUsers(ctx context.Context, nodeName string) ([]string, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if nodeName != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(nodeName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
-		}
-	} else {
-		// Use default connection if no node specified
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection: %w", err)
-		}
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return nil, err
 	}
 
 	// Try SHOW USERS first - standard command
@@ -112,6 +99,102 @@ func (r *UsersRepository) getUsersFromQueryLog(ctx context.Context, conn driver.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("users query iteration failed: %w", err)
 	}
+
+	return users, nil
+}
+
+// GetUsersList returns detailed list of ClickHouse users with their profiles, roles, and grants.
+func (r *UsersRepository) GetUsersList(ctx context.Context, nodeName string) ([]models.UserList, error) {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	query := `SELECT
+    users.name,
+    users.id,
+    ups.profile,
+    users.storage,
+    grants.role_name,
+    groupArray(grants.access_type) as grants
+FROM system.users
+LEFT JOIN system.grants ON users.name = grants.user_name
+LEFT JOIN (
+    SELECT spe.user_name as user_name, spe.inherit_profile as profile
+    FROM system.settings_profile_elements AS spe
+    WHERE spe.user_name IS NOT NULL AND spe.inherit_profile IS NOT NULL
+) AS ups ON ups.user_name = users.name
+GROUP BY users.name,
+         users.id,
+         users.storage,
+         grants.role_name,
+         ups.profile,
+         grants.database,
+         grants.table,
+         grants.column`
+
+	rows, err := conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users list: %w", err)
+	}
+	defer rows.Close()
+
+	// Map to aggregate grants per user
+	userMap := make(map[string]*models.UserList)
+
+	for rows.Next() {
+		var name, id, profile, storage, roleName sql.NullString
+		var grants []string
+
+		if err := rows.Scan(&name, &id, &profile, &storage, &roleName, &grants); err != nil {
+			return nil, fmt.Errorf("failed to scan user detail: %w", err)
+		}
+
+		userKey := name.String
+		if userKey == "" {
+			continue
+		}
+
+		// Check if user already exists in map
+		if user, exists := userMap[userKey]; exists {
+			// Merge grants
+			existingGrants := make(map[string]bool)
+			for _, g := range user.Grants {
+				existingGrants[g] = true
+			}
+			for _, g := range grants {
+				if !existingGrants[g] {
+					user.Grants = append(user.Grants, g)
+				}
+			}
+		} else {
+			// Create new user list item
+			userList := &models.UserList{
+				Name:     name.String,
+				ID:       id.String,
+				Profile:  profile.String,
+				Storage:  storage.String,
+				RoleName: roleName.String,
+				Grants:   grants,
+			}
+			userMap[userKey] = userList
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("users list query iteration failed: %w", err)
+	}
+
+	// Convert map to slice
+	users := make([]models.UserList, 0, len(userMap))
+	for _, user := range userMap {
+		users = append(users, *user)
+	}
+
+	// Sort users by name
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].Name < users[j].Name
+	})
 
 	return users, nil
 }

@@ -24,8 +24,6 @@ interface StatsCardsProps {
     dateFrom: string;
     dateTo: string;
     selectedUser: string;
-    loadingRunning?: boolean;
-    loadingStats?: boolean;
 }
 
 export function StatsCards({
@@ -35,9 +33,7 @@ export function StatsCards({
                                period,
                                dateFrom,
                                dateTo,
-                               selectedUser,
-                               loadingRunning = false,
-                               loadingStats = false
+                               selectedUser
                            }: StatsCardsProps) {
     const { theme } = useTheme();
 
@@ -70,21 +66,21 @@ export function StatsCards({
     const stats: StatCardData[] = [
         {
             title: 'Running Queries',
-            value: loadingRunning ? '...' : runningCount.toString(),
+            value: runningCount.toString(),
             icon: Activity,
-            color: 'text-blue-400',
-            bg: 'bg-blue-500/20',
-            border: 'border-blue-500/30',
+            color: 'text-green-400',
+            bg: 'bg-green-500/20',
+            border: 'border-green-500/30',
             showPeriod: false,
             user: selectedUser
         },
         {
             title: 'Completed Queries',
-            value: loadingStats ? '...' : completedCount.toString(),
+            value: completedCount.toString(),
             icon: CheckCircle,
-            color: 'text-green-400',
-            bg: 'bg-green-500/20',
-            border: 'border-green-500/30',
+            color: 'text-yellow-400',
+            bg: 'bg-yellow-500/20',
+            border: 'border-yellow-500/30',
             showPeriod: true,
             period: formatPeriod(period),
             dateFrom: dateFrom,
@@ -93,11 +89,11 @@ export function StatsCards({
         },
         {
             title: 'Failed Queries',
-            value: loadingStats ? '...' : failedCount.toString(),
+            value: failedCount.toString(),
             icon: XCircle,
-            color: 'text-red-400',
-            bg: 'bg-red-500/20',
-            border: 'border-red-500/30',
+            color: 'text-green-400',
+            bg: 'bg-green-500/20',
+            border: 'border-green-500/30',
             showPeriod: true,
             period: formatPeriod(period),
             dateFrom: dateFrom,
@@ -115,12 +111,11 @@ export function StatsCards({
                         key={index}
                         className={`${
                             theme === 'light' ? 'bg-white/90' : 'bg-gray-900/40'
-                        } backdrop-blur-md rounded-xl p-6 border ${stat.border} hover:shadow-xl hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 group animate-fade-in-up`}
-                        style={{ animationDelay: `${index * 100}ms` }}
+                        } backdrop-blur-md rounded-xl p-6 border ${stat.border}`}
                     >
                         {/* Header with icon */}
                         <div className="flex items-center justify-between mb-4">
-                            <div className={`${stat.bg} rounded-lg p-3 ${stat.color} group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+                            <div className={`${stat.bg} rounded-lg p-3 ${stat.color}`}>
                                 <Icon className="w-6 h-6" />
                             </div>
                         </div>
@@ -160,9 +155,7 @@ export function StatsCards({
                             ? `${formatDate(stat.dateFrom)} - ${formatDate(stat.dateTo)}`
                             : stat.dateFrom
                                 ? `From: ${formatDate(stat.dateFrom)}`
-                                : stat.dateTo
-                                    ? `To: ${formatDate(stat.dateTo)}`
-                                    : ''
+                                : `To: ${formatDate(stat.dateTo)}`
                         }
                       </span>
                                         </div>

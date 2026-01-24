@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
@@ -24,7 +25,7 @@ var killQueryLocks = sync.Map{} // map[string]*sync.Mutex
 
 // ProcessRepository defines the subset of repository methods required by the handler
 type ProcessRepository interface {
-	GetCurrentProcesses(ctx context.Context, nodeName string) ([]models.Process, error)
+	GetCurrentProcesses(ctx context.Context, nodeName string) ([]chmodels.Process, error)
 	KillQuery(ctx context.Context, queryID string, nodeName string) error
 }
 
@@ -91,7 +92,7 @@ func NewProcessHandlerWithRepository(log *logger.Logger, repo ProcessRepository,
 // @Success      200   {object}  models.ProcessListResponse
 // @Failure      400   {object}  models.ErrorResponse
 // @Failure      500   {object}  models.ErrorResponse
-// @Router       /api/v1/processes [get]
+// @Router       /api/v1/clickhouse/processes [get]
 func (h *ProcessHandler) GetCurrentProcesses(c *gin.Context) {
 	nodeName := c.Query("node")
 
@@ -126,7 +127,7 @@ func (h *ProcessHandler) GetCurrentProcesses(c *gin.Context) {
 // @Param        token  query  string  false  "JWT token (alternative to Authorization header for SSE)"
 // @Produce      text/event-stream
 // @Success      200  {string}  text/event-stream
-// @Router       /api/v1/processes/stream [get]
+// @Router       /api/v1/clickhouse/processes/stream [get]
 func (h *ProcessHandler) StreamProcesses(c *gin.Context) {
 	nodeName := c.Query("node")
 	if nodeName == "" {
@@ -209,7 +210,7 @@ func (h *ProcessHandler) StreamProcesses(c *gin.Context) {
 // @Success      200      {object}  models.KillProcessResponse
 // @Failure      400      {object}  models.ErrorResponse
 // @Failure      500      {object}  models.ErrorResponse
-// @Router       /api/v1/processes/kill [post]
+// @Router       /api/v1/clickhouse/processes/kill [post]
 func (h *ProcessHandler) KillProcess(c *gin.Context) {
 	var req models.KillProcessRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

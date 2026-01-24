@@ -1,5 +1,5 @@
 services:
-  chops_app_test:
+  app:
     container_name: chops_app_test
     build:
       context: ./agent
@@ -9,16 +9,16 @@ services:
     environment:
       - OPS_AGENT_CONFIG_PATH=/app/configs/ops-agent.test.yaml
     depends_on:
-      chops_db_test:
+      db:
         condition: service_healthy
-      chops_ch_test:
+      ch:
         condition: service_healthy
-      chops_ch_test_2:
+      ch_2:
         condition: service_healthy
     networks:
       - chops_network_test
 
-  chops_front_test:
+  front:
     container_name: chops_front_test
     build:
       context: ./frontend
@@ -28,11 +28,11 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - chops_app_test
+      - app
     networks:
       - chops_network_test
 
-  chops_db_test:
+  db:
     image: postgres:13.11
     container_name: chops_db_test
     environment:
@@ -51,7 +51,7 @@ services:
     networks:
       - chops_network_test
 
-  chops_ch_test:
+  ch:
     image: clickhouse/clickhouse-server:latest
     container_name: chops_ch_test
     ports:
@@ -74,7 +74,7 @@ services:
       timeout: 5s
       retries: 10
 
-  chops_ch_test_2:
+  ch_2:
     image: clickhouse/clickhouse-server:latest
     container_name: chops_ch_test_2
     ports:
@@ -116,8 +116,8 @@ services:
     networks:
       - chops_network_test
     depends_on:
-      - chops_front_test
-      - chops_app_test
+      - front
+      - app
     command: sh -c "npx playwright install chromium firefox webkit && npx playwright test"
     stdin_open: true
     tty: true

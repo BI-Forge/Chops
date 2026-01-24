@@ -57,10 +57,10 @@ function MetricCard({ title, value, unit, max = 100, icon, absoluteValue, absolu
   return (
     <div className={`${
       theme === 'light' ? 'bg-white/90' : 'bg-gray-900/40'
-    } backdrop-blur-md rounded-xl p-4 sm:p-6 border ${colors.border} hover:${colors.glow} hover:shadow-xl hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 group animate-fade-in-up`}>
+    } backdrop-blur-md rounded-xl p-4 sm:p-6 border ${colors.border} transition-all duration-300`}>
       {/* Header with icon */}
       <div className="flex items-center justify-between mb-4">
-        <div className={`${colors.bg} rounded-lg p-3 ${colors.text} group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+        <div className={`${colors.bg} rounded-lg p-3 ${colors.text}`}>
           {icon}
         </div>
       </div>
@@ -102,17 +102,9 @@ function MetricCard({ title, value, unit, max = 100, icon, absoluteValue, absolu
         <div className="relative">
           <div className={`h-2 ${theme === 'light' ? 'bg-gray-200' : 'bg-gray-800'} rounded-full overflow-hidden`}>
             <div
-              className={`h-full ${colors.progress} rounded-full transition-all duration-1000 ease-out relative`}
+              className={`h-full ${colors.progress} rounded-full`}
               style={{ width: `${Math.min(percentage, 100)}%` }}
-            >
-              {/* Animated shine effect */}
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" 
-                   style={{ 
-                     animation: 'shimmer 2s infinite',
-                     backgroundSize: '200% 100%'
-                   }} 
-              />
-            </div>
+            />
           </div>
           <div className={`flex justify-between text-xs ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'} mt-1`}>
             <span>0</span>
@@ -251,44 +243,8 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
       {metricsData.map((metric, index) => (
-        <div key={index} style={{ animationDelay: `${index * 100}ms` }}>
-          <MetricCard {...metric} />
-        </div>
+        <MetricCard key={index} {...metric} />
       ))}
     </div>
   );
-}
-
-// Add CSS animations
-const styles = `
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-@keyframes fade-in-up {
-  0% {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in-up {
-  animation: fade-in-up 0.6s ease-out forwards;
-}
-`;
-
-// Inject styles
-if (typeof document !== 'undefined') {
-  const styleSheet = document.createElement('style');
-  styleSheet.textContent = styles;
-  document.head.appendChild(styleSheet);
 }

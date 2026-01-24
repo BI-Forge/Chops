@@ -6,11 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"clickhouse-ops/internal/api/v1/models"
-	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 // MetricsRepository mediates metrics reads from ClickHouse metrics_snapshot table.
@@ -62,26 +59,6 @@ func (r *MetricsRepository) getSchemaAndTable(nodeName string) (string, string, 
 	}
 
 	return schema, table, nil
-}
-
-// getConnection gets ClickHouse connection for a specific node.
-func (r *MetricsRepository) getConnection(nodeName string) (driver.Conn, error) {
-	chManager := clickhouse.GetInstance()
-	if chManager == nil {
-		return nil, fmt.Errorf("ClickHouse manager not initialized")
-	}
-
-	clusterManager := chManager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, fmt.Errorf("ClickHouse cluster manager not initialized")
-	}
-
-	conn, _, err := clusterManager.GetConnectionByNodeName(nodeName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
-	}
-
-	return conn, nil
 }
 
 // getMetricValue extracts a metric value from profile Map.
@@ -164,7 +141,7 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName strin
 		return nil, err
 	}
 
-	conn, err := r.getConnection(nodeName)
+	conn, err := getConnection(nodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +201,7 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 		return nil, err
 	}
 
-	conn, err := r.getConnection(nodeName)
+	conn, err := getConnection(nodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +345,7 @@ func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) 
 		return nil, err
 	}
 
-	conn, err := r.getConnection(nodeName)
+	conn, err := getConnection(nodeName)
 	if err != nil {
 		return nil, err
 	}

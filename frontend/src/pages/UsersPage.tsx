@@ -1,25 +1,24 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Filter, Check, Play } from 'lucide-react';
 import { BackgroundPattern } from '../components/BackgroundPattern';
 import { Sidebar } from '../components/Sidebar';
 import { MobileMenu } from '../components/MobileMenu';
 import { DashboardHeader } from '../components/DashboardHeader';
-import { UserDetailsModal } from '../components/UserDetailsModal';
-import { UsersTable, User } from '../components/UsersTable';
+import { UserDetailsModal } from '../components/users/UserDetailsModal';
+import { UsersTable, User } from '../components/users/UsersTable';
 import { CustomSelect } from '../components/CustomSelect';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
+import { useSidebar } from '../contexts/SidebarContext';
+import { usersAPI } from '../services/usersAPI';
+import { metricsAPI } from '../services/metricsAPI';
+import type { NodeInfo } from '../types/metrics';
 
-interface UsersPageProps {
-  onLogout?: () => void;
-  activePage?: string;
-  onPageChange?: (page: string) => void;
-}
-
-export default function UsersPage({ onLogout, activePage, onPageChange }: UsersPageProps) {
+export function UsersPage() {
   const { theme } = useTheme();
-  const { showAlert } = useAlert();
+  const { success, error: showError } = useAlert();
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -28,107 +27,91 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
   const [selectedRole, setSelectedRole] = useState('All Roles');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isApplyingFilters, setIsApplyingFilters] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [nodes, setNodes] = useState<NodeInfo[]>([]);
+  const [selectedNode, setSelectedNode] = useState<string>('');
+  const [loadingNodes, setLoadingNodes] = useState(true);
 
-  // Mock data
-  const users: User[] = [
-    {
-      name: 'etlstore',
-      id: 'd1f3ce00-4b9d-8dd5-ec9a-a52838311b4e',
-      storage: 'users_xml',
-      query_cnt: 0,
-      role_name: null,
-      database: null,
-      table: null,
-      column: null,
-      grants: ['READ', 'KAFKA', 'NATS', 'RABBITMQ', 'SOURCES', 'SET DEFINER', 'SQLITE', 'ODBC', 'JDBC', 'HDFS', 'S3', 'HIVE', 'AZURE', 'FILE', 'URL', 'REMOTE', 'MONGO', 'REDIS', 'MYSQL', 'POSTGRES', 'KILL TRANSACTION', 'MOVE PARTITION BETWEEN SHARDS', 'SYSTEM', 'dictGet', 'displaySecretsInShowAndSelect', 'INTROSPECTION', 'CLUSTER', 'CREATE', 'DROP', 'UNDROP TABLE', 'TRUNCATE', 'OPTIMIZE', 'BACKUP', 'KILL QUERY', 'WRITE', 'TABLE ENGINE', 'CHECK', 'SHOW', 'SELECT', 'INSERT', 'ALTER']
-    },
-    {
-      name: 'admin',
-      id: 'a2e4df11-5c8e-9ee6-fd0b-b63949422c5f',
-      storage: 'users_xml',
-      query_cnt: 127,
-      role_name: 'admin_role',
-      database: null,
-      table: null,
-      column: null,
-      grants: ['ALL']
-    },
-    {
-      name: 'analytics_user',
-      id: 'c3f5eg22-6d9f-0ff7-ge1c-c74050533d6g',
-      storage: 'users_xml',
-      query_cnt: 458,
-      role_name: 'analyst',
-      database: 'analytics',
-      table: null,
-      column: null,
-      grants: ['SELECT', 'SHOW', 'INTROSPECTION']
-    },
-    {
-      name: 'backup_service',
-      id: 'e5h7ij44-8f1h-2hh9-ig3e-e96272755f8i',
-      storage: 'users_xml',
-      query_cnt: 89,
-      role_name: 'backup_role',
-      database: null,
-      table: null,
-      column: null,
-      grants: ['BACKUP', 'SELECT', 'SHOW', 'SOURCES']
-    },
-    {
-      name: 'readonly_user',
-      id: 'g7j9kl66-0h3j-4jj1-ki5g-g18494977h0k',
-      storage: 'users_xml',
-      query_cnt: 1234,
-      role_name: 'readonly',
-      database: 'production',
-      table: 'logs',
-      column: null,
-      grants: ['SELECT', 'SHOW']
-    },
-    {
-      name: 'data_engineer',
-      id: 'i9l1mn88-2j5l-6ll3-mk7i-i30616199j2m',
-      storage: 'users_xml',
-      query_cnt: 567,
-      role_name: 'engineer',
-      database: null,
-      table: null,
-      column: null,
-      grants: ['SELECT', 'INSERT', 'ALTER', 'CREATE', 'DROP', 'OPTIMIZE', 'SHOW']
-    },
-    {
-      name: 'monitoring',
-      id: 'k1n3op00-4l7n-8nn5-ok9k-k52838311l4o',
-      storage: 'users_xml',
-      query_cnt: 2341,
-      role_name: 'monitor',
-      database: 'system',
-      table: null,
-      column: null,
-      grants: ['SELECT', 'SHOW', 'INTROSPECTION', 'SYSTEM']
-    },
-    {
-      name: 'etl_pipeline',
-      id: 'm3p5qr22-6n9p-0pp7-qm1m-m74050533n6q',
-      storage: 'users_xml',
-      query_cnt: 789,
-      role_name: 'etl_role',
-      database: null,
-      table: null,
-      column: null,
-      grants: ['SELECT', 'INSERT', 'ALTER', 'TRUNCATE', 'OPTIMIZE', 'KAFKA', 'SOURCES']
-    },
-  ];
+  // Load nodes from API
+  useEffect(() => {
+    const loadNodes = async () => {
+      try {
+        setLoadingNodes(true);
+        const availableNodes = await metricsAPI.getAvailableNodes();
+        setNodes(availableNodes);
+        
+        // Get saved node from sessionStorage or use first node
+        const savedNode = sessionStorage.getItem('selectedNode');
+        const savedNodeInfo = availableNodes.find(n => n.name === savedNode);
+        if (savedNodeInfo) {
+          setSelectedNode(savedNodeInfo.name);
+        } else if (availableNodes.length > 0) {
+          setSelectedNode(availableNodes[0].name);
+          sessionStorage.setItem('selectedNode', availableNodes[0].name);
+        }
+      } catch (error) {
+        console.error('Failed to load nodes:', error);
+        showError('Failed to load nodes');
+      } finally {
+        setLoadingNodes(false);
+      }
+    };
+
+    loadNodes();
+  }, [showError]);
+
+  // Load users from API
+  useEffect(() => {
+    if (!selectedNode) {
+      setUsers([]);
+      setLoading(false);
+      return;
+    }
+
+    const loadUsers = async () => {
+      try {
+        setLoading(true);
+        const usersList = await usersAPI.getUsersList(selectedNode);
+        // Map API response to User interface
+        const mappedUsers: User[] = usersList.map(user => ({
+          name: user.name,
+          id: user.id,
+          profile: user.profile || '',
+          storage: user.storage || '',
+          role_name: user.role_name || '',
+          grants: user.grants || [],
+        }));
+        setUsers(mappedUsers);
+      } catch (error) {
+        console.error('Failed to load users:', error);
+        showError('Failed to load users');
+        setUsers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUsers();
+  }, [selectedNode, showError]);
+
+  // Save selected node to sessionStorage
+  const handleNodeSelect = (node: string) => {
+    setSelectedNode(node);
+    sessionStorage.setItem('selectedNode', node);
+  };
+
+  // Get unique roles from users for filter
+  const availableRoles = ['All Roles', ...Array.from(new Set(users.map(u => u.role_name).filter(Boolean)))].filter(Boolean) as string[];
 
   // Filter users
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (user.role_name && user.role_name.toLowerCase().includes(searchTerm.toLowerCase()));
+      (user.role_name && user.role_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (user.profile && user.profile.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesRole = selectedRole === 'All Roles' || user.role_name === selectedRole;
     
@@ -152,13 +135,13 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
 
   const handleDeleteUser = (user: User) => {
     console.log('Deleting user:', user.name);
-    showAlert(`User ${user.name} deleted successfully`, 'success');
+    success(`User ${user.name} deleted successfully`);
     setUserToDelete(null);
   };
 
   const handleCopyUser = (user: User) => {
     console.log('Copying user:', user.name);
-    showAlert(`User ${user.name} copied successfully`, 'success');
+    success(`User ${user.name} copied successfully`);
     setUserToCopy(null);
   };
 
@@ -174,9 +157,6 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
           <Sidebar
             collapsed={sidebarCollapsed}
             onCollapse={setSidebarCollapsed}
-            onLogout={onLogout}
-            activePage={activePage || 'users'}
-            onPageChange={onPageChange}
           />
         </div>
 
@@ -184,9 +164,6 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
         <MobileMenu
           isOpen={mobileMenuOpen}
           onClose={() => setMobileMenuOpen(false)}
-          activePage={activePage || 'users'}
-          onLogout={onLogout}
-          onPageChange={onPageChange}
         />
 
         {/* Main Content Area */}
@@ -196,10 +173,13 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
             title="Users"
             description="User management and permissions"
             onMenuOpen={() => setMobileMenuOpen(true)}
+            nodes={nodes}
+            selectedNode={selectedNode}
+            onSelectNode={handleNodeSelect}
           />
 
           {/* Main Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="p-6 space-y-6">
               {/* Search and Filters */}
               <div className={`${
@@ -264,7 +244,7 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
                     <CustomSelect
                       value={selectedRole}
                       onChange={setSelectedRole}
-                      options={['All Roles', 'admin_role', 'analyst', 'backup_role', 'readonly', 'engineer', 'monitor', 'etl_role']}
+                      options={availableRoles}
                     />
                   </div>
 
@@ -281,19 +261,46 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
               </div>
 
               {/* Users Table */}
-              <UsersTable
-                users={currentUsers}
-                currentPage={currentPage}
-                totalPages={totalPages}
-                startIndex={startIndex}
-                endIndex={endIndex}
-                totalCount={filteredUsers.length}
-                onUserClick={setSelectedUser}
-                onPageChange={handlePageChange}
-                onCreateUser={() => setIsCreatingUser(true)}
-                onDeleteClick={(user) => setUserToDelete(user)}
-                onCopyClick={(user) => setUserToCopy(user)}
-              />
+              {loading ? (
+                <div className={`${
+                  theme === 'light' 
+                    ? 'bg-white/90 border-amber-500/30' 
+                    : 'bg-gray-900/60 border-yellow-500/20'
+                } backdrop-blur-md rounded-xl border p-12 flex items-center justify-center`}>
+                  <div className="text-center">
+                    <div className={`inline-block animate-spin rounded-full h-8 w-8 border-b-2 ${
+                      theme === 'light' ? 'border-amber-600' : 'border-yellow-400'
+                    }`}></div>
+                    <p className={`mt-4 text-sm ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}>
+                      Loading users...
+                    </p>
+                  </div>
+                </div>
+              ) : !selectedNode ? (
+                <div className={`${
+                  theme === 'light' 
+                    ? 'bg-white/90 border-amber-500/30' 
+                    : 'bg-gray-900/60 border-yellow-500/20'
+                } backdrop-blur-md rounded-xl border p-12 flex items-center justify-center`}>
+                  <p className={`text-sm ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}>
+                    Please select a node to view users
+                  </p>
+                </div>
+              ) : (
+                <UsersTable
+                  users={currentUsers}
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  startIndex={startIndex}
+                  endIndex={endIndex}
+                  totalCount={filteredUsers.length}
+                  onUserClick={setSelectedUser}
+                  onPageChange={handlePageChange}
+                  onCreateUser={() => setIsCreatingUser(true)}
+                  onDeleteClick={(user) => setUserToDelete(user)}
+                  onCopyClick={(user) => setUserToCopy(user)}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -323,8 +330,7 @@ export default function UsersPage({ onLogout, activePage, onPageChange }: UsersP
             handleDeleteUser(userToDelete);
           }
         }}
-        itemName={userToDelete?.name || ''}
-        itemType="user"
+        userName={userToDelete?.name || ''}
       />
 
       {/* Confirm Copy User Modal */}

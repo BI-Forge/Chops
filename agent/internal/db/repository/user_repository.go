@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/db/models"
 	"clickhouse-ops/internal/db"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"

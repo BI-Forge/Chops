@@ -210,7 +210,7 @@ func setupMetricsRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 		return
 	}
 
-	metrics := protected.Group("/metrics")
+	metrics := protected.Group("/clickhouse/metrics")
 	{
 		metrics.GET("/nodes", handlers.MetricsHandler.GetAvailableNodes)
 		metrics.GET("/current", handlers.MetricsHandler.GetCurrentMetrics)
@@ -226,7 +226,7 @@ func setupQueryLogRoutes(protected *gin.RouterGroup, handlers *handlersContainer
 		return
 	}
 
-	queryLog := protected.Group("/query-log")
+	queryLog := protected.Group("/clickhouse/query-log")
 	{
 		queryLog.GET("", handlers.QueryLogHandler.ListQueryLog)
 		queryLog.GET("/stats", handlers.QueryLogHandler.GetQueryLogStats)
@@ -240,7 +240,7 @@ func setupProcessRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 		return
 	}
 
-	processes := protected.Group("/processes")
+	processes := protected.Group("/clickhouse/processes")
 	{
 		processes.GET("", handlers.ProcessHandler.GetCurrentProcesses)
 		processes.GET("/stream", handlers.ProcessHandler.StreamProcesses)
@@ -254,7 +254,12 @@ func setupUsersRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 		return
 	}
 
-	protected.GET("/users", handlers.UsersHandler.GetUsers)
+	users := protected.Group("/clickhouse/users")
+	{
+		// Register more specific route first to avoid route conflicts
+		users.GET("/list", handlers.UsersHandler.GetUsersList)
+		users.GET("", handlers.UsersHandler.GetUsers)
+	}
 }
 
 // setupBackupRoutes configures backup endpoints
@@ -263,7 +268,7 @@ func setupBackupRoutes(protected *gin.RouterGroup, handlers *handlersContainer) 
 		return
 	}
 
-	backups := protected.Group("/backups")
+	backups := protected.Group("/clickhouse/backups")
 	{
 		backups.GET("/stats", handlers.BackupHandler.GetStats)
 		backups.GET("/in-progress", handlers.BackupHandler.GetInProgress)
@@ -271,4 +276,3 @@ func setupBackupRoutes(protected *gin.RouterGroup, handlers *handlersContainer) 
 		backups.GET("/:id", handlers.BackupHandler.GetByID)
 	}
 }
-

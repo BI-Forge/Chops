@@ -11,6 +11,7 @@ import { AdminRoleDetailsModal } from '../components/admin/AdminRoleDetailsModal
 import { AdminPermissionsList } from '../components/admin/AdminPermissionsList';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
+import { useSidebar } from '../contexts/SidebarContext';
 
 interface AdminSettingsPageProps {
   onLogout?: () => void;
@@ -49,8 +50,8 @@ export interface AdminPermission {
 export default function AdminSettingsPage({ onLogout, activePage, onPageChange }: AdminSettingsPageProps) {
   const { theme } = useTheme();
   const { success, error: showError } = useAlert();
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'permissions'>('users');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [selectedRole, setSelectedRole] = useState<AdminRole | null>(null);

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
-	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/clickhouse/repository"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/logger"
 )
 
@@ -118,17 +118,17 @@ func MetricsTopic(node string) string {
 }
 
 // DecodeMetricsPayload converts the payload into a SystemMetrics pointer when possible.
-func DecodeMetricsPayload(event Event) (*models.SystemMetrics, bool) {
+func DecodeMetricsPayload(event Event) (*chmodels.SystemMetrics, bool) {
 	payload := event.Payload
 	if payload == nil {
 		return nil, false
 	}
 
-	if metricsPtr, ok := payload.(*models.SystemMetrics); ok {
+	if metricsPtr, ok := payload.(*chmodels.SystemMetrics); ok {
 		return metricsPtr, true
 	}
 
-	if metricsVal, ok := payload.(models.SystemMetrics); ok {
+	if metricsVal, ok := payload.(chmodels.SystemMetrics); ok {
 		return &metricsVal, true
 	}
 

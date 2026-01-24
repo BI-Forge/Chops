@@ -28,14 +28,14 @@ const retryRequest = async <T>(
 export const metricsAPI = {
   getAvailableNodes: async (): Promise<NodeInfo[]> => {
     return retryRequest(async () => {
-      const response = await api.get<NodesResponse>('/metrics/nodes')
+      const response = await api.get<NodesResponse>('/clickhouse/metrics/nodes')
       return response.data.nodes
     })
   },
 
   getCurrentMetrics: async (node: string): Promise<SystemMetrics> => {
     return retryRequest(async () => {
-      const response = await api.get<SystemMetrics>('/metrics/current', {
+      const response = await api.get<SystemMetrics>('/clickhouse/metrics/current', {
         params: { node },
       })
       return response.data
@@ -44,7 +44,7 @@ export const metricsAPI = {
 
   streamMetrics: (node: string, onMessage: (metrics: SystemMetrics) => void, onError?: (error: Error) => void): EventSource => {
     const token = localStorage.getItem('token')
-    const url = `/api/v1/metrics/stream?node=${encodeURIComponent(node)}${token ? `&token=${token}` : ''}`
+    const url = `/api/v1/clickhouse/metrics/stream?node=${encodeURIComponent(node)}${token ? `&token=${token}` : ''}`
     
     const eventSource = new EventSource(url, {
       withCredentials: false,
@@ -110,7 +110,7 @@ export const metricsAPI = {
     step: string
   ): Promise<MetricSeriesResponse> => {
     return retryRequest(async () => {
-      const response = await api.get<MetricSeriesResponse>('/metrics/series', {
+      const response = await api.get<MetricSeriesResponse>('/clickhouse/metrics/series', {
         params: {
           node,
           metric,
@@ -124,7 +124,7 @@ export const metricsAPI = {
 
   getServerInfo: async (node: string): Promise<ServerInfo> => {
     return retryRequest(async () => {
-      const response = await api.get<ServerInfo>('/metrics/server-info', {
+      const response = await api.get<ServerInfo>('/clickhouse/metrics/server-info', {
         params: { node },
       })
       return response.data

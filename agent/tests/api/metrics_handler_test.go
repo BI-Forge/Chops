@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"clickhouse-ops/internal/api/v1/models"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/tests/api/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -22,8 +22,8 @@ func TestMetricsHandlerGetAvailableNodes(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_metrics_nodes")
 
-	// Test GET /api/v1/metrics/nodes
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/nodes", token, nil)
+	// Test GET /api/v1/clickhouse/metrics/nodes
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/nodes", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -50,8 +50,8 @@ func TestMetricsHandlerGetCurrentMetrics(t *testing.T) {
 	err := testutil.InsertTestMetricsData(t, "test_node")
 	require.NoError(t, err, "Failed to insert test metrics data")
 
-	// Test GET /api/v1/metrics/current
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/current?node=test_node", token, nil)
+	// Test GET /api/v1/clickhouse/metrics/current
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/current?node=test_node", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -60,7 +60,7 @@ func TestMetricsHandlerGetCurrentMetrics(t *testing.T) {
 	// Should return 200 with test data
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var metrics models.SystemMetrics
+	var metrics chmodels.SystemMetrics
 	err = json.Unmarshal(w.Body.Bytes(), &metrics)
 	assert.NoError(t, err)
 	assert.Equal(t, "test_node", metrics.NodeName)
@@ -79,8 +79,8 @@ func TestMetricsHandlerGetServerInfo(t *testing.T) {
 	err := testutil.InsertTestMetricsData(t, "test_node")
 	require.NoError(t, err, "Failed to insert test metrics data")
 
-	// Test GET /api/v1/metrics/server-info
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/server-info?node=test_node", token, nil)
+	// Test GET /api/v1/clickhouse/metrics/server-info
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/server-info?node=test_node", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestMetricsHandlerRequiresAuth(t *testing.T) {
 	}
 
 	// Test without auth token
-	req, _ := http.NewRequest("GET", "/api/v1/metrics/nodes", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/metrics/nodes", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -112,8 +112,8 @@ func TestMetricsHandlerGetCurrentMetricsWithoutNode(t *testing.T) {
 
 	token := testutil.RegisterTestUser(t, router, "test_metrics_current_no_node")
 
-	// Test GET /api/v1/metrics/current without node parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/current", token, nil)
+	// Test GET /api/v1/clickhouse/metrics/current without node parameter
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/current", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -131,8 +131,8 @@ func TestMetricsHandlerGetCurrentMetricsWithNonExistentNode(t *testing.T) {
 
 	token := testutil.RegisterTestUser(t, router, "test_metrics_nonexistent_node")
 
-	// Test GET /api/v1/metrics/current with non-existent node
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/current?node=nonexistent_node_12345", token, nil)
+	// Test GET /api/v1/clickhouse/metrics/current with non-existent node
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/current?node=nonexistent_node_12345", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -155,7 +155,7 @@ func TestMetricsHandlerGetMetricSeriesWithDifferentMetrics(t *testing.T) {
 
 	for _, metric := range metrics {
 		t.Run(metric, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?node=test_node&metric="+metric+"&period=1h&step=1m", token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?node=test_node&metric="+metric+"&period=1h&step=1m", token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -176,7 +176,7 @@ func TestMetricsHandlerGetMetricSeriesWithInvalidMetric(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_metrics_series_invalid")
 
 	// Test with invalid metric type
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?node=test_node&metric=invalid_metric&period=1h&step=1m", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?node=test_node&metric=invalid_metric&period=1h&step=1m", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -199,7 +199,7 @@ func TestMetricsHandlerGetMetricSeriesWithDifferentPeriods(t *testing.T) {
 
 	for _, period := range periods {
 		t.Run(period, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?node=test_node&metric=cpu_load&period="+period, token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&period="+period, token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -220,7 +220,7 @@ func TestMetricsHandlerGetMetricSeriesWithInvalidPeriod(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_metrics_series_invalid_period")
 
 	// Test with invalid period
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?node=test_node&metric=cpu_load&period=invalid", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&period=invalid", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -243,7 +243,7 @@ func TestMetricsHandlerGetMetricSeriesWithDifferentSteps(t *testing.T) {
 
 	for _, step := range steps {
 		t.Run(step, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?node=test_node&metric=cpu_load&period=1h&step="+step, token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&period=1h&step="+step, token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -265,7 +265,7 @@ func TestMetricsHandlerGetMetricSeriesMissingRequiredParams(t *testing.T) {
 
 	// Test missing node parameter (only required parameter)
 	t.Run("missing node", func(t *testing.T) {
-		req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?metric=cpu_load&period=1h&step=1m", token, nil)
+		req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?metric=cpu_load&period=1h&step=1m", token, nil)
 		require.NoError(t, err)
 
 		w := httptest.NewRecorder()
@@ -278,7 +278,7 @@ func TestMetricsHandlerGetMetricSeriesMissingRequiredParams(t *testing.T) {
 	// Test with default values (metric and period have defaults)
 	t.Run("with default values", func(t *testing.T) {
 		// metric defaults to "cpu_load", period defaults to "1h"
-		req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/series?node=test_node&step=1m", token, nil)
+		req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/series?node=test_node&step=1m", token, nil)
 		require.NoError(t, err)
 
 		w := httptest.NewRecorder()

@@ -1,5 +1,5 @@
 services:
-  chops_front:
+  front:
     container_name: chops_front-prod
     build:
       context: ./frontend
@@ -7,10 +7,10 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - chops_app
+      - app
     networks:
       - ch_ops
-  chops_app:
+  app:
     container_name: chops_app-prod
     build:
       context: ./agent
@@ -19,15 +19,15 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      chops_db:
+      db:
         condition: service_healthy
-      chops_ch:
+      ch:
         condition: service_started
-      chops_ch_2:
+      ch_2:
         condition: service_started
     networks:
       - ch_ops
-  chops_db:
+  db:
     image: postgres:13.11
     container_name: chops_db
     environment:
@@ -49,7 +49,7 @@ services:
         max-file: "3"
     networks:
       - ch_ops
-  chops_ch:
+  ch:
     image: clickhouse/clickhouse-server:latest
     container_name: chops_ch
     ports:
@@ -66,7 +66,7 @@ services:
         hard: 262144
     networks:
       - ch_ops
-  chops_ch_2:
+  ch_2:
     image: clickhouse/clickhouse-server:latest
     container_name: chops_ch_2
     ports:

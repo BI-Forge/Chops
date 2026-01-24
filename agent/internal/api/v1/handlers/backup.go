@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/v1/models"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
@@ -23,9 +24,9 @@ const (
 // BackupRepository defines the subset of repository methods required by the handler
 type BackupRepository interface {
 	GetStats(ctx context.Context, node string) (models.BackupStatsResponse, error)
-	GetInProgress(ctx context.Context, node string) ([]models.Backup, error)
-	GetCompleted(ctx context.Context, node string, limit, offset int) ([]models.Backup, uint64, error)
-	GetByID(ctx context.Context, node, backupID string) (*models.Backup, error)
+	GetInProgress(ctx context.Context, node string) ([]chmodels.Backup, error)
+	GetCompleted(ctx context.Context, node string, limit, offset int) ([]chmodels.Backup, uint64, error)
+	GetByID(ctx context.Context, node, backupID string) (*chmodels.Backup, error)
 }
 
 // BackupHandler handles ClickHouse backup endpoints

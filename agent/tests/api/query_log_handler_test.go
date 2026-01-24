@@ -24,7 +24,7 @@ func TestQueryLogHandlerRejectsInvalidPreset(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_invalid")
 
 	// Test with invalid preset
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=9s", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=9s", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -42,7 +42,7 @@ func TestQueryLogHandlerRejectsInvalidTimestamps(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_timestamp")
 
 	// Test with invalid timestamp
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?from=not-a-date", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?from=not-a-date", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -59,8 +59,8 @@ func TestQueryLogHandlerReturnsData(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_querylog_data")
 
-	// Test GET /api/v1/query-log with valid parameters
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=10s&limit=2", token, nil)
+	// Test GET /api/v1/clickhouse/query-log with valid parameters
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=10s&limit=2", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -83,8 +83,8 @@ func TestQueryLogHandlerGetStats(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_querylog_stats")
 
-	// Test GET /api/v1/query-log/stats
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log/stats?last=10s&user=testuser&node=test_node", token, nil)
+	// Test GET /api/v1/clickhouse/query-log/stats
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log/stats?last=10s&user=testuser&node=test_node", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -107,7 +107,7 @@ func TestQueryLogHandlerGetStatsRejectsInvalidPreset(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_stats_invalid")
 
 	// Test with invalid preset
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log/stats?last=9s", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log/stats?last=9s", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -125,7 +125,7 @@ func TestQueryLogHandlerParsesStatusParameter(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_status")
 
 	// Test with status parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=10s&status=failed", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=10s&status=failed", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -143,7 +143,7 @@ func TestQueryLogHandlerRejectsInvalidStatus(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_invalid_status")
 
 	// Test with invalid status
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=10s&status=invalid", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=10s&status=invalid", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -161,7 +161,7 @@ func TestQueryLogHandlerAllowsAllStatus(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_all_status")
 
 	// Test with all status
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=10s&status=all", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=10s&status=all", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -176,7 +176,7 @@ func TestQueryLogHandlerRequiresAuth(t *testing.T) {
 	}
 
 	// Test without auth token
-	req, _ := http.NewRequest("GET", "/api/v1/query-log?last=10s", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/query-log?last=10s", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -196,7 +196,7 @@ func TestQueryLogHandlerWithDifferentPresets(t *testing.T) {
 
 	for _, preset := range presets {
 		t.Run(preset, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last="+preset, token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last="+preset, token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -230,7 +230,7 @@ func TestQueryLogHandlerWithLimitBoundaries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=10s&limit="+tt.limit, token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=10s&limit="+tt.limit, token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -264,7 +264,7 @@ func TestQueryLogHandlerWithDifferentDateFormats(t *testing.T) {
 
 	for _, fmt := range formats {
 		t.Run(fmt.name, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?from="+fmt.value, token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?from="+fmt.value, token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -288,7 +288,7 @@ func TestQueryLogHandlerWithFromAndTo(t *testing.T) {
 	from := now.Add(-1 * time.Hour).Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
 
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?from="+from+"&to="+to, token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?from="+from+"&to="+to, token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -310,7 +310,7 @@ func TestQueryLogHandlerWithInvalidDateRange(t *testing.T) {
 	from := now.Format(time.RFC3339)
 	to := now.Add(-1 * time.Hour).Format(time.RFC3339) // to is before from
 
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?from="+from+"&to="+to, token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?from="+from+"&to="+to, token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -329,7 +329,7 @@ func TestQueryLogHandlerWithCombinedFilters(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_combined")
 
 	// Test with multiple filter parameters
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log?last=10s&status=failed&user=testuser&node=test_node&limit=20", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?last=10s&status=failed&user=testuser&node=test_node&limit=20", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -351,7 +351,7 @@ func TestQueryLogHandlerStatsWithDifferentPresets(t *testing.T) {
 
 	for _, preset := range presets {
 		t.Run(preset, func(t *testing.T) {
-			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log/stats?last="+preset, token, nil)
+			req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log/stats?last="+preset, token, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()
@@ -372,7 +372,7 @@ func TestQueryLogHandlerStatsWithFilters(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_querylog_stats_filters")
 
 	// Test stats with user and node filters
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log/stats?last=10s&user=testuser&node=test_node", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log/stats?last=10s&user=testuser&node=test_node", token, nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

@@ -12,6 +12,7 @@ import { TablesFilter } from '../components/tables/TablesFilter';
 import { TablesList, Table } from '../components/tables/TablesList';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
+import { useSidebar } from '../contexts/SidebarContext';
 
 interface TablesPageProps {
   onLogout?: () => void;
@@ -467,7 +468,7 @@ const mockTables: Table[] = [
 export function TablesPage({ onLogout, activePage, onPageChange }: TablesPageProps) {
   const { theme } = useTheme();
   const { success } = useAlert();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [tableToDelete, setTableToDelete] = useState<Table | null>(null);
@@ -552,7 +553,7 @@ export function TablesPage({ onLogout, activePage, onPageChange }: TablesPagePro
           />
 
           {/* Main Content */}
-          <main className={`flex-1 overflow-y-auto ${
+          <main className={`flex-1 overflow-y-auto custom-scrollbar ${
             theme === 'light' ? 'bg-gray-50/50' : 'bg-transparent'
           }`}>
             <div className="p-6 space-y-6">

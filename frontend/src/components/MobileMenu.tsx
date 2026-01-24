@@ -36,6 +36,8 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
   const getActiveItem = () => {
     if (location.pathname === '/dashboard') return 'dashboard';
     if (location.pathname === '/query-history') return 'queries';
+    if (location.pathname === '/backups') return 'backups';
+    if (location.pathname === '/users') return 'users';
     return 'dashboard';
   };
   
@@ -73,6 +75,10 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
       navigate('/dashboard');
     } else if (itemId === 'queries') {
       navigate('/query-history');
+    } else if (itemId === 'backups') {
+      navigate('/backups');
+    } else if (itemId === 'users') {
+      navigate('/users');
     }
     onClose();
   };

@@ -6,12 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 // ProcessRepository executes queries against ClickHouse system.processes
@@ -43,25 +41,9 @@ func NewProcessRepository(cfg *config.Config, log *logger.Logger) (*ProcessRepos
 
 // GetCurrentProcesses returns all currently running queries from system.processes
 func (r *ProcessRepository) GetCurrentProcesses(ctx context.Context, nodeName string) ([]models.Process, error) {
-	// Get connection to specific node
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if nodeName != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(nodeName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
-		}
-	} else {
-		// Use default connection if no node specified
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection: %w", err)
-		}
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return nil, err
 	}
 
 	whereClause, args := r.buildWhereClause(nodeName)
@@ -257,25 +239,9 @@ func (r *ProcessRepository) KillQuery(ctx context.Context, queryID string, nodeN
 		}
 	}
 
-	// Get connection to specific node
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if nodeName != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(nodeName)
-		if err != nil {
-			return fmt.Errorf("failed to get connection for node %s: %w", nodeName, err)
-		}
-	} else {
-		// Use default connection if no node specified
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return fmt.Errorf("failed to get connection: %w", err)
-		}
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
 	}
 
 	// Build KILL QUERY statement (no cluster, direct query to node)

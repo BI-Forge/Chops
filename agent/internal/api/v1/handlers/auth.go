@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/auth"
-	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/v1/models"
+	"clickhouse-ops/internal/db/repository"
 	"clickhouse-ops/internal/logger"
+
 	"github.com/gin-gonic/gin"
 )
 

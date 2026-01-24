@@ -8,10 +8,10 @@ import (
 	"sort"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
@@ -148,7 +148,7 @@ func (h *MetricsHandler) checkNodeAvailability(ctx context.Context, node config.
 // @Tags         metrics
 // @Produce      json
 // @Success      200  {object}  map[string]interface{}
-// @Router       /api/v1/metrics/nodes [get]
+// @Router       /api/v1/clickhouse/metrics/nodes [get]
 func (h *MetricsHandler) GetAvailableNodes(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
@@ -190,7 +190,7 @@ func (h *MetricsHandler) GetAvailableNodes(c *gin.Context) {
 // @Param        token  query  string  false  "JWT token (alternative to Authorization header for SSE)"
 // @Produce      text/event-stream
 // @Success      200  {string}  text/event-stream
-// @Router       /api/v1/metrics/stream [get]
+// @Router       /api/v1/clickhouse/metrics/stream [get]
 func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 	nodeName := c.Query("node")
 	if nodeName == "" {
@@ -265,8 +265,8 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 // @Tags         metrics
 // @Param        node  query  string  true  "Node name"
 // @Produce      json
-// @Success      200  {object}  models.SystemMetrics
-// @Router       /api/v1/metrics/current [get]
+// @Success      200  {object}  clickhouse/models.SystemMetrics
+// @Router       /api/v1/clickhouse/metrics/current [get]
 func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 	nodeName := c.Query("node")
 	if nodeName == "" {
@@ -384,10 +384,10 @@ func normalizeStep(stepKey string, expectedStep time.Duration) (time.Duration, s
 // @Security     BearerAuth
 // @Param        node  query  string  true  "Node name"
 // @Produce      json
-// @Success      200  {object}  models.ServerInfo
+// @Success      200  {object}  clickhouse/models.ServerInfo
 // @Failure      400  {object}  models.ErrorResponse
 // @Failure      500  {object}  models.ErrorResponse
-// @Router       /api/v1/metrics/server-info [get]
+// @Router       /api/v1/clickhouse/metrics/server-info [get]
 func (h *MetricsHandler) GetServerInfo(c *gin.Context) {
 	nodeName := c.Query("node")
 	if nodeName == "" {

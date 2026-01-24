@@ -9,6 +9,7 @@ import { SettingsTable, Setting } from '../components/SettingsTable';
 import { CustomSelect } from '../components/CustomSelect';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
+import { useSidebar } from '../contexts/SidebarContext';
 
 interface SettingsPageProps {
   onLogout?: () => void;
@@ -19,11 +20,11 @@ interface SettingsPageProps {
 export default function SettingsPage({ onLogout, activePage, onPageChange }: SettingsPageProps) {
   const { theme } = useTheme();
   const { showAlert, success } = useAlert();
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [selectedSetting, setSelectedSetting] = useState<Setting | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isApplyingFilters, setIsApplyingFilters] = useState(false);
   const [selectedTier, setSelectedTier] = useState('All Tiers');
@@ -366,7 +367,7 @@ export default function SettingsPage({ onLogout, activePage, onPageChange }: Set
           />
 
           {/* Main Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="p-6 space-y-6">
               {/* Filters Section */}
               <div className={`${

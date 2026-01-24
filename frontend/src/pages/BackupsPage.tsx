@@ -8,6 +8,7 @@ import { BackupStatsCards } from '../components/backups/BackupStatsCards';
 import { InProgressBackups } from '../components/backups/InProgressBackups';
 import { CompletedBackups } from '../components/backups/CompletedBackups';
 import { useTheme } from '../contexts/ThemeContext';
+import { useSidebar } from '../contexts/SidebarContext';
 import { backupAPI } from '../services/backupAPI';
 import { metricsAPI } from '../services/metricsAPI';
 import type { Backup } from '../types/backup';
@@ -15,9 +16,9 @@ import type { NodeInfo } from '../types/metrics';
 
 export function BackupsPage() {
   const { theme } = useTheme();
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [selectedBackup, setSelectedBackup] = useState<Backup | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   // Data state

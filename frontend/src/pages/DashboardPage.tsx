@@ -4,11 +4,12 @@ import { Sidebar } from '../components/Sidebar';
 import { MobileMenu } from '../components/MobileMenu';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { DashboardContent } from '../components/DashboardContent';
+import { useSidebar } from '../contexts/SidebarContext';
 import { metricsAPI } from '../services/metricsAPI';
 import type { NodeInfo } from '../types/metrics';
 
 export function DashboardPage() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<string>('');

@@ -11,6 +11,7 @@ import { QueryFilters } from '../components/queries/QueryFilters';
 import { PerformanceCharts } from '../components/queries/PerformanceCharts';
 import { QueryHistoryBlock } from '../components/queries/QueryHistoryBlock';
 import { useAlert } from '../contexts/AlertContext';
+import { useSidebar } from '../contexts/SidebarContext';
 import { queryAPI } from '../services/queryAPI';
 import type { QueryLogStatsResponse, Process, QueryLogEntry } from '../services/queryAPI';
 import { metricsAPI } from '../services/metricsAPI';
@@ -41,7 +42,7 @@ interface Query {
 }
 
 export function QueriesPage() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedQuery, setSelectedQuery] = useState<Query | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -79,7 +80,6 @@ export function QueriesPage() {
   const [selectedNode, setSelectedNode] = useState<string>('');
   const [loadingNodes, setLoadingNodes] = useState(true);
   const [queryStats, setQueryStats] = useState<QueryLogStatsResponse>({ running: 0, finished: 0, error: 0 });
-  const [loadingStats, setLoadingStats] = useState(true);
   const [runningProcesses, setRunningProcesses] = useState<Process[]>([]);
   const [loadingProcesses, setLoadingProcesses] = useState(true);
   const [queryLog, setQueryLog] = useState<QueryLogEntry[]>([]);
@@ -175,13 +175,11 @@ export function QueriesPage() {
   // Load query stats and setup SSE stream
   useEffect(() => {
     if (!selectedNode) {
-      setLoadingStats(false);
       return;
     }
 
     const loadStats = async () => {
       try {
-        setLoadingStats(true);
         // Build filter from current filters
         const periodDates = getPeriodDates(selectedPeriod);
         const filter: any = {
@@ -206,7 +204,6 @@ export function QueriesPage() {
         // Load initial stats
         const initialStats = await queryAPI.getQueryLogStats(filter);
         setQueryStats(initialStats);
-        setLoadingStats(false);
 
         // Setup SSE stream for real-time updates
         if (statsEventSourceRef.current) {
@@ -230,7 +227,6 @@ export function QueriesPage() {
         );
       } catch (error) {
         console.error('Failed to load query stats:', error);
-        setLoadingStats(false);
       }
     };
 
@@ -849,8 +845,6 @@ export function QueriesPage() {
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 selectedUser={selectedUser}
-                loadingRunning={loadingProcesses}
-                loadingStats={loadingStats}
               />
 
               {/* Running Queries */}

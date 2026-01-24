@@ -35,7 +35,7 @@ func TestNonExistentMethod(t *testing.T) {
 
 	// Test POST on GET-only endpoint
 	// Note: Gin router returns 404 for unsupported methods, not 405
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/metrics/nodes", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/metrics/nodes", token, nil)
 	assert.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -53,7 +53,7 @@ func TestInvalidJSONInRequestBody(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_invalid_json")
 
 	// Test with invalid JSON in request body
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, []byte("{invalid}"))
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, []byte("{invalid}"))
 	assert.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -136,7 +136,7 @@ func TestQueryParametersWithSpecialCharacters(t *testing.T) {
 
 	// Test with special characters (spaces) in query parameters
 	// Using existing node "test_node" with leading/trailing spaces (which will be trimmed)
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users?node=%20test_node%20", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users?node=%20test_node%20", token, nil)
 	assert.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -155,7 +155,7 @@ func TestEmptyQueryParameters(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_empty_params")
 
 	// Test with empty query parameters
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users?node=", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users?node=", token, nil)
 	assert.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

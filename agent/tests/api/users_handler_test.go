@@ -22,8 +22,8 @@ func TestUsersHandlerReturnsUsers(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_users_user")
 
-	// Test GET /api/v1/users with node parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users?node=test_node", token, nil)
+	// Test GET /api/v1/clickhouse/users with node parameter
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users?node=test_node", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -47,8 +47,8 @@ func TestUsersHandlerReturnsUsersWithoutNode(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_users_no_node")
 
-	// Test GET /api/v1/users without node parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users", token, nil)
+	// Test GET /api/v1/clickhouse/users without node parameter
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -70,8 +70,8 @@ func TestUsersHandlerHandlesNodeWithWhitespace(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_users_whitespace")
 
-	// Test GET /api/v1/users with whitespace in node parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/users?node=%20test_node%20", token, nil)
+	// Test GET /api/v1/clickhouse/users with whitespace in node parameter
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users?node=%20test_node%20", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -87,7 +87,7 @@ func TestUsersHandlerRequiresAuth(t *testing.T) {
 	}
 
 	// Test without auth token
-	req, _ := http.NewRequest("GET", "/api/v1/users", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/users", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

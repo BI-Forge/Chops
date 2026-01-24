@@ -23,10 +23,10 @@ func TestMetricsHandlerStreamMetrics(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_stream_metrics")
 
-	// Test GET /api/v1/metrics/stream
+	// Test GET /api/v1/clickhouse/metrics/stream
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/metrics/stream?node=test_node", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/metrics/stream?node=test_node", token, nil)
 	require.NoError(t, err)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
@@ -59,10 +59,10 @@ func TestQueryLogHandlerStreamStats(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_stream_querylog_stats")
 
-	// Test GET /api/v1/query-log/stats/stream
+	// Test GET /api/v1/clickhouse/query-log/stats/stream
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/query-log/stats/stream?last=10s", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log/stats/stream?last=10s", token, nil)
 	require.NoError(t, err)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
@@ -95,10 +95,10 @@ func TestProcessHandlerStreamProcesses(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_stream_processes")
 
-	// Test GET /api/v1/processes/stream
+	// Test GET /api/v1/clickhouse/processes/stream
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/processes/stream?node=test_node", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/processes/stream?node=test_node", token, nil)
 	require.NoError(t, err)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
@@ -128,19 +128,19 @@ func TestStreamHandlersRequireAuth(t *testing.T) {
 	}
 
 	// Test metrics stream without auth
-	req, _ := http.NewRequest("GET", "/api/v1/metrics/stream", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/metrics/stream", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	// Test query-log stats stream without auth
-	req, _ = http.NewRequest("GET", "/api/v1/query-log/stats/stream", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/clickhouse/query-log/stats/stream", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	// Test processes stream without auth
-	req, _ = http.NewRequest("GET", "/api/v1/processes/stream", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/clickhouse/processes/stream", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)

@@ -70,14 +70,11 @@ export function BackupStatsCards({
             key={index}
             className={`${
               theme === 'light' ? 'bg-white/90' : 'bg-gray-900/40'
-            } backdrop-blur-md rounded-xl p-6 border ${stat.border} hover:shadow-xl hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 group animate-fade-in-up`}
-            style={{ animationDelay: `${index * 100}ms` }}
+            } backdrop-blur-md rounded-xl p-6 border ${stat.border}`}
           >
             {/* Header with icon */}
             <div className="flex items-center justify-between mb-4">
-              <div className={`${stat.bg} rounded-lg p-3 ${stat.color} group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 ${
-                index === 1 ? 'animate-pulse' : ''
-              }`}>
+              <div className={`${stat.bg} rounded-lg p-3 ${stat.color}`}>
                 <Icon className="w-6 h-6" />
               </div>
             </div>

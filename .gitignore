@@ -1,5 +1,6 @@
 .idea
 .cursor
+
 # WSL-specific paths and directories
 *wsl.localhost*
 **/\\wsl.localhost*
@@ -9,3 +10,6 @@
 # WSL mount points
 **/mnt/**
 **/wsl/**
+__wsl.localhost_*
+\\wsl.localhost*
+**/\\wsl.localhost*

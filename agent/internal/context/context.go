@@ -1,8 +1,8 @@
 package context
 
 import (
-	"context"
 	"clickhouse-ops/internal/config"
+	"context"
 )
 
 // ContextKey is a custom type for context keys

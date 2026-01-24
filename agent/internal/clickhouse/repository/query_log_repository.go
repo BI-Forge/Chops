@@ -7,12 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"clickhouse-ops/internal/api/v1/models"
+	apimodels "clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 const microsecondLayout = "2006-01-02T15:04:05.000000Z07:00"
@@ -68,26 +67,10 @@ func NewQueryLogRepository(cfg *config.Config, log *logger.Logger) (*QueryLogRep
 }
 
 // List returns paginated query log entries and the total count for the applied filters.
-func (r *QueryLogRepository) List(ctx context.Context, filter QueryLogFilter) ([]models.QueryLogEntry, int64, error) {
-	// Get connection to specific node
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, 0, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if filter.Node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
-		}
-	} else {
-		// Use default connection if no node specified
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to get connection: %w", err)
-		}
+func (r *QueryLogRepository) List(ctx context.Context, filter QueryLogFilter) ([]chmodels.QueryLogEntry, int64, error) {
+	conn, err := getConnection(filter.Node)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	whereClause, args := r.buildWhereClause(filter)
@@ -142,7 +125,7 @@ OFFSET ?`, whereClause)
 	}
 	defer rows.Close()
 
-	entries := make([]models.QueryLogEntry, 0, filter.Limit)
+	entries := make([]chmodels.QueryLogEntry, 0, filter.Limit)
 	for rows.Next() {
 		var (
 			node                  string
@@ -223,7 +206,7 @@ OFFSET ?`, whereClause)
 			}
 		}
 
-		entry := models.QueryLogEntry{
+		entry := chmodels.QueryLogEntry{
 			Node:                  node,
 			EventTime:             eventTime.UTC().Format(time.RFC3339),
 			EventTimeMicroseconds: eventTimeMicroseconds.UTC().Format(microsecondLayout),
@@ -267,25 +250,9 @@ OFFSET ?`, whereClause)
 }
 
 func (r *QueryLogRepository) count(ctx context.Context, filter QueryLogFilter, whereClause string, args []any) (int64, error) {
-	// Get connection to specific node
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return 0, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if filter.Node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
-		}
-	} else {
-		// Use default connection if no node specified
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return 0, fmt.Errorf("failed to get connection: %w", err)
-		}
+	conn, err := getConnection(filter.Node)
+	if err != nil {
+		return 0, err
 	}
 
 	countQuery := fmt.Sprintf(`
@@ -314,30 +281,16 @@ WHERE %s`, whereClause)
 }
 
 // GetStats returns query count statistics by status (running, finished, error).
-func (r *QueryLogRepository) GetStats(ctx context.Context, filter QueryLogFilter) (models.QueryLogStatsResponse, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return models.QueryLogStatsResponse{}, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if filter.Node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
-		if err != nil {
-			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
-		}
-	} else {
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to get connection: %w", err)
-		}
+func (r *QueryLogRepository) GetStats(ctx context.Context, filter QueryLogFilter) (apimodels.QueryLogStatsResponse, error) {
+	conn, err := getConnection(filter.Node)
+	if err != nil {
+		return apimodels.QueryLogStatsResponse{}, err
 	}
 
 	// Build base WHERE clause for stats (without status filter, as we need all queries for stats)
 	baseWhere, baseArgs := r.buildStatsWhereClause(filter)
 
-	stats := models.QueryLogStatsResponse{}
+	stats := apimodels.QueryLogStatsResponse{}
 
 	// Count running queries from system.processes (faster than query_log)
 	runningWhere, runningArgs := r.buildProcessesWhereClause(filter)
@@ -348,13 +301,13 @@ WHERE %s`, runningWhere)
 
 	rows, err := conn.Query(ctx, runningQuery, runningArgs...)
 	if err != nil {
-		return models.QueryLogStatsResponse{}, fmt.Errorf("failed to count running queries: %w", err)
+		return apimodels.QueryLogStatsResponse{}, fmt.Errorf("failed to count running queries: %w", err)
 	}
 	if rows.Next() {
 		var count uint64
 		if err := rows.Scan(&count); err != nil {
 			rows.Close()
-			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to scan running count: %w", err)
+			return apimodels.QueryLogStatsResponse{}, fmt.Errorf("failed to scan running count: %w", err)
 		}
 		stats.Running = int64(count)
 	}
@@ -378,13 +331,13 @@ WHERE exception_code != 0
 	// Execute finished count
 	rows, err = conn.Query(ctx, finishedQuery, baseArgs...)
 	if err != nil {
-		return models.QueryLogStatsResponse{}, fmt.Errorf("failed to count finished queries: %w", err)
+		return apimodels.QueryLogStatsResponse{}, fmt.Errorf("failed to count finished queries: %w", err)
 	}
 	if rows.Next() {
 		var count uint64
 		if err := rows.Scan(&count); err != nil {
 			rows.Close()
-			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to scan finished count: %w", err)
+			return apimodels.QueryLogStatsResponse{}, fmt.Errorf("failed to scan finished count: %w", err)
 		}
 		stats.Finished = int64(count)
 	}
@@ -393,13 +346,13 @@ WHERE exception_code != 0
 	// Execute error count
 	rows, err = conn.Query(ctx, errorQuery, baseArgs...)
 	if err != nil {
-		return models.QueryLogStatsResponse{}, fmt.Errorf("failed to count error queries: %w", err)
+		return apimodels.QueryLogStatsResponse{}, fmt.Errorf("failed to count error queries: %w", err)
 	}
 	if rows.Next() {
 		var count uint64
 		if err := rows.Scan(&count); err != nil {
 			rows.Close()
-			return models.QueryLogStatsResponse{}, fmt.Errorf("failed to scan error count: %w", err)
+			return apimodels.QueryLogStatsResponse{}, fmt.Errorf("failed to scan error count: %w", err)
 		}
 		stats.Error = int64(count)
 	}
@@ -525,23 +478,9 @@ type QueryLoadEntry struct {
 
 // GetLoadData returns CPU and memory load data for queries matching the filter (without pagination).
 func (r *QueryLogRepository) GetLoadData(ctx context.Context, filter QueryLogFilter) ([]QueryLoadEntry, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if filter.Node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(filter.Node)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for node %s: %w", filter.Node, err)
-		}
-	} else {
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection: %w", err)
-		}
+	conn, err := getConnection(filter.Node)
+	if err != nil {
+		return nil, err
 	}
 
 	whereClause, args := r.buildWhereClause(filter)

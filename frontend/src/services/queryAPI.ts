@@ -150,7 +150,7 @@ export const queryAPI = {
         params.append('offset', filter.offset.toString())
       }
 
-      const response = await api.get<QueryLogResponse>(`/query-log?${params.toString()}`)
+      const response = await api.get<QueryLogResponse>(`/clickhouse/query-log?${params.toString()}`)
       return response.data
     })
   },
@@ -160,7 +160,7 @@ export const queryAPI = {
       const params = new URLSearchParams()
       if (node) params.append('node', node)
 
-      const response = await api.get<ProcessListResponse>(`/processes${params.toString() ? `?${params.toString()}` : ''}`)
+      const response = await api.get<ProcessListResponse>(`/clickhouse/processes${params.toString() ? `?${params.toString()}` : ''}`)
       return response.data
     })
   },
@@ -171,7 +171,7 @@ export const queryAPI = {
     onError?: (error: Error) => void
   ): EventSource => {
     const token = localStorage.getItem('token')
-    const url = `/api/v1/processes/stream?node=${encodeURIComponent(node)}${token ? `&token=${token}` : ''}`
+    const url = `/api/v1/clickhouse/processes/stream?node=${encodeURIComponent(node)}${token ? `&token=${token}` : ''}`
     
     const eventSource = new EventSource(url, {
       withCredentials: false,
@@ -229,7 +229,7 @@ export const queryAPI = {
 
   killProcess: async (request: KillProcessRequest): Promise<KillProcessResponse> => {
     // Don't retry kill requests - they should be executed only once
-    const response = await api.post<KillProcessResponse>('/processes/kill', request)
+    const response = await api.post<KillProcessResponse>('/clickhouse/processes/kill', request)
     return response.data
   },
 
@@ -243,7 +243,7 @@ export const queryAPI = {
       if (filter.node) params.append('node', filter.node)
       if (filter.search) params.append('search', filter.search)
 
-      const response = await api.get<QueryLogStatsResponse>(`/query-log/stats?${params.toString()}`)
+      const response = await api.get<QueryLogStatsResponse>(`/clickhouse/query-log/stats?${params.toString()}`)
       return response.data
     })
   },
@@ -263,7 +263,7 @@ export const queryAPI = {
     if (filter.search) params.append('search', filter.search)
     if (token) params.append('token', token)
 
-    const url = `/api/v1/query-log/stats/stream?${params.toString()}`
+    const url = `/api/v1/clickhouse/query-log/stats/stream?${params.toString()}`
     
     const eventSource = new EventSource(url, {
       withCredentials: false,
@@ -321,7 +321,7 @@ export const queryAPI = {
       const params = new URLSearchParams()
       if (node) params.append('node', node)
 
-      const response = await api.get<UsersResponse>(`/users${params.toString() ? `?${params.toString()}` : ''}`)
+      const response = await api.get<UsersResponse>(`/clickhouse/users${params.toString() ? `?${params.toString()}` : ''}`)
       return response.data
     })
   },

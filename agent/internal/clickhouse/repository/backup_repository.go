@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"clickhouse-ops/internal/api/v1/models"
+	apimodels "clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
@@ -21,6 +22,13 @@ type BackupRepository struct {
 }
 
 var backupsTableName = "ops.backups"
+
+const (
+	CreatingBackup  = "CREATING_BACKUP"
+	BackupCreated   = "BACKUP_CREATED"
+	BackupFailed    = "BACKUP_FAILED"
+	BackupCancelled = "BACKUP_CANCELLED"
+)
 
 // NewBackupRepository creates a repository backed by the shared ClickHouse manager
 func NewBackupRepository(cfg *config.Config, log *logger.Logger) (*BackupRepository, error) {
@@ -42,56 +50,42 @@ func NewBackupRepository(cfg *config.Config, log *logger.Logger) (*BackupReposit
 }
 
 // GetStats returns backup count statistics by status
-func (r *BackupRepository) GetStats(ctx context.Context, node string) (models.BackupStatsResponse, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return models.BackupStatsResponse{}, fmt.Errorf("cluster manager not available")
-	}
-
-	var conn driver.Conn
-	var err error
-	if node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(node)
-		if err != nil {
-			return models.BackupStatsResponse{}, fmt.Errorf("failed to get connection for node %s: %w", node, err)
-		}
-	} else {
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return models.BackupStatsResponse{}, fmt.Errorf("failed to get connection: %w", err)
-		}
+func (r *BackupRepository) GetStats(ctx context.Context, node string) (apimodels.BackupStatsResponse, error) {
+	conn, err := getConnection(node)
+	if err != nil {
+		return apimodels.BackupStatsResponse{}, err
 	}
 
 	statsQuery := `
 		SELECT 
 			count() AS total,
-			countIf(status = 'CREATING_BACKUP') AS in_progress,
-			countIf(status = 'BACKUP_CREATED') AS completed,
-			countIf(status = 'BACKUP_FAILED' OR status = 'BACKUP_CANCELLED') AS failed
+			countIf(status = '` + CreatingBackup + `') AS in_progress,
+			countIf(status = '` + BackupCreated + `') AS completed,
+			countIf(status = '` + BackupFailed + `' OR status = '` + BackupCancelled + `') AS failed
 		FROM ` + backupsTableName
 
 	rows, err := conn.Query(ctx, statsQuery)
 	if err != nil {
-		return models.BackupStatsResponse{}, fmt.Errorf("failed to query backup stats: %w", err)
+		return apimodels.BackupStatsResponse{}, fmt.Errorf("failed to query backup stats: %w", err)
 	}
 	defer rows.Close()
 
-	var stats models.BackupStatsResponse
+	var stats apimodels.BackupStatsResponse
 	if rows.Next() {
 		if err := rows.Scan(&stats.Total, &stats.InProgress, &stats.Completed, &stats.Failed); err != nil {
-			return models.BackupStatsResponse{}, fmt.Errorf("failed to scan backup stats: %w", err)
+			return apimodels.BackupStatsResponse{}, fmt.Errorf("failed to scan backup stats: %w", err)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return models.BackupStatsResponse{}, fmt.Errorf("backup stats iteration failed: %w", err)
+		return apimodels.BackupStatsResponse{}, fmt.Errorf("backup stats iteration failed: %w", err)
 	}
 
 	return stats, nil
 }
 
 // GetInProgress returns list of backups in progress
-func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]models.Backup, error) {
+func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]chmodels.Backup, error) {
 	clusterManager := r.manager.GetClusterManager()
 	if clusterManager == nil {
 		return nil, fmt.Errorf("cluster manager not available")
@@ -129,7 +123,7 @@ func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]mo
 			files_read,
 			bytes_read
 		FROM ` + backupsTableName + ` 
-		WHERE status = 'CREATING_BACKUP'
+		WHERE status = '` + CreatingBackup + `'
 		ORDER BY start_time DESC
 	`
 
@@ -139,9 +133,9 @@ func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]mo
 	}
 	defer rows.Close()
 
-	backups := make([]models.Backup, 0)
+	backups := make([]chmodels.Backup, 0)
 	for rows.Next() {
-		var backup models.Backup
+		var backup chmodels.Backup
 		var startTime, endTime time.Time
 
 		if err := rows.Scan(
@@ -183,7 +177,7 @@ func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]mo
 }
 
 // GetCompleted returns list of completed backups with pagination
-func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit, offset int) ([]models.Backup, uint64, error) {
+func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit, offset int) ([]chmodels.Backup, uint64, error) {
 	clusterManager := r.manager.GetClusterManager()
 	if clusterManager == nil {
 		return nil, 0, fmt.Errorf("cluster manager not available")
@@ -207,7 +201,7 @@ func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit,
 	countQuery := `
 		SELECT count()
 		FROM ` + backupsTableName + ` 
-		WHERE status = 'BACKUP_CANCELLED' OR status = 'BACKUP_CREATED' OR status = 'BACKUP_FAILED'
+		WHERE status = '` + BackupCancelled + `' OR status = '` + BackupCreated + `' OR status = '` + BackupFailed + `'
 	`
 
 	var total uint64
@@ -235,7 +229,7 @@ func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit,
 			files_read,
 			bytes_read
 		FROM ` + backupsTableName + ` 
-		WHERE status = 'BACKUP_CANCELLED' OR status = 'BACKUP_CREATED' OR status = 'BACKUP_FAILED'
+		WHERE status = '` + BackupCancelled + `' OR status = '` + BackupCreated + `' OR status = '` + BackupFailed + `'
 		ORDER BY start_time DESC
 		LIMIT ? OFFSET ?
 	`
@@ -246,9 +240,9 @@ func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit,
 	}
 	defer rows.Close()
 
-	backups := make([]models.Backup, 0)
+	backups := make([]chmodels.Backup, 0)
 	for rows.Next() {
-		var backup models.Backup
+		var backup chmodels.Backup
 		var startTime, endTime time.Time
 
 		if err := rows.Scan(
@@ -290,7 +284,7 @@ func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit,
 }
 
 // GetByID returns a single backup by ID
-func (r *BackupRepository) GetByID(ctx context.Context, node, backupID string) (*models.Backup, error) {
+func (r *BackupRepository) GetByID(ctx context.Context, node, backupID string) (*chmodels.Backup, error) {
 	clusterManager := r.manager.GetClusterManager()
 	if clusterManager == nil {
 		return nil, fmt.Errorf("cluster manager not available")
@@ -344,7 +338,7 @@ func (r *BackupRepository) GetByID(ctx context.Context, node, backupID string) (
 		return nil, fmt.Errorf("backup with ID %s not found", backupID)
 	}
 
-	var backup models.Backup
+	var backup chmodels.Backup
 	var startTime, endTime time.Time
 
 	if err := rows.Scan(

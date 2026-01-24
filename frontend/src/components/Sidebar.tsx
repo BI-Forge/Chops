@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { ClickhouseOpsLogo } from './ClickhouseOpsLogo';
 import { useTheme } from '../contexts/ThemeContext';
+import { useSidebar } from '../contexts/SidebarContext';
 import { useAuth } from '../services/AuthContext';
 
 interface MenuItem {
@@ -32,14 +34,51 @@ interface SidebarProps {
 
 // Sidebar renders the navigation menu with profile controls.
 export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarProps) {
-  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const { sidebarCollapsed: contextCollapsed, setSidebarCollapsed } = useSidebar();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ bottom: 0, left: 0, width: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { theme, toggleTheme } = useTheme();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
-  const collapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
+  // Use controlled prop if provided, otherwise use context
+  const collapsed = controlledCollapsed !== undefined ? controlledCollapsed : contextCollapsed;
+  
+  // Update menu position when it opens
+  useEffect(() => {
+    if (userMenuOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPosition({
+        bottom: window.innerHeight - rect.top + 8, // 8px gap
+        left: rect.left + 16, // 16px padding
+        width: collapsed ? 224 : rect.width - 32 // 224px fixed width or button width minus padding
+      });
+    }
+  }, [userMenuOpen, collapsed]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      // Check if click is outside both button and menu
+      if (
+        buttonRef.current &&
+        !buttonRef.current.contains(target) &&
+        menuRef.current &&
+        !menuRef.current.contains(target)
+      ) {
+        setUserMenuOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [userMenuOpen]);
   
   // Determine active item based on current route
   const getActiveItem = () => {
@@ -76,8 +115,11 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
   
   const handleCollapse = () => {
     const newCollapsed = !collapsed;
-    setInternalCollapsed(newCollapsed);
-    onCollapse?.(newCollapsed);
+    if (controlledCollapsed !== undefined) {
+      onCollapse?.(newCollapsed);
+    } else {
+      setSidebarCollapsed(newCollapsed);
+    }
   };
   
   const handleLogout = () => {
@@ -222,9 +264,10 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
       </nav>
 
       {/* User Menu Footer */}
-      <div className={`p-4 border-t ${theme === 'light' ? 'border-amber-500/30' : 'border-yellow-500/20'} relative`}>
+      <div className={`p-4 border-t ${theme === 'light' ? 'border-amber-500/30' : 'border-yellow-500/20'}`}>
         {collapsed ? (
           <button
+            ref={buttonRef}
             onClick={() => setUserMenuOpen(!userMenuOpen)}
             className={`w-full p-2 rounded-lg ${
               theme === 'light'
@@ -239,6 +282,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
           </button>
         ) : (
           <button
+            ref={buttonRef}
             onClick={() => setUserMenuOpen(!userMenuOpen)}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg ${
               theme === 'light'
@@ -258,13 +302,21 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
           </button>
         )}
 
-        {/* Dropdown menu */}
-        {userMenuOpen && (
-          <div className={`absolute bottom-full left-4 right-4 mb-2 ${
-            theme === 'light' 
-              ? 'bg-white border-amber-500/30' 
-              : 'bg-gray-800 border-yellow-500/20'
-          } backdrop-blur-md border rounded-lg shadow-xl overflow-hidden`}>
+        {/* Dropdown menu - rendered via Portal */}
+        {userMenuOpen && createPortal(
+          <div 
+            ref={menuRef}
+            className={`fixed ${
+              theme === 'light' 
+                ? 'bg-white border-amber-500/30' 
+                : 'bg-gray-800 border-yellow-500/20'
+            } backdrop-blur-md border rounded-lg shadow-xl overflow-hidden z-[9999]`}
+            style={{
+              bottom: menuPosition.bottom,
+              left: menuPosition.left,
+              width: menuPosition.width
+            }}
+          >
             <button 
               onClick={() => {
                 setUserMenuOpen(false);
@@ -277,7 +329,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
               } transition-all text-sm`}
             >
               <Shield className="w-4 h-4" />
-              Admin Settings
+              <span className="whitespace-nowrap">Admin Settings</span>
             </button>
             
             <button 
@@ -291,9 +343,9 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
               }`}
             >
               {theme === 'light' ? (
-                <><Moon className="w-4 h-4" /> Dark Mode</>
+                <><Moon className="w-4 h-4" /> <span className="whitespace-nowrap">Dark Mode</span></>
               ) : (
-                <><Sun className="w-4 h-4" /> Light Mode</>
+                <><Sun className="w-4 h-4" /> <span className="whitespace-nowrap">Light Mode</span></>
               )}
             </button>
             
@@ -309,9 +361,10 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
               data-testid="user-menu-logout"
             >
               <LogOut className="w-4 h-4" />
-              Logout
+              <span className="whitespace-nowrap">Logout</span>
             </button>
-          </div>
+          </div>,
+          document.body
         )}
       </div>
     </div>

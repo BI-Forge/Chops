@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/logger"
 )

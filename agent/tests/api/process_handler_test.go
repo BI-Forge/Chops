@@ -22,8 +22,8 @@ func TestProcessHandlerGetCurrentProcesses(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_process_get")
 
-	// Test GET /api/v1/processes with node parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/processes?node=test_node", token, nil)
+	// Test GET /api/v1/clickhouse/processes with node parameter
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/processes?node=test_node", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -45,8 +45,8 @@ func TestProcessHandlerGetCurrentProcessesWithoutNode(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_process_no_node")
 
-	// Test GET /api/v1/processes without node parameter
-	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/processes", token, nil)
+	// Test GET /api/v1/clickhouse/processes without node parameter
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/processes", token, nil)
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -68,14 +68,14 @@ func TestProcessHandlerKillProcess(t *testing.T) {
 	// Register user and get token
 	token := testutil.RegisterTestUser(t, router, "test_process_kill")
 
-	// Test POST /api/v1/processes/kill
+	// Test POST /api/v1/clickhouse/processes/kill
 	killReq := models.KillProcessRequest{
 		QueryID: "test-query-123",
 		Node:    "test_node",
 	}
 	reqBody, _ := json.Marshal(killReq)
 
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, reqBody)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -95,7 +95,7 @@ func TestProcessHandlerKillProcessInvalidRequest(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_process_kill_invalid")
 
 	// Test with empty request body
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, nil)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, nil)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -112,7 +112,7 @@ func TestProcessHandlerRequiresAuth(t *testing.T) {
 	}
 
 	// Test without auth token
-	req, _ := http.NewRequest("GET", "/api/v1/processes", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/processes", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -133,7 +133,7 @@ func TestProcessHandlerKillProcessWithMissingQueryID(t *testing.T) {
 	}
 	reqBody, _ := json.Marshal(killReq)
 
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, reqBody)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -157,7 +157,7 @@ func TestProcessHandlerKillProcessWithMissingNode(t *testing.T) {
 	}
 	reqBody, _ := json.Marshal(killReq)
 
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, reqBody)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -176,7 +176,7 @@ func TestProcessHandlerKillProcessWithInvalidJSON(t *testing.T) {
 	token := testutil.RegisterTestUser(t, router, "test_process_kill_invalid_json")
 
 	// Test with invalid JSON
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, []byte("{invalid json}"))
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, []byte("{invalid json}"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -201,7 +201,7 @@ func TestProcessHandlerKillProcessWithEmptyQueryID(t *testing.T) {
 	}
 	reqBody, _ := json.Marshal(killReq)
 
-	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/processes/kill", token, reqBody)
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/clickhouse/processes/kill", token, reqBody)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

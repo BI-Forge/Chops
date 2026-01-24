@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"clickhouse-ops/internal/api/repository"
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
 
@@ -54,7 +55,7 @@ var acceptedTimeFormats = []string{
 
 // QueryLogRepository defines the subset of repository methods required by the handler.
 type QueryLogRepository interface {
-	List(ctx context.Context, filter repository.QueryLogFilter) ([]models.QueryLogEntry, int64, error)
+	List(ctx context.Context, filter repository.QueryLogFilter) ([]chmodels.QueryLogEntry, int64, error)
 	GetStats(ctx context.Context, filter repository.QueryLogFilter) (models.QueryLogStatsResponse, error)
 }
 
@@ -129,7 +130,7 @@ func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepositor
 // @Success      200     {object}  models.QueryLogResponse
 // @Failure      400     {object}  models.ErrorResponse
 // @Failure      500     {object}  models.ErrorResponse
-// @Router       /api/v1/query-log [get]
+// @Router       /api/v1/clickhouse/query-log [get]
 func (h *QueryLogHandler) ListQueryLog(c *gin.Context) {
 	filter, err := h.parseFilter(c)
 	if err != nil {
@@ -187,7 +188,7 @@ func (h *QueryLogHandler) ListQueryLog(c *gin.Context) {
 // @Success      200    {object}  models.QueryLogStatsResponse
 // @Failure      400    {object}  models.ErrorResponse
 // @Failure      500    {object}  models.ErrorResponse
-// @Router       /api/v1/query-log/stats [get]
+// @Router       /api/v1/clickhouse/query-log/stats [get]
 func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 	// Parse filter without pagination (limit/offset are ignored)
 	filter, err := h.parseFilterForStats(c)
@@ -230,7 +231,7 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 // @Param        token  query  string  false  "JWT token (alternative to Authorization header for SSE)"
 // @Produce      text/event-stream
 // @Success      200  {string}  text/event-stream
-// @Router       /api/v1/query-log/stats/stream [get]
+// @Router       /api/v1/clickhouse/query-log/stats/stream [get]
 func (h *QueryLogHandler) StreamQueryLogStats(c *gin.Context) {
 	// Parse filter for stats
 	filter, err := h.parseFilterForStats(c)

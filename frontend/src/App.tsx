@@ -1,11 +1,13 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AlertProvider } from './contexts/AlertContext'
+import { SidebarProvider } from './contexts/SidebarContext'
 import { AuthProvider, useAuth } from './services/AuthContext'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { QueriesPage } from './pages/QueriesPage'
 import { BackupsPage } from './pages/BackupsPage'
+import { UsersPage } from './pages/UsersPage'
 import { AlertSystem } from './components/AlertSystem'
 
 // Protected Route Component
@@ -56,6 +58,14 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute>
+            <UsersPage />
+          </ProtectedRoute>
+        }
+      />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
@@ -67,12 +77,14 @@ function App() {
   return (
     <ThemeProvider>
       <AlertProvider>
-        <AuthProvider>
-          <Router>
-            <AppRoutes />
-            <AlertSystem />
-          </Router>
-        </AuthProvider>
+        <SidebarProvider>
+          <AuthProvider>
+            <Router>
+              <AppRoutes />
+              <AlertSystem />
+            </Router>
+          </AuthProvider>
+        </SidebarProvider>
       </AlertProvider>
     </ThemeProvider>
   )
