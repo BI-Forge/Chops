@@ -124,6 +124,9 @@ type ClickHouseNode struct {
 	// Metrics synchronization settings
 	MetricsSchema string `yaml:"metrics_schema"` // Schema name for metrics table (e.g., "ch_ops")
 	MetricsTable  string `yaml:"metrics_table"`  // Table name for metrics (e.g., "metrics")
+
+	// Backups table name (schema.table format, e.g., "ops.backups")
+	BackupsTable string `yaml:"backups_table"`
 }
 
 // LoggingConfig holds logging configuration

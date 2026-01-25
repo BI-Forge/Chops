@@ -146,6 +146,11 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName strin
 		return nil, err
 	}
 
+	tableName := fmt.Sprintf("%s.%s", schema, table)
+	if err := checkTableExists(ctx, conn, tableName); err != nil {
+		return nil, err
+	}
+
 	query := fmt.Sprintf(`
 		SELECT 
 			timestamp,
@@ -208,6 +213,11 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 
 	if step <= 0 {
 		return nil, fmt.Errorf("step must be positive")
+	}
+
+	tableName := fmt.Sprintf("%s.%s", schema, table)
+	if err := checkTableExists(ctx, conn, tableName); err != nil {
+		return nil, err
 	}
 
 	// Load all data in a single query
@@ -347,6 +357,11 @@ func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) 
 
 	conn, err := getConnection(nodeName)
 	if err != nil {
+		return nil, err
+	}
+
+	tableName := fmt.Sprintf("%s.%s", schema, table)
+	if err := checkTableExists(ctx, conn, tableName); err != nil {
 		return nil, err
 	}
 

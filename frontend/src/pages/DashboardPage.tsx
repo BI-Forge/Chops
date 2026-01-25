@@ -5,11 +5,13 @@ import { MobileMenu } from '../components/MobileMenu';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { DashboardContent } from '../components/DashboardContent';
 import { useSidebar } from '../contexts/SidebarContext';
+import { useAlert } from '../contexts/AlertContext';
 import { metricsAPI } from '../services/metricsAPI';
 import type { NodeInfo } from '../types/metrics';
 
 export function DashboardPage() {
   const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
+  const { error: showError } = useAlert();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<string>('');
@@ -34,6 +36,7 @@ export function DashboardPage() {
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);
+        showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
       } finally {
         setLoadingNodes(false);
       }

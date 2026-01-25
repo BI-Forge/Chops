@@ -180,7 +180,7 @@ export function UsersPage() {
 
           {/* Main Content - Scrollable */}
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="p-6 space-y-6">
+            <div className="max-w-[1920px] mx-auto p-6 space-y-6">
               {/* Search and Filters */}
               <div className={`${
                 theme === 'light' 
@@ -229,6 +229,7 @@ export function UsersPage() {
                           setSearchTerm(e.target.value);
                           setCurrentPage(1);
                         }}
+                        autoComplete="off"
                         className={`w-full pl-10 pr-4 py-2.5 rounded-lg border ${
                           theme === 'light'
                             ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
@@ -311,6 +312,7 @@ export function UsersPage() {
         isOpen={!!selectedUser}
         onClose={() => setSelectedUser(null)}
         user={selectedUser}
+        selectedNode={selectedNode}
       />
 
       {/* Create User Modal */}
@@ -319,6 +321,7 @@ export function UsersPage() {
         onClose={() => setIsCreatingUser(false)}
         user={null}
         isNewUser={true}
+        selectedNode={selectedNode}
       />
 
       {/* Confirm Delete User Modal */}
@@ -340,6 +343,7 @@ export function UsersPage() {
           onClose={() => setUserToCopy(null)}
           user={userToCopy}
           isNewUser={false}
+          selectedNode={selectedNode}
         />
       )}
     </div>

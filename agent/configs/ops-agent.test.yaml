@@ -33,6 +33,7 @@ database:
         priority: 1
         metrics_schema: "ops"
         metrics_table: "metrics_snapshot"
+        backups_table: "ops.backups"
     
     # Global settings (applied to all nodes unless overridden)
     global_settings:

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Cpu, Database, HardDrive, Activity, FileText } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAlert } from '../contexts/AlertContext';
 import { metricsAPI } from '../services/metricsAPI';
 import type { SystemMetrics } from '../types/metrics';
 
@@ -125,6 +126,7 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
   const [loading, setLoading] = useState(true);
   const eventSourceRef = useRef<EventSource | null>(null);
   const { theme } = useTheme();
+  const { error: showError } = useAlert();
 
   // Load initial metrics and setup SSE stream
   useEffect(() => {
@@ -153,6 +155,7 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
           },
           (error) => {
             console.error('SSE error:', error);
+            showError('Connection Error', 'Lost connection to metrics stream. Reconnecting...', 5000);
             // Try to reconnect after delay
             setTimeout(() => {
               if (selectedNode) {
@@ -163,6 +166,7 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
         );
       } catch (error) {
         console.error('Failed to load metrics:', error);
+        showError('Failed to load metrics', 'Unable to fetch system metrics', 5000);
         setLoading(false);
       }
     };

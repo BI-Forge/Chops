@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { alertUtils } from '../utils/alertUtils';
 
 export type AlertType = 'success' | 'error' | 'warning' | 'info';
 
@@ -57,6 +58,14 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
   const info = useCallback((title: string, message?: string, duration?: number) => {
     addAlert({ type: 'info', title, message, duration });
   }, [addAlert]);
+
+  // Register alert functions globally for use in non-React contexts (e.g., API interceptors)
+  useEffect(() => {
+    alertUtils.setError(error);
+    alertUtils.setSuccess(success);
+    alertUtils.setWarning(warning);
+    alertUtils.setInfo(info);
+  }, [error, success, warning, info]);
 
   return (
     <AlertContext.Provider value={{ alerts, addAlert, removeAlert, success, error, warning, info }}>

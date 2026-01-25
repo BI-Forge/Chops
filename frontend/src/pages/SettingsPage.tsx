@@ -368,7 +368,7 @@ export default function SettingsPage({ onLogout, activePage, onPageChange }: Set
 
           {/* Main Content - Scrollable */}
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="p-6 space-y-6">
+            <div className="max-w-[1920px] mx-auto p-6 space-y-6">
               {/* Filters Section */}
               <div className={`${
                 theme === 'light' 

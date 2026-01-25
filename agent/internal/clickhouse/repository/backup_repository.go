@@ -10,18 +10,15 @@ import (
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-// BackupRepository executes reads against ClickHouse system.backups table
+// BackupRepository executes reads against ClickHouse backups table
 type BackupRepository struct {
 	manager     *clickhouse.Manager
 	logger      *logger.Logger
 	clusterName string
+	config      *config.Config
 }
-
-var backupsTableName = "ops.backups"
 
 const (
 	CreatingBackup  = "CREATING_BACKUP"
@@ -46,7 +43,27 @@ func NewBackupRepository(cfg *config.Config, log *logger.Logger) (*BackupReposit
 		manager:     manager,
 		logger:      log,
 		clusterName: cluster,
+		config:      cfg,
 	}, nil
+}
+
+// getBackupsTable returns backups table name for a specific node.
+// If nodeName is empty or node not found, returns default value.
+func (r *BackupRepository) getBackupsTable(nodeName string) string {
+	if r.config == nil || nodeName == "" {
+		return "ops.backups" // Default value
+	}
+
+	for _, node := range r.config.Database.ClickHouse.Nodes {
+		if node.Name == nodeName {
+			if node.BackupsTable != "" {
+				return node.BackupsTable
+			}
+			break
+		}
+	}
+
+	return "ops.backups" // Default value
 }
 
 // GetStats returns backup count statistics by status
@@ -56,13 +73,17 @@ func (r *BackupRepository) GetStats(ctx context.Context, node string) (apimodels
 		return apimodels.BackupStatsResponse{}, err
 	}
 
+	backupsTable := r.getBackupsTable(node)
+	if err := checkTableExists(ctx, conn, backupsTable); err != nil {
+		return apimodels.BackupStatsResponse{}, err
+	}
 	statsQuery := `
 		SELECT 
 			count() AS total,
 			countIf(status = '` + CreatingBackup + `') AS in_progress,
 			countIf(status = '` + BackupCreated + `') AS completed,
 			countIf(status = '` + BackupFailed + `' OR status = '` + BackupCancelled + `') AS failed
-		FROM ` + backupsTableName
+		FROM ` + backupsTable
 
 	rows, err := conn.Query(ctx, statsQuery)
 	if err != nil {
@@ -86,25 +107,15 @@ func (r *BackupRepository) GetStats(ctx context.Context, node string) (apimodels
 
 // GetInProgress returns list of backups in progress
 func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]chmodels.Backup, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, fmt.Errorf("cluster manager not available")
+	conn, err := getConnection(node)
+	if err != nil {
+		return nil, err
 	}
 
-	var conn driver.Conn
-	var err error
-	if node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(node)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for node %s: %w", node, err)
-		}
-	} else {
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection: %w", err)
-		}
+	backupsTable := r.getBackupsTable(node)
+	if err := checkTableExists(ctx, conn, backupsTable); err != nil {
+		return nil, err
 	}
-
 	query := `
 		SELECT 
 			id,
@@ -122,7 +133,7 @@ func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]ch
 			compressed_size,
 			files_read,
 			bytes_read
-		FROM ` + backupsTableName + ` 
+		FROM ` + backupsTable + ` 
 		WHERE status = '` + CreatingBackup + `'
 		ORDER BY start_time DESC
 	`
@@ -178,29 +189,19 @@ func (r *BackupRepository) GetInProgress(ctx context.Context, node string) ([]ch
 
 // GetCompleted returns list of completed backups with pagination
 func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit, offset int) ([]chmodels.Backup, uint64, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, 0, fmt.Errorf("cluster manager not available")
+	conn, err := getConnection(node)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	var conn driver.Conn
-	var err error
-	if node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(node)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to get connection for node %s: %w", node, err)
-		}
-	} else {
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to get connection: %w", err)
-		}
+	backupsTable := r.getBackupsTable(node)
+	if err := checkTableExists(ctx, conn, backupsTable); err != nil {
+		return nil, 0, err
 	}
-
 	// Get total count
 	countQuery := `
 		SELECT count()
-		FROM ` + backupsTableName + ` 
+		FROM ` + backupsTable + ` 
 		WHERE status = '` + BackupCancelled + `' OR status = '` + BackupCreated + `' OR status = '` + BackupFailed + `'
 	`
 
@@ -228,7 +229,7 @@ func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit,
 			compressed_size,
 			files_read,
 			bytes_read
-		FROM ` + backupsTableName + ` 
+		FROM ` + backupsTable + ` 
 		WHERE status = '` + BackupCancelled + `' OR status = '` + BackupCreated + `' OR status = '` + BackupFailed + `'
 		ORDER BY start_time DESC
 		LIMIT ? OFFSET ?
@@ -285,25 +286,18 @@ func (r *BackupRepository) GetCompleted(ctx context.Context, node string, limit,
 
 // GetByID returns a single backup by ID
 func (r *BackupRepository) GetByID(ctx context.Context, node, backupID string) (*chmodels.Backup, error) {
-	clusterManager := r.manager.GetClusterManager()
-	if clusterManager == nil {
-		return nil, fmt.Errorf("cluster manager not available")
+	conn, err := getConnection(node)
+	if err != nil {
+		return nil, err
 	}
 
-	var conn driver.Conn
-	var err error
-	if node != "" {
-		conn, _, err = clusterManager.GetConnectionByNodeName(node)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for node %s: %w", node, err)
-		}
-	} else {
-		conn, _, err = clusterManager.GetConnection()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connection: %w", err)
-		}
+	backupsTable := r.getBackupsTable(node)
+	if err := checkTableExists(ctx, conn, backupsTable); err != nil {
+		return nil, err
 	}
-
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
+		return nil, err
+	}
 	query := `
 		SELECT 
 			t1.id,
@@ -322,7 +316,7 @@ func (r *BackupRepository) GetByID(ctx context.Context, node, backupID string) (
 			t1.files_read,
 			t1.bytes_read,
 			t2.query
-		FROM ` + backupsTableName + ` AS t1
+		FROM ` + backupsTable + ` AS t1
 		LEFT JOIN system.query_log AS t2 ON t2.query_id = t1.query_id
 		WHERE id = ?
 		LIMIT 1

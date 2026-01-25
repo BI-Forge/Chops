@@ -556,7 +556,7 @@ export function TablesPage({ onLogout, activePage, onPageChange }: TablesPagePro
           <main className={`flex-1 overflow-y-auto custom-scrollbar ${
             theme === 'light' ? 'bg-gray-50/50' : 'bg-transparent'
           }`}>
-            <div className="p-6 space-y-6">
+            <div className="max-w-[1920px] mx-auto p-6 space-y-6">
               {/* Stats Cards */}
               <TablesStatsCards
                 totalTables={totalTables}

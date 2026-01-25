@@ -9,6 +9,7 @@ import { InProgressBackups } from '../components/backups/InProgressBackups';
 import { CompletedBackups } from '../components/backups/CompletedBackups';
 import { useTheme } from '../contexts/ThemeContext';
 import { useSidebar } from '../contexts/SidebarContext';
+import { useAlert } from '../contexts/AlertContext';
 import { backupAPI } from '../services/backupAPI';
 import { metricsAPI } from '../services/metricsAPI';
 import type { Backup } from '../types/backup';
@@ -17,6 +18,7 @@ import type { NodeInfo } from '../types/metrics';
 export function BackupsPage() {
   const { theme } = useTheme();
   const { sidebarCollapsed, setSidebarCollapsed } = useSidebar();
+  const { error: showError } = useAlert();
   const [selectedBackup, setSelectedBackup] = useState<Backup | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -62,6 +64,7 @@ export function BackupsPage() {
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);
+        showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
       } finally {
         setLoadingNodes(false);
       }
@@ -91,6 +94,7 @@ export function BackupsPage() {
         });
       } catch (error) {
         console.error('Failed to load backup stats:', error);
+        showError('Failed to load backup stats', 'Unable to fetch backup statistics', 5000);
       }
     };
 
@@ -107,6 +111,7 @@ export function BackupsPage() {
         setInProgressBackups(backups);
       } catch (error) {
         console.error('Failed to load in-progress backups:', error);
+        showError('Failed to load backups', 'Unable to fetch in-progress backups', 5000);
       }
     };
 
@@ -143,6 +148,7 @@ export function BackupsPage() {
         }));
       } catch (error) {
         console.error('Failed to load completed backups:', error);
+        showError('Failed to load backups', 'Unable to fetch completed backups', 5000);
       } finally {
         setLoadingCompleted(false);
       }
@@ -161,6 +167,7 @@ export function BackupsPage() {
         setSelectedBackup(backup);
       } catch (error) {
         console.error('Failed to load backup details:', error);
+        showError('Failed to load backup details', 'Unable to fetch backup information', 5000);
       }
     };
 
@@ -211,6 +218,7 @@ export function BackupsPage() {
       setTimeout(() => setCopiedId(null), 2000);
     } catch (err) {
       console.error('Failed to copy text: ', err);
+      showError('Copy Failed', 'Failed to copy text to clipboard', 3000);
     }
     
     document.body.removeChild(textArea);
@@ -268,7 +276,7 @@ export function BackupsPage() {
           <main className={`flex-1 overflow-y-auto custom-scrollbar ${
             theme === 'light' ? 'bg-gray-50/50' : 'bg-transparent'
           }`}>
-            <div className="p-6 space-y-6">
+            <div className="max-w-[1920px] mx-auto p-6 space-y-6">
               {/* Stats Cards */}
               <BackupStatsCards
                 totalCount={stats.total}

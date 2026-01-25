@@ -16,6 +16,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAlert } from '../contexts/AlertContext';
 
 interface InfoCardProps {
   label: string;
@@ -84,6 +85,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
   const [serverInfo, setServerInfo] = useState<ServerInfoType | null>(null);
   const [loading, setLoading] = useState(false);
   const { theme } = useTheme();
+  const { error: showError } = useAlert();
   
   // Load server info when node changes
   useEffect(() => {
@@ -99,6 +101,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
         setServerInfo(info);
       } catch (error) {
         console.error('Failed to load server info:', error);
+        showError('Failed to load server info', 'Unable to fetch server information', 5000);
         setServerInfo(null);
       } finally {
         setLoading(false);

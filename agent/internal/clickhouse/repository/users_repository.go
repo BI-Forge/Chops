@@ -41,6 +41,11 @@ func (r *UsersRepository) GetUsers(ctx context.Context, nodeName string) ([]stri
 		return nil, err
 	}
 
+	// Check if system.query_log exists (used as fallback)
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
+		return nil, err
+	}
+
 	// Try SHOW USERS first - standard command
 	query := `SHOW USERS`
 
@@ -107,6 +112,16 @@ func (r *UsersRepository) getUsersFromQueryLog(ctx context.Context, conn driver.
 func (r *UsersRepository) GetUsersList(ctx context.Context, nodeName string) ([]models.UserList, error) {
 	conn, err := getConnection(nodeName)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.users"); err != nil {
+		return nil, err
+	}
+	if err := checkTableExists(ctx, conn, "system.grants"); err != nil {
+		return nil, err
+	}
+	if err := checkTableExists(ctx, conn, "system.settings_profile_elements"); err != nil {
 		return nil, err
 	}
 
@@ -197,4 +212,132 @@ GROUP BY users.name,
 	})
 
 	return users, nil
+}
+
+// GetUserBasicInfo returns basic information about a specific user by name.
+func (r *UsersRepository) GetUserBasicInfo(ctx context.Context, nodeName, userName string) (*models.UserBasicInfo, error) {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.users"); err != nil {
+		return nil, err
+	}
+	if err := checkTableExists(ctx, conn, "system.grants"); err != nil {
+		return nil, err
+	}
+	if err := checkTableExists(ctx, conn, "system.settings_profile_elements"); err != nil {
+		return nil, err
+	}
+
+	query := `SELECT
+    users.name,
+    users.id,
+    ups.profile,
+    ups.user_settings,
+    ups.profile_settings,
+    users.storage,
+    grants.role_name,
+    arrayStringConcat([grants.database, grants.table, grants.column], '.'),
+    groupArray(grants.access_type) as grants
+FROM system.users
+LEFT JOIN system.grants ON users.name = grants.user_name
+LEFT JOIN (
+    SELECT spe.user_name as user_name, spe.inherit_profile as profile, user_setting.settings as user_settings, profile_setting.settings as profile_settings
+    FROM system.settings_profile_elements AS spe
+    LEFT JOIN (
+        SELECT user_name, groupArray(setting_name) as settings
+        FROM system.settings_profile_elements
+        WHERE setting_name IS NOT NULL AND user_name IS NOT NULL
+        GROUP BY user_name
+    ) as user_setting ON spe.user_name = user_setting.user_name
+    LEFT JOIN (
+        SELECT profile_name, mapFromArrays(groupArray(setting_name), groupArray(value)) as settings
+        FROM system.settings_profile_elements
+        WHERE setting_name IS NOT NULL AND profile_name IS NOT NULL AND value IS NOT NULL
+        GROUP BY profile_name
+    ) as profile_setting ON spe.inherit_profile = profile_setting.profile_name
+    WHERE spe.user_name IS NOT NULL AND spe.inherit_profile IS NOT NULL
+) AS ups ON ups.user_name = users.name
+WHERE users.name = ?
+GROUP BY users.name,
+         users.id,
+         users.storage,
+         grants.role_name,
+         ups.profile,
+         ups.user_settings,
+         ups.profile_settings,
+         grants.database,
+         grants.table,
+         grants.column`
+
+	rows, err := conn.Query(ctx, query, userName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user basic info: %w", err)
+	}
+	defer rows.Close()
+
+	// Map to aggregate grants per user
+	userMap := make(map[string]*models.UserBasicInfo)
+
+	for rows.Next() {
+		var name, id, profile, storage, roleName, scope sql.NullString
+		var userSettings []string
+		var profileSettings map[string]string
+		var grants []string
+
+		if err := rows.Scan(&name, &id, &profile, &userSettings, &profileSettings, &storage, &roleName, &scope, &grants); err != nil {
+			return nil, fmt.Errorf("failed to scan user detail: %w", err)
+		}
+
+		userKey := name.String
+		if userKey == "" {
+			continue
+		}
+
+		// Check if user already exists in map
+		if user, exists := userMap[userKey]; exists {
+			// Merge grants
+			existingGrants := make(map[string]bool)
+			for _, g := range user.Grants {
+				existingGrants[g] = true
+			}
+			for _, g := range grants {
+				if !existingGrants[g] {
+					user.Grants = append(user.Grants, g)
+				}
+			}
+		} else {
+			// Create new user basic info item
+			userBasicInfo := &models.UserBasicInfo{
+				Name:            name.String,
+				ID:              id.String,
+				Profile:         profile.String,
+				UserSettings:    userSettings,
+				ProfileSettings: profileSettings,
+				Storage:         storage.String,
+				RoleName:        roleName.String,
+				Scope:           scope.String,
+				Grants:          grants,
+			}
+			userMap[userKey] = userBasicInfo
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("user basic info query iteration failed: %w", err)
+	}
+
+	// Check if user was found
+	if len(userMap) == 0 {
+		return nil, fmt.Errorf("user %s not found", userName)
+	}
+
+	// Return the first (and should be only) user
+	for _, user := range userMap {
+		return user, nil
+	}
+
+	return nil, fmt.Errorf("user %s not found", userName)
 }

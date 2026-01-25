@@ -5,6 +5,7 @@ import { useAlert } from '../../contexts/AlertContext';
 import { AutocompleteInput } from '../AutocompleteInput';
 import { AutocompleteInputFlex } from '../AutocompleteInputFlex';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
+import { usersAPI } from '../../services/usersAPI';
 import type { User } from './UsersTable';
 
 interface UserDetailsModalProps {
@@ -12,11 +13,16 @@ interface UserDetailsModalProps {
   onClose: () => void;
   user: User | null;
   isNewUser?: boolean;
+  selectedNode?: string;
 }
 
-export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: UserDetailsModalProps) {
+export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, selectedNode }: UserDetailsModalProps) {
   const { theme } = useTheme();
-  const { success } = useAlert();
+  const { success, error: showError } = useAlert();
+  
+  // State for user basic info from API
+  const [userBasicInfo, setUserBasicInfo] = useState<{ id: string; profile: string; storage: string; role_name: string; grants: string[]; user_settings?: string[]; profile_settings?: Record<string, string>; scope?: string } | null>(null);
+  const [loadingBasicInfo, setLoadingBasicInfo] = useState(false);
   
   // Mock data for autocomplete
   const availableDatabases = ['analytics', 'production', 'staging', 'development', 'logs', 'metrics', 'system', 'backup'];
@@ -80,7 +86,59 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: U
   const [selectedGrantIndex, setSelectedGrantIndex] = useState(-1);
   const [selectedSettingIndex, setSelectedSettingIndex] = useState(-1);
 
-  // Initialize editable states when user changes
+  // Load user basic info from API when modal opens
+  useEffect(() => {
+    if (isOpen && !isNewUser && user && user.name) {
+      const loadUserBasicInfo = async () => {
+        try {
+          setLoadingBasicInfo(true);
+          const basicInfo = await usersAPI.getUserBasicInfo(user.name, selectedNode);
+          setUserBasicInfo({
+            id: basicInfo.id,
+            profile: basicInfo.profile,
+            storage: basicInfo.storage,
+            role_name: basicInfo.role_name,
+            grants: basicInfo.grants || [],
+            user_settings: basicInfo.user_settings,
+            profile_settings: basicInfo.profile_settings,
+            scope: basicInfo.scope,
+          });
+          // Update editable fields with API data
+          setEditableName(basicInfo.name);
+          setEditableRole(basicInfo.role_name || '');
+          setEditableGrants(basicInfo.grants || []);
+        } catch (err) {
+          console.error('Failed to load user basic info:', err);
+          showError('Failed to load user information');
+          // Fallback to user data from props
+          setUserBasicInfo({
+            id: user.id,
+            profile: user.profile || '',
+            storage: user.storage || '',
+            role_name: user.role_name || '',
+            grants: user.grants || [],
+          });
+        } finally {
+          setLoadingBasicInfo(false);
+        }
+      };
+      
+      loadUserBasicInfo();
+    } else if (isOpen && !isNewUser && user) {
+      // Fallback to user data from props if no selectedNode
+      setUserBasicInfo({
+        id: user.id,
+        profile: user.profile || '',
+        storage: user.storage || '',
+        role_name: user.role_name || '',
+        grants: user.grants || [],
+      });
+    } else {
+      setUserBasicInfo(null);
+    }
+  }, [isOpen, user, isNewUser, selectedNode, showError]);
+
+  // Initialize editable states when user changes (but don't override API-loaded data)
   useEffect(() => {
     if (isNewUser) {
       // New user - start with empty fields
@@ -97,22 +155,31 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: U
       setNewDatabase('');
       setNewTable('');
       setNewColumn('');
-    } else if (user) {
-      setEditableName(user.name);
-      setEditablePassword('');
-      setShowPassword(false);
-      setEditableRole(user.role_name || '');
-      setNewRole('');
-      setEditableDatabases(user.database ? [user.database] : []);
-      setEditableTables(user.table ? [user.table] : []);
-      setEditableColumns(user.column ? [user.column] : []);
-      setEditableGrants([...user.grants]);
-      setEditableSettings([]);
-      setNewDatabase('');
-      setNewTable('');
-      setNewColumn('');
+    } else if (user && !loadingBasicInfo) {
+      // Only initialize if we're not currently loading from API
+      // Use API data if available, otherwise use props data
+      if (!userBasicInfo) {
+        setEditableName(user.name);
+        setEditablePassword('');
+        setShowPassword(false);
+        setEditableRole(user.role_name || '');
+        setNewRole('');
+        setEditableDatabases(user.database ? [user.database] : []);
+        setEditableTables(user.table ? [user.table] : []);
+        setEditableColumns(user.column ? [user.column] : []);
+        setEditableGrants([...user.grants]);
+        setEditableSettings([]);
+        setNewDatabase('');
+        setNewTable('');
+        setNewColumn('');
+      } else {
+        // Update grants from API data if available
+        if (userBasicInfo.grants && userBasicInfo.grants.length > 0) {
+          setEditableGrants([...userBasicInfo.grants]);
+        }
+      }
     }
-  }, [user, isNewUser]);
+  }, [user, isNewUser, userBasicInfo, loadingBasicInfo]);
 
   // Block body scroll when modal is open
   useEffect(() => {
@@ -356,29 +423,18 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: U
                     <Lock className="w-4 h-4" />
                     Password
                   </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={editablePassword}
-                      onChange={(e) => setEditablePassword(e.target.value)}
-                      placeholder="Enter new password..."
-                      className={`w-full px-3 py-2 rounded-lg border ${
-                        theme === 'light'
-                          ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
-                          : 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500 focus:border-yellow-500/50'
-                      } focus:outline-none transition-colors text-sm`}
-                    />
-                    <button
-                      onClick={() => setShowPassword(!showPassword)}
-                      className={`absolute right-3 top-1/2 transform -translate-y-1/2 ${
-                        theme === 'light'
-                          ? 'text-gray-400 hover:text-amber-500'
-                          : 'text-gray-500 hover:text-yellow-500'
-                      }`}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  <input
+                    type="text"
+                    value={editablePassword}
+                    onChange={(e) => setEditablePassword(e.target.value)}
+                    placeholder="Enter new password..."
+                    autoComplete="off"
+                    className={`w-full px-3 py-2 rounded-lg border ${
+                      theme === 'light'
+                        ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
+                        : 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500 focus:border-yellow-500/50'
+                    } focus:outline-none transition-colors text-sm`}
+                  />
                 </div>
 
                 {/* User ID (Read-only) - Hide for new users */}
@@ -391,7 +447,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: U
                       User ID
                     </div>
                     <p className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} text-sm font-mono break-all`}>
-                      {user?.id}
+                      {loadingBasicInfo ? 'Loading...' : (userBasicInfo?.id || user?.id || 'N/A')}
                     </p>
                   </div>
                 )}
@@ -406,17 +462,33 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: U
                       Storage
                     </div>
                     <p className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} text-sm`}>
-                      {user?.storage}
+                      {loadingBasicInfo ? 'Loading...' : (userBasicInfo?.storage || user?.storage || 'N/A')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Profile (Read-only) - Hide for new users */}
+                {!isNewUser && userBasicInfo?.profile && (
+                  <div className={`${
+                    theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
+                  } border rounded-xl p-4`}>
+                    <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
+                      <Shield className="w-4 h-4" />
+                      Profile
+                    </div>
+                    <p className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} text-sm`}>
+                      {loadingBasicInfo ? 'Loading...' : (userBasicInfo.profile || 'N/A')}
                     </p>
                   </div>
                 )}
 
                 {/* Editable Role */}
-                <div className={`md:col-span-2 ${
+                <div className={`${
                   theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
                 } border rounded-xl p-4`}>
-                  <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
-                    Role (single role only)
+                  <label className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
+                    <Award className="w-4 h-4" />
+                    Role
                   </label>
                   <AutocompleteInput
                     value={newRole}
@@ -965,29 +1037,18 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false }: U
                         <Lock className="w-4 h-4" />
                         Password
                       </label>
-                      <div className="relative">
-                        <input
-                          type={showCopyPassword ? 'text' : 'password'}
-                          value={copyPassword}
-                          onChange={(e) => setCopyPassword(e.target.value)}
-                          placeholder="Enter new password..."
-                          className={`w-full px-3 py-2 rounded-lg border ${
-                            theme === 'light'
-                              ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
-                              : 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500 focus:border-yellow-500/50'
-                          } focus:outline-none transition-colors text-sm`}
-                        />
-                        <button
-                          onClick={() => setShowCopyPassword(!showCopyPassword)}
-                          className={`absolute right-3 top-1/2 transform -translate-y-1/2 ${
-                            theme === 'light'
-                              ? 'text-gray-400 hover:text-amber-500'
-                              : 'text-gray-500 hover:text-yellow-500'
-                          }`}
-                        >
-                          {showCopyPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
+                      <input
+                        type="text"
+                        value={copyPassword}
+                        onChange={(e) => setCopyPassword(e.target.value)}
+                        placeholder="Enter new password..."
+                        autoComplete="off"
+                        className={`w-full px-3 py-2 rounded-lg border ${
+                          theme === 'light'
+                            ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
+                            : 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500 focus:border-yellow-500/50'
+                        } focus:outline-none transition-colors text-sm`}
+                      />
                     </div>
                   </div>
                 </div>

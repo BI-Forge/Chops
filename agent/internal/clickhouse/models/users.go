@@ -9,3 +9,16 @@ type UserList struct {
 	RoleName string   `json:"role_name"`
 	Grants   []string `json:"grants"`
 }
+
+// UserBasicInfo represents detailed user information including settings and scope.
+type UserBasicInfo struct {
+	Name            string            `json:"name"`
+	ID              string            `json:"id"`
+	Profile         string            `json:"profile"`
+	UserSettings    []string          `json:"user_settings"`
+	ProfileSettings map[string]string `json:"profile_settings"`
+	Storage         string            `json:"storage"`
+	RoleName        string            `json:"role_name"`
+	Scope           string            `json:"scope"`
+	Grants          []string          `json:"grants"`
+}

@@ -73,6 +73,10 @@ func (r *QueryLogRepository) List(ctx context.Context, filter QueryLogFilter) ([
 		return nil, 0, err
 	}
 
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
+		return nil, 0, err
+	}
+
 	whereClause, args := r.buildWhereClause(filter)
 
 	dataQuery := fmt.Sprintf(`
@@ -255,6 +259,10 @@ func (r *QueryLogRepository) count(ctx context.Context, filter QueryLogFilter, w
 		return 0, err
 	}
 
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
+		return 0, err
+	}
+
 	countQuery := fmt.Sprintf(`
 SELECT count()
 FROM system.query_log
@@ -284,6 +292,13 @@ WHERE %s`, whereClause)
 func (r *QueryLogRepository) GetStats(ctx context.Context, filter QueryLogFilter) (apimodels.QueryLogStatsResponse, error) {
 	conn, err := getConnection(filter.Node)
 	if err != nil {
+		return apimodels.QueryLogStatsResponse{}, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
+		return apimodels.QueryLogStatsResponse{}, err
+	}
+	if err := checkTableExists(ctx, conn, "system.processes"); err != nil {
 		return apimodels.QueryLogStatsResponse{}, err
 	}
 
@@ -480,6 +495,10 @@ type QueryLoadEntry struct {
 func (r *QueryLogRepository) GetLoadData(ctx context.Context, filter QueryLogFilter) ([]QueryLoadEntry, error) {
 	conn, err := getConnection(filter.Node)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
 		return nil, err
 	}
 

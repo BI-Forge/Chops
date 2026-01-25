@@ -46,6 +46,10 @@ func (r *ProcessRepository) GetCurrentProcesses(ctx context.Context, nodeName st
 		return nil, err
 	}
 
+	if err := checkTableExists(ctx, conn, "system.processes"); err != nil {
+		return nil, err
+	}
+
 	whereClause, args := r.buildWhereClause(nodeName)
 
 	query := fmt.Sprintf(`

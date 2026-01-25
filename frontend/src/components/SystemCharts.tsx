@@ -13,6 +13,7 @@ import {
 import { Cpu, Database, HardDrive, FileText, RefreshCw, Clock, Calendar } from 'lucide-react';
 import { CustomSelect } from './CustomSelect';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAlert } from '../contexts/AlertContext';
 import { metricsAPI } from '../services/metricsAPI';
 import type { MetricSeriesPoint } from '../types/metrics';
 
@@ -166,6 +167,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
   const [memoryTotalGB, setMemoryTotalGB] = useState<number>(0);
   const [diskTotalGB, setDiskTotalGB] = useState<number>(1000);
   const { theme } = useTheme();
+  const { error: showError } = useAlert();
 
   // Save period to sessionStorage when it changes
   const handlePeriodChange = (newPeriod: string) => {
@@ -231,6 +233,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
       setData(chartData);
     } catch (error) {
       console.error('Failed to load chart data:', error);
+      showError('Failed to load charts', 'Unable to fetch chart data from the server', 5000);
       setData([]);
     } finally {
       setIsRefreshing(false);

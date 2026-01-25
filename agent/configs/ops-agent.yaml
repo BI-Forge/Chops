@@ -33,6 +33,7 @@ database:
         priority: 1
         metrics_schema: "ops"
         metrics_table: "metrics_snapshot"
+        backups_table: "system.backups"
       - name: "primary2"
         host: "chops_ch_2"
         port: 9000
@@ -43,6 +44,7 @@ database:
         priority: 2
         metrics_schema: "ops"
         metrics_table: "metrics_snapshot"
+        backups_table: "system.backups"
       # Example of additional nodes with different credentials:
       # - name: "replica-1"
       #   host: "ch-replica-1.example.com"

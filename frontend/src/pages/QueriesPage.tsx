@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, CheckCircle, XCircle, Search, User, Calendar, Filter, Play, Square, Eye, ChevronLeft, ChevronRight, Database, Clock, TrendingUp, AlertTriangle, Copy, Check, Cpu, HardDrive, FileText, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { QueryModal } from '../components/QueryModal';
 import { BackgroundPattern } from '../components/BackgroundPattern';
 import { Sidebar } from '../components/Sidebar';
@@ -22,7 +21,7 @@ interface Query {
   query: string;
   user: string;
   database: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'running';
   startTime: string;
   endTime?: string;
   duration: string;
@@ -90,7 +89,7 @@ export function QueriesPage() {
   const [cpuData, setCpuData] = useState<{ time: string; usage: number }[]>([]);
   const statsEventSourceRef = useRef<EventSource | null>(null);
   const processesEventSourceRef = useRef<EventSource | null>(null);
-  const { success, error } = useAlert();
+  const { success, error: showError } = useAlert();
 
   // Save filters to sessionStorage when they change
   useEffect(() => {
@@ -142,8 +141,9 @@ export function QueriesPage() {
           setSelectedNode(availableNodes[0].name);
           sessionStorage.setItem('selectedNode', availableNodes[0].name);
         }
-      } catch (error) {
-        console.error('Failed to load nodes:', error);
+      } catch (err) {
+        console.error('Failed to load nodes:', err);
+        showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
       } finally {
         setLoadingNodes(false);
       }
@@ -163,8 +163,9 @@ export function QueriesPage() {
       try {
         const response = await queryAPI.getUsers(selectedNode);
         setUsers(response.users || []);
-      } catch (error) {
-        console.error('Failed to load users:', error);
+      } catch (err) {
+        console.error('Failed to load users:', err);
+        showError('Failed to load users', 'Unable to fetch users list', 5000);
         setUsers([]);
       }
     };
@@ -215,8 +216,9 @@ export function QueriesPage() {
           (updatedStats) => {
             setQueryStats(updatedStats);
           },
-          (error) => {
-            console.error('SSE error for query stats:', error);
+          (err) => {
+            console.error('SSE error for query stats:', err);
+            showError('Connection Error', 'Lost connection to query stats stream. Reconnecting...', 5000);
             // Try to reconnect after delay
             setTimeout(() => {
               if (selectedNode) {
@@ -225,8 +227,9 @@ export function QueriesPage() {
             }, 5000);
           }
         );
-      } catch (error) {
-        console.error('Failed to load query stats:', error);
+      } catch (err) {
+        console.error('Failed to load query stats:', err);
+        showError('Failed to load stats', 'Unable to fetch query statistics', 5000);
       }
     };
 
@@ -273,8 +276,9 @@ export function QueriesPage() {
           (updatedProcesses) => {
             setRunningProcesses(updatedProcesses);
           },
-          (error) => {
-            console.error('SSE error for processes:', error);
+          (err) => {
+            console.error('SSE error for processes:', err);
+            showError('Connection Error', 'Lost connection to processes stream. Reconnecting...', 5000);
             // Try to reconnect after delay
             setTimeout(() => {
               if (selectedNode) {
@@ -283,8 +287,9 @@ export function QueriesPage() {
             }, 5000);
           }
         );
-      } catch (error) {
-        console.error('Failed to load processes:', error);
+      } catch (err) {
+        console.error('Failed to load processes:', err);
+        showError('Failed to load processes', 'Unable to fetch running processes', 5000);
         setLoadingProcesses(false);
         setRunningProcesses([]);
       }
@@ -348,6 +353,7 @@ export function QueriesPage() {
       }
     } catch (err) {
       console.error('Failed to load chart data:', err);
+      showError('Failed to load charts', 'Unable to fetch chart data', 5000);
     }
   };
 
@@ -474,7 +480,7 @@ export function QueriesPage() {
       console.error('Failed to load query log:', err);
       setQueryLog([]);
       setQueryLogPagination({ total: 0, limit: parseInt(recordsPerPage), offset: 0 });
-      error('Load Failed', 'Failed to load query log', 3000);
+      showError('Load Failed', 'Failed to load query log', 3000);
     } finally {
       setLoadingQueryLog(false);
     }
@@ -707,14 +713,14 @@ export function QueriesPage() {
           success('SQL Copied', 'Query copied to clipboard successfully', 3000);
         }).catch(() => {
           fallbackCopyTextToClipboard(query, queryId);
-          error('Copy Failed', 'Failed to copy query to clipboard', 3000);
+          showError('Copy Failed', 'Failed to copy query to clipboard', 3000);
         });
       } else {
         fallbackCopyTextToClipboard(query, queryId);
       }
     } catch (err) {
       fallbackCopyTextToClipboard(query, queryId);
-      error('Copy Failed', 'Failed to copy query to clipboard', 3000);
+      showError('Copy Failed', 'Failed to copy query to clipboard', 3000);
     }
   };
 
@@ -735,7 +741,7 @@ export function QueriesPage() {
       success('SQL Copied', 'Query copied to clipboard successfully', 3000);
     } catch (err) {
       console.error('Failed to copy text: ', err);
-      error('Copy Failed', 'Failed to copy query to clipboard', 3000);
+      showError('Copy Failed', 'Failed to copy query to clipboard', 3000);
     }
     
     document.body.removeChild(textArea);
@@ -748,7 +754,7 @@ export function QueriesPage() {
 
   const handleStopQuery = async (queryId: string) => {
     if (!selectedNode) {
-      error('No Node Selected', 'Please select a node to stop the query', 3000);
+      showError('No Node Selected', 'Please select a node to stop the query', 3000);
       return;
     }
 
@@ -757,7 +763,7 @@ export function QueriesPage() {
       success('Query Stopped', `Query ${queryId} has been stopped successfully`, 3000);
     } catch (err) {
       console.error('Failed to stop query:', err);
-      error('Stop Failed', `Failed to stop query ${queryId}`, 3000);
+      showError('Stop Failed', `Failed to stop query ${queryId}`, 3000);
     }
   };
 
@@ -835,7 +841,7 @@ export function QueriesPage() {
 
           {/* Main Content */}
           <main className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="p-6 space-y-6 animate-page-enter">
+            <div className="max-w-[1920px] mx-auto p-6 space-y-6 animate-page-enter">
               {/* Stats Cards */}
               <StatsCards
                 runningCount={runningQueries.length}

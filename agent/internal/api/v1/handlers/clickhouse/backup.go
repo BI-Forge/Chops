@@ -1,4 +1,4 @@
-package handlers
+package clickhouse
 
 import (
 	"context"
@@ -159,3 +159,4 @@ func (h *BackupHandler) GetByID(c *gin.Context) {
 
 	c.JSON(http.StatusOK, backup)
 }
+
