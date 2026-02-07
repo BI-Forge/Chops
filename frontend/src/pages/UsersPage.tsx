@@ -64,36 +64,36 @@ export function UsersPage() {
   }, [showError]);
 
   // Load users from API
-  useEffect(() => {
+  const loadUsers = async () => {
     if (!selectedNode) {
       setUsers([]);
       setLoading(false);
       return;
     }
 
-    const loadUsers = async () => {
-      try {
-        setLoading(true);
-        const usersList = await usersAPI.getUsersList(selectedNode);
-        // Map API response to User interface
-        const mappedUsers: User[] = usersList.map(user => ({
-          name: user.name,
-          id: user.id,
-          profile: user.profile || '',
-          storage: user.storage || '',
-          role_name: user.role_name || '',
-          grants: user.grants || [],
-        }));
-        setUsers(mappedUsers);
-      } catch (error) {
-        console.error('Failed to load users:', error);
-        showError('Failed to load users');
-        setUsers([]);
-      } finally {
-        setLoading(false);
-      }
-    };
+    try {
+      setLoading(true);
+      const usersList = await usersAPI.getUsersList(selectedNode);
+      // Map API response to User interface
+      const mappedUsers: User[] = usersList.map(user => ({
+        name: user.name,
+        id: user.id,
+        profile: user.profile || '',
+        storage: user.storage || '',
+        role_name: user.role_name || '',
+        grants: user.grants || [],
+      }));
+      setUsers(mappedUsers);
+    } catch (error) {
+      console.error('Failed to load users:', error);
+      showError('Failed to load users');
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadUsers();
   }, [selectedNode, showError]);
 
@@ -313,6 +313,7 @@ export function UsersPage() {
         onClose={() => setSelectedUser(null)}
         user={selectedUser}
         selectedNode={selectedNode}
+        onRefreshUsers={loadUsers}
       />
 
       {/* Create User Modal */}
@@ -322,6 +323,7 @@ export function UsersPage() {
         user={null}
         isNewUser={true}
         selectedNode={selectedNode}
+        onRefreshUsers={loadUsers}
       />
 
       {/* Confirm Delete User Modal */}
@@ -344,6 +346,7 @@ export function UsersPage() {
           user={userToCopy}
           isNewUser={false}
           selectedNode={selectedNode}
+          onRefreshUsers={loadUsers}
         />
       )}
     </div>

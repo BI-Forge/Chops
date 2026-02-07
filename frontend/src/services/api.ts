@@ -16,19 +16,51 @@ const api = axios.create({
   timeout: 10000, // 10 second timeout
 })
 
+// Helper function to extract notification message from response data
+const extractNotificationMessage = (data: any): { message?: string; error?: string } => {
+  if (!data || typeof data !== 'object') {
+    return {};
+  }
+
+  // Check for various possible message fields
+  const message = data.message || data.error_message || data.errorMessage || data.msg;
+  const error = data.error || data.error_msg || data.errorMsg;
+
+  return { message, error };
+};
+
 // Add retry interceptor for network errors and timeouts
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Check for success messages in successful responses (200-299)
+    if (response.status >= 200 && response.status < 300) {
+      const { message } = extractNotificationMessage(response.data);
+      if (message) {
+        alertUtils.success('Success', message, 5000);
+      }
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     const config = (error.config || {}) as ExtendedAxiosRequestConfig
     const retryCount = config._retryCount ?? 0
 
     // Handle client errors (4xx) - don't retry, show error immediately
     if (error.response && error.response.status >= 400 && error.response.status < 500) {
-      const errorMessage = (error.response.data as any)?.message || 'Error';
+      const { message, error: errorField } = extractNotificationMessage(error.response.data);
+      const errorMessage = message || errorField || 'Error';
       const statusText = error.response.statusText || `Error ${error.response.status}`;
       alertUtils.error(statusText, errorMessage, 5000);
       return Promise.reject(error)
+    }
+
+    // Skip retry if explicitly disabled (e.g., for profile updates to prevent duplicate requests)
+    if ((config as any)._skipRetry) {
+      const { message, error: errorField } = extractNotificationMessage(error.response?.data || {});
+      const errorMessage = message || errorField || 'Error';
+      const statusText = error.response?.statusText || `Error ${error.response?.status || 'Unknown'}`;
+      alertUtils.error(statusText, errorMessage, 5000);
+      return Promise.reject(error);
     }
 
     // Handle server errors (5xx) - retry up to 3 times
@@ -42,7 +74,8 @@ api.interceptors.response.use(
         return api(config)
       } else {
         // All retries exhausted, show error
-        const errorMessage = (error.response.data as any)?.message || 'Error';
+        const { message, error: errorField } = extractNotificationMessage(error.response.data);
+        const errorMessage = message || errorField || 'Error';
         const statusText = error.response.statusText || `Error ${error.response.status}`;
         alertUtils.error(statusText, errorMessage, 5000);
         return Promise.reject(error)

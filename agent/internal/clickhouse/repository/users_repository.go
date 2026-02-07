@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/clickhouse/models"
@@ -214,8 +215,8 @@ GROUP BY users.name,
 	return users, nil
 }
 
-// GetUserBasicInfo returns basic information about a specific user by name.
-func (r *UsersRepository) GetUserBasicInfo(ctx context.Context, nodeName, userName string) (*models.UserBasicInfo, error) {
+// GetUserDetails returns basic information about a specific user by name.
+func (r *UsersRepository) GetUserDetails(ctx context.Context, nodeName, userName string) (*models.UserDetails, error) {
 	conn, err := getConnection(nodeName)
 	if err != nil {
 		return nil, err
@@ -279,7 +280,7 @@ GROUP BY users.name,
 	defer rows.Close()
 
 	// Map to aggregate grants per user
-	userMap := make(map[string]*models.UserBasicInfo)
+	userMap := make(map[string]*models.UserDetails)
 
 	for rows.Next() {
 		var name, id, profile, storage, roleName, scope sql.NullString
@@ -310,7 +311,7 @@ GROUP BY users.name,
 			}
 		} else {
 			// Create new user basic info item
-			userBasicInfo := &models.UserBasicInfo{
+			userBasicInfo := &models.UserDetails{
 				Name:            name.String,
 				ID:              id.String,
 				Profile:         profile.String,
@@ -340,4 +341,211 @@ GROUP BY users.name,
 	}
 
 	return nil, fmt.Errorf("user %s not found", userName)
+}
+
+// RenameUser renames a ClickHouse user from oldName to newName.
+func (r *UsersRepository) RenameUser(ctx context.Context, nodeName, oldName, newName string) error {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
+	}
+
+	// Validate input
+	if oldName == "" {
+		return fmt.Errorf("old user name cannot be empty")
+	}
+	if newName == "" {
+		return fmt.Errorf("new user name cannot be empty")
+	}
+
+	// If names are the same, no update needed
+	if oldName == newName {
+		return nil
+	}
+
+	// Check if user exists before renaming and get user details
+	userDetails, err := r.GetUserDetails(ctx, nodeName, oldName)
+	if err != nil {
+		return fmt.Errorf("user %s not found: %w", oldName, err)
+	}
+
+	// Check if user is stored in users.xml file (cannot be renamed)
+	if userDetails.Storage == "users_xml" {
+		return fmt.Errorf("cannot rename user %s: user is defined in users.xml file on the server", oldName)
+	}
+
+	// Escape backticks in user names for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Execute ALTER USER RENAME TO command
+	query := fmt.Sprintf("ALTER USER `%s` RENAME TO `%s`", escapeIdentifier(oldName), escapeIdentifier(newName))
+
+	if err := conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to rename user from %s to %s: %w", oldName, newName, err)
+	}
+
+	if r.logger != nil {
+		r.logger.Infof("Successfully renamed user from %s to %s on node %s", oldName, newName, nodeName)
+	}
+
+	return nil
+}
+
+// CreateUser creates a new ClickHouse user with specified name and password.
+func (r *UsersRepository) CreateUser(ctx context.Context, nodeName, userName, password string) error {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
+	}
+
+	// Validate input
+	if userName == "" {
+		return fmt.Errorf("user name cannot be empty")
+	}
+	if password == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	// Check if user already exists
+	_, err = r.GetUserDetails(ctx, nodeName, userName)
+	if err == nil {
+		return fmt.Errorf("user %s already exists", userName)
+	}
+	// If error is not "not found", return it
+	if !strings.Contains(err.Error(), "not found") {
+		return fmt.Errorf("failed to check if user exists: %w", err)
+	}
+
+	// Escape backticks and single quotes in user name and password for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	escapePassword := func(pwd string) string {
+		// Escape single quotes in password by doubling them
+		return strings.ReplaceAll(pwd, "'", "''")
+	}
+
+	// Execute CREATE USER command
+	query := fmt.Sprintf("CREATE USER IF NOT EXISTS `%s` IDENTIFIED BY '%s'", escapeIdentifier(userName), escapePassword(password))
+
+	if err := conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to create user %s: %w", userName, err)
+	}
+
+	if r.logger != nil {
+		r.logger.Infof("Successfully created user %s on node %s", userName, nodeName)
+	}
+
+	return nil
+}
+
+// UpdatePassword updates password for an existing ClickHouse user.
+func (r *UsersRepository) UpdatePassword(ctx context.Context, nodeName, userName, password string) error {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
+	}
+
+	// Validate input
+	if userName == "" {
+		return fmt.Errorf("user name cannot be empty")
+	}
+	if password == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	// Check if user exists before updating password
+	userDetails, err := r.GetUserDetails(ctx, nodeName, userName)
+	if err != nil {
+		return fmt.Errorf("user %s not found: %w", userName, err)
+	}
+
+	// Check if user is defined in users.xml
+	if userDetails.Storage == "users_xml" {
+		return fmt.Errorf("cannot update password for user %s: user is defined in users.xml file on the server", userName)
+	}
+
+	// Escape backticks and single quotes in user name and password for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	escapePassword := func(pwd string) string {
+		// Escape single quotes in password by doubling them
+		return strings.ReplaceAll(pwd, "'", "''")
+	}
+
+	// Execute ALTER USER command to change password
+	query := fmt.Sprintf("ALTER USER `%s` IDENTIFIED BY '%s'", escapeIdentifier(userName), escapePassword(password))
+
+	if err := conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to update password for user %s: %w", userName, err)
+	}
+
+	if r.logger != nil {
+		r.logger.Infof("Successfully updated password for user %s on node %s", userName, nodeName)
+	}
+
+	return nil
+}
+
+// UpdateProfile updates profile for an existing ClickHouse user.
+func (r *UsersRepository) UpdateProfile(ctx context.Context, nodeName, userName, profileName string) error {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
+	}
+
+	// Validate input
+	if userName == "" {
+		return fmt.Errorf("user name cannot be empty")
+	}
+	// Profile name can be empty to remove profile from user
+
+	// Check if user exists before updating profile
+	userDetails, err := r.GetUserDetails(ctx, nodeName, userName)
+	if err != nil {
+		return fmt.Errorf("user %s not found: %w", userName, err)
+	}
+
+	// Check if user is defined in users.xml
+	if userDetails.Storage == "users_xml" {
+		return fmt.Errorf("cannot update profile for user %s: user is defined in users.xml file on the server", userName)
+	}
+
+	// Escape backticks in user name for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	var query string
+	if profileName == "" {
+		// Remove profile from user by setting it to NONE
+		// ClickHouse uses NONE keyword to remove profile assignment
+		query = fmt.Sprintf("ALTER USER `%s` SETTINGS PROFILE NONE", escapeIdentifier(userName))
+	} else {
+		// Set specific profile
+		escapeProfileName := func(profile string) string {
+			// Escape single quotes in profile name by doubling them
+			return strings.ReplaceAll(profile, "'", "''")
+		}
+		query = fmt.Sprintf("ALTER USER `%s` SETTINGS PROFILE '%s'", escapeIdentifier(userName), escapeProfileName(profileName))
+	}
+
+	if err := conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to update profile for user %s: %w", userName, err)
+	}
+
+	if r.logger != nil {
+		if profileName == "" {
+			r.logger.Infof("Successfully removed profile for user %s on node %s", userName, nodeName)
+		} else {
+			r.logger.Infof("Successfully updated profile for user %s on node %s", userName, nodeName)
+		}
+	}
+
+	return nil
 }

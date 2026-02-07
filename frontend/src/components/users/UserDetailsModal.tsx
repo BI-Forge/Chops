@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Users, XCircle, Shield, Database, Key, Award, Hash, Save, Copy, Plus, Check, Lock, Eye, EyeOff, Trash2, Settings } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Users, XCircle, Shield, Database, Key, Hash, Save, Copy, Lock, Eye, EyeOff, Trash2, Settings } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAlert } from '../../contexts/AlertContext';
 import { AutocompleteInput } from '../AutocompleteInput';
 import { AutocompleteInputFlex } from '../AutocompleteInputFlex';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
+import { CascadingAccessSelector, type AccessScopeRow } from '../CascadingAccessSelector';
 import { usersAPI } from '../../services/usersAPI';
 import type { User } from './UsersTable';
 
@@ -14,21 +15,28 @@ interface UserDetailsModalProps {
   user: User | null;
   isNewUser?: boolean;
   selectedNode?: string;
+  onRefreshUsers?: () => void;
 }
 
-export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, selectedNode }: UserDetailsModalProps) {
+export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, selectedNode, onRefreshUsers }: UserDetailsModalProps) {
   const { theme } = useTheme();
   const { success, error: showError } = useAlert();
   
   // State for user basic info from API
   const [userBasicInfo, setUserBasicInfo] = useState<{ id: string; profile: string; storage: string; role_name: string; grants: string[]; user_settings?: string[]; profile_settings?: Record<string, string>; scope?: string } | null>(null);
   const [loadingBasicInfo, setLoadingBasicInfo] = useState(false);
+  const [originalUserName, setOriginalUserName] = useState<string>('');
+  const [originalProfile, setOriginalProfile] = useState<string>('');
+  const [originalPassword, setOriginalPassword] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [profileUpdateInProgress, setProfileUpdateInProgress] = useState(false);
+  // Use refs to track active requests to prevent duplicate calls even in StrictMode
+  const profileUpdateRequestRef = useRef<Promise<void> | null>(null);
+  const saveRequestRef = useRef<Promise<void> | null>(null);
   
   // Mock data for autocomplete
-  const availableDatabases = ['analytics', 'production', 'staging', 'development', 'logs', 'metrics', 'system', 'backup'];
-  const availableTables = ['users', 'orders', 'products', 'sessions', 'events', 'logs', 'metrics', 'transactions', 'payments'];
-  const availableColumns = ['id', 'name', 'email', 'created_at', 'updated_at', 'status', 'user_id', 'amount', 'timestamp'];
   const availableRoles = ['admin', 'developer', 'analyst', 'viewer', 'editor', 'manager', 'operator', 'readonly'];
+  const availableProfiles = ['default', 'readonly', 'readonly_2', 'web', 'default_profile', 'readonly_profile'];
   const availableGrants = [
     'SELECT', 'INSERT', 'ALTER', 'CREATE', 'DROP', 'TRUNCATE', 'OPTIMIZE', 'SHOW', 
     'ALL', 'READ', 'WRITE', 'BACKUP', 'KILL QUERY', 'SYSTEM', 'INTROSPECTION',
@@ -51,19 +59,52 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   // Editable states
   const [editableName, setEditableName] = useState('');
   const [editablePassword, setEditablePassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [editableProfile, setEditableProfile] = useState('');
   const [editableRole, setEditableRole] = useState('');
-  const [editableDatabases, setEditableDatabases] = useState<string[]>([]);
-  const [editableTables, setEditableTables] = useState<string[]>([]);
-  const [editableColumns, setEditableColumns] = useState<string[]>([]);
+  const [accessScopeRows, setAccessScopeRows] = useState<AccessScopeRow[]>([]);
   const [editableGrants, setEditableGrants] = useState<string[]>([]);
   const [editableSettings, setEditableSettings] = useState<Array<{name: string, value: string}>>([]);
   const [newGrant, setNewGrant] = useState('');
   const [newSetting, setNewSetting] = useState('');
-  const [newDatabase, setNewDatabase] = useState('');
-  const [newTable, setNewTable] = useState('');
-  const [newColumn, setNewColumn] = useState('');
   const [newRole, setNewRole] = useState('');
+  const [newProfile, setNewProfile] = useState('');
+  
+  // Mock database structure for CascadingAccessSelector
+  const databaseStructure: Record<string, Record<string, string[]>> = {
+    analytics: {
+      users: ['id', 'name', 'email', 'created_at'],
+      orders: ['id', 'user_id', 'amount', 'status', 'created_at'],
+      events: ['id', 'user_id', 'event_type', 'timestamp']
+    },
+    production: {
+      users: ['id', 'name', 'email', 'created_at', 'updated_at'],
+      products: ['id', 'name', 'price', 'stock', 'category'],
+      transactions: ['id', 'user_id', 'amount', 'timestamp', 'status']
+    },
+    staging: {
+      users: ['id', 'name', 'email'],
+      logs: ['id', 'message', 'level', 'timestamp']
+    },
+    development: {
+      users: ['id', 'name', 'email'],
+      test_data: ['id', 'value', 'timestamp']
+    },
+    logs: {
+      application: ['id', 'message', 'level', 'timestamp'],
+      errors: ['id', 'error', 'stack', 'timestamp']
+    },
+    metrics: {
+      performance: ['id', 'metric_name', 'value', 'timestamp'],
+      system: ['id', 'cpu', 'memory', 'timestamp']
+    },
+    system: {
+      users: ['name', 'id', 'storage'],
+      grants: ['user_name', 'access_type', 'database', 'table', 'column']
+    },
+    backup: {
+      snapshots: ['id', 'name', 'created_at', 'size']
+    }
+  };
   
   // Copy modal states
   const [showCopyModal, setShowCopyModal] = useState(false);
@@ -74,17 +115,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   // Delete confirmation modal state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Autocomplete states
-  const [showDatabaseSuggestions, setShowDatabaseSuggestions] = useState(false);
-  const [showTableSuggestions, setShowTableSuggestions] = useState(false);
-  const [showColumnSuggestions, setShowColumnSuggestions] = useState(false);
-  const [showGrantSuggestions, setShowGrantSuggestions] = useState(false);
-  const [showSettingSuggestions, setShowSettingSuggestions] = useState(false);
-  const [selectedDatabaseIndex, setSelectedDatabaseIndex] = useState(-1);
-  const [selectedTableIndex, setSelectedTableIndex] = useState(-1);
-  const [selectedColumnIndex, setSelectedColumnIndex] = useState(-1);
-  const [selectedGrantIndex, setSelectedGrantIndex] = useState(-1);
-  const [selectedSettingIndex, setSelectedSettingIndex] = useState(-1);
 
   // Load user basic info from API when modal opens
   useEffect(() => {
@@ -105,8 +135,25 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
           });
           // Update editable fields with API data
           setEditableName(basicInfo.name);
+          setOriginalUserName(basicInfo.name);
+          setEditableProfile(basicInfo.profile || '');
+          setOriginalProfile(basicInfo.profile || '');
+          setOriginalPassword(''); // Password is not returned from API, so we track changes by non-empty editablePassword
           setEditableRole(basicInfo.role_name || '');
           setEditableGrants(basicInfo.grants || []);
+          // Initialize access scope rows from scope if available
+          if (basicInfo.scope) {
+            // Parse scope string if needed (format: "database.table.column")
+            const scopeParts = basicInfo.scope.split('.');
+            if (scopeParts.length >= 3) {
+              setAccessScopeRows([{
+                id: `row-${Date.now()}`,
+                database: scopeParts[0] || '',
+                table: scopeParts[1] || '',
+                column: scopeParts[2] || ''
+              }]);
+            }
+          }
         } catch (err) {
           console.error('Failed to load user basic info:', err);
           showError('Failed to load user information');
@@ -143,39 +190,45 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     if (isNewUser) {
       // New user - start with empty fields
       setEditableName('');
+      setOriginalUserName('');
+      setOriginalProfile('');
+      setOriginalPassword('');
       setEditablePassword('');
-      setShowPassword(false);
+      setEditableProfile('');
       setEditableRole('');
       setNewRole('');
-      setEditableDatabases([]);
-      setEditableTables([]);
-      setEditableColumns([]);
+      setNewProfile('');
+      setAccessScopeRows([]);
       setEditableGrants([]);
       setEditableSettings([]);
-      setNewDatabase('');
-      setNewTable('');
-      setNewColumn('');
     } else if (user && !loadingBasicInfo) {
       // Only initialize if we're not currently loading from API
       // Use API data if available, otherwise use props data
       if (!userBasicInfo) {
         setEditableName(user.name);
+        setOriginalUserName(user.name);
         setEditablePassword('');
-        setShowPassword(false);
+        setOriginalPassword('');
+        setEditableProfile(user.profile || '');
+        setOriginalProfile(user.profile || '');
         setEditableRole(user.role_name || '');
         setNewRole('');
-        setEditableDatabases(user.database ? [user.database] : []);
-        setEditableTables(user.table ? [user.table] : []);
-        setEditableColumns(user.column ? [user.column] : []);
+        setNewProfile('');
+        // Initialize access scope rows - will be populated from API if available
+        setAccessScopeRows([]);
         setEditableGrants([...user.grants]);
         setEditableSettings([]);
-        setNewDatabase('');
-        setNewTable('');
-        setNewColumn('');
       } else {
-        // Update grants from API data if available
-        if (userBasicInfo.grants && userBasicInfo.grants.length > 0) {
-          setEditableGrants([...userBasicInfo.grants]);
+        // Update fields from API data if available
+        if (userBasicInfo) {
+          // editableName is already set from API in the first useEffect
+          setEditableProfile(userBasicInfo.profile || '');
+          setOriginalProfile(userBasicInfo.profile || '');
+          setOriginalPassword(''); // Password is not returned from API
+          setEditableRole(userBasicInfo.role_name || '');
+          if (userBasicInfo.grants && userBasicInfo.grants.length > 0) {
+            setEditableGrants([...userBasicInfo.grants]);
+          }
         }
       }
     }
@@ -232,19 +285,198 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     setEditableSettings(editableSettings.filter(s => s.name !== setting));
   };
 
-  const handleSave = () => {
-    // Here you would typically save to backend
-    success('User details saved successfully');
-    console.log('Saving user:', {
-      name: editableName,
-      password: editablePassword,
-      role: editableRole,
-      databases: editableDatabases,
-      tables: editableTables,
-      columns: editableColumns,
-      grants: editableGrants,
-      settings: editableSettings
-    });
+  const handleSave = async () => {
+    // Prevent multiple simultaneous save operations
+    if (isSaving || saveRequestRef.current) {
+      return;
+    }
+
+    // Helper function to check for Cyrillic characters
+    const containsCyrillic = (str: string): boolean => {
+      return /[\u0400-\u04FF]/.test(str);
+    };
+
+    // Create a promise for this save operation
+    const savePromise = (async () => {
+      try {
+        setIsSaving(true);
+
+      // If it's a new user, create the user
+      if (isNewUser) {
+        const trimmedName = editableName.trim();
+        const trimmedPassword = editablePassword.trim();
+
+        if (!trimmedName) {
+          showError('User name is required');
+          return;
+        }
+
+        if (!trimmedPassword) {
+          showError('Password is required');
+          return;
+        }
+
+        // Validate Cyrillic characters
+        if (containsCyrillic(trimmedName)) {
+          showError('User name cannot contain Cyrillic characters');
+          return;
+        }
+
+        if (containsCyrillic(trimmedPassword)) {
+          showError('Password cannot contain Cyrillic characters');
+          return;
+        }
+
+        try {
+          await usersAPI.createUser(trimmedName, trimmedPassword, selectedNode);
+          
+          // If profile is specified, update it after user creation
+          const trimmedProfile = editableProfile.trim();
+          if (trimmedProfile) {
+            // Validate Cyrillic characters in profile
+            if (containsCyrillic(trimmedProfile)) {
+              showError('Profile name cannot contain Cyrillic characters');
+              return;
+            }
+            
+            try {
+              await usersAPI.updateUserProfile(trimmedName, trimmedProfile, selectedNode);
+              // Notification is shown automatically by api interceptor
+            } catch (profileErr: any) {
+              console.error('Failed to update user profile after creation:', profileErr);
+              // Error notification is already shown by api interceptor
+              return;
+            }
+          }
+          
+          // Notification is shown automatically by api interceptor
+          // Refresh users list after successful creation
+          if (onRefreshUsers) {
+            onRefreshUsers();
+          }
+          onClose();
+          return;
+        } catch (err: any) {
+          console.error('Failed to create user:', err);
+          // Error notification is already shown by api interceptor
+          return;
+        }
+      }
+
+      // Determine the current user name (will be updated if name changes)
+      let currentUserName = editableName.trim() || originalUserName;
+
+      // Step 1: If name changed and it's not a new user, update the login
+      if (editableName.trim() && editableName.trim() !== originalUserName) {
+        // Validate Cyrillic characters
+        const trimmedNewName = editableName.trim();
+        if (containsCyrillic(trimmedNewName)) {
+          showError('User name cannot contain Cyrillic characters');
+          return;
+        }
+
+        try {
+          await usersAPI.updateUserLogin(originalUserName, trimmedNewName, selectedNode);
+          setOriginalUserName(trimmedNewName);
+          currentUserName = trimmedNewName; // Update current user name after successful login update
+          // Notification is shown automatically by api interceptor
+        } catch (err: any) {
+          console.error('Failed to update user login:', err);
+          // Error notification is already shown by api interceptor
+          return;
+        }
+      }
+
+      // Step 2: If password changed and it's not a new user, update the password
+      const trimmedPassword = editablePassword.trim();
+      if (trimmedPassword) {
+        // Validate Cyrillic characters in password
+        if (containsCyrillic(trimmedPassword)) {
+          showError('Password cannot contain Cyrillic characters');
+          return;
+        }
+
+        try {
+          await usersAPI.updateUserPassword(currentUserName, trimmedPassword, selectedNode);
+          setOriginalPassword(trimmedPassword);
+          setEditablePassword(''); // Clear password field after successful update
+          // Notification is shown automatically by api interceptor
+        } catch (err: any) {
+          console.error('Failed to update user password:', err);
+          // Error notification is already shown by api interceptor
+          return;
+        }
+      }
+
+      // Step 3: If profile changed and it's not a new user, update the profile
+      const trimmedProfile = editableProfile.trim();
+      // Check if profile actually changed (handle both empty and non-empty cases)
+      // Send update if profile changed, even if one of them is empty
+      // Also check if profile update is already in progress to prevent duplicate calls
+      if (trimmedProfile !== originalProfile && !profileUpdateInProgress && !profileUpdateRequestRef.current) {
+        // Validate Cyrillic characters in profile (only if profile is not empty)
+        if (trimmedProfile && containsCyrillic(trimmedProfile)) {
+          showError('Profile name cannot contain Cyrillic characters');
+          return;
+        }
+
+        // Create a promise for this profile update to prevent duplicate calls
+        const profileUpdatePromise = (async () => {
+          try {
+            setProfileUpdateInProgress(true);
+            await usersAPI.updateUserProfile(currentUserName, trimmedProfile, selectedNode);
+            setOriginalProfile(trimmedProfile);
+            // Notification is shown automatically by api interceptor
+          } catch (err: any) {
+            console.error('Failed to update user profile:', err);
+            // Error notification is already shown by api interceptor
+            throw err; // Re-throw to be caught by outer try-catch
+          } finally {
+            setProfileUpdateInProgress(false);
+            profileUpdateRequestRef.current = null;
+          }
+        })();
+
+        profileUpdateRequestRef.current = profileUpdatePromise;
+        await profileUpdatePromise;
+      }
+
+      // Refresh users list once after all successful updates
+      if (onRefreshUsers) {
+        onRefreshUsers();
+      }
+      } catch (err) {
+        console.error('Failed to save user details:', err);
+        // Error notification is already shown by api interceptor with server response
+        // Don't show duplicate notification here
+      } finally {
+        setIsSaving(false);
+        saveRequestRef.current = null;
+      }
+    })();
+
+    saveRequestRef.current = savePromise;
+    await savePromise;
+  };
+  
+  // Access Scope handlers
+  const handleAddAccessScopeRow = () => {
+    setAccessScopeRows([...accessScopeRows, {
+      id: `row-${Date.now()}-${Math.random()}`,
+      database: '',
+      table: '',
+      column: ''
+    }]);
+  };
+  
+  const handleRemoveAccessScopeRow = (id: string) => {
+    setAccessScopeRows(accessScopeRows.filter(row => row.id !== id));
+  };
+  
+  const handleUpdateAccessScopeRow = (id: string, field: 'database' | 'table' | 'column', value: string) => {
+    setAccessScopeRows(accessScopeRows.map(row => 
+      row.id === id ? { ...row, [field]: value } : row
+    ));
   };
 
   const handleCopy = () => {
@@ -275,30 +507,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   };
 
   // Filter suggestions based on input
-  const getDatabaseSuggestions = () => {
-    if (!newDatabase) return [];
-    return availableDatabases.filter(db => 
-      db.toLowerCase().includes(newDatabase.toLowerCase()) && 
-      !editableDatabases.includes(db)
-    );
-  };
-
-  const getTableSuggestions = () => {
-    if (!newTable) return [];
-    return availableTables.filter(table => 
-      table.toLowerCase().includes(newTable.toLowerCase()) && 
-      !editableTables.includes(table)
-    );
-  };
-
-  const getColumnSuggestions = () => {
-    if (!newColumn) return [];
-    return availableColumns.filter(column => 
-      column.toLowerCase().includes(newColumn.toLowerCase()) && 
-      !editableColumns.includes(column)
-    );
-  };
-
   const getGrantSuggestions = () => {
     if (!newGrant) return [];
     return availableGrants.filter(grant => 
@@ -322,12 +530,17 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     );
   };
 
-  const databaseSuggestions = getDatabaseSuggestions();
-  const tableSuggestions = getTableSuggestions();
-  const columnSuggestions = getColumnSuggestions();
+  const getProfileSuggestions = () => {
+    if (!newProfile) return [];
+    return availableProfiles.filter(profile => 
+      profile.toLowerCase().includes(newProfile.toLowerCase())
+    );
+  };
+
   const grantSuggestions = getGrantSuggestions();
   const settingSuggestions = getSettingSuggestions();
   const roleSuggestions = getRoleSuggestions();
+  const profileSuggestions = getProfileSuggestions();
 
   return (
     <div 
@@ -467,274 +680,119 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                   </div>
                 )}
 
-                {/* Profile (Read-only) - Hide for new users */}
-                {!isNewUser && userBasicInfo?.profile && (
-                  <div className={`${
-                    theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-                  } border rounded-xl p-4`}>
-                    <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
-                      <Shield className="w-4 h-4" />
-                      Profile
-                    </div>
-                    <p className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} text-sm`}>
-                      {loadingBasicInfo ? 'Loading...' : (userBasicInfo.profile || 'N/A')}
-                    </p>
-                  </div>
-                )}
-
-                {/* Editable Role */}
-                <div className={`${
+                {/* Profile and Role in one row */}
+                <div className={`md:col-span-2 ${
                   theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
                 } border rounded-xl p-4`}>
-                  <label className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
-                    <Award className="w-4 h-4" />
-                    Role
-                  </label>
-                  <AutocompleteInput
-                    value={newRole}
-                    onChange={setNewRole}
-                    onAdd={(valueToAdd) => {
-                      const roleValue = valueToAdd || newRole;
-                      if (roleValue.trim()) {
-                        setEditableRole(roleValue.trim());
-                        setNewRole('');
-                      }
-                    }}
-                    suggestions={roleSuggestions}
-                    placeholder="Enter role..."
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (newRole.trim()) {
-                          setEditableRole(newRole.trim());
-                          setNewRole('');
-                        }
-                      }
-                    }}
-                  />
-                  
-                  {/* Role tag */}
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {editableRole ? (
-                      <div
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                          theme === 'light'
-                            ? 'bg-green-100 text-green-800 border border-green-200'
-                            : 'bg-green-500/20 text-green-400 border border-green-500/30'
-                        } group transition-all duration-200 hover:scale-105`}
-                      >
-                        <span>{editableRole}</span>
-                        <button
-                          onClick={() => setEditableRole('')}
-                          className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                            theme === 'light'
-                              ? 'hover:bg-green-200'
-                              : 'hover:bg-green-500/30'
-                          } transition-colors`}
-                        >
-                          <XCircle className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <p className={`text-sm ${theme === 'light' ? 'text-gray-500' : 'text-gray-600'}`}>
-                        No role assigned
-                      </p>
-                    )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Editable Profile */}
+                    <div>
+                      <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
+                        Profile
+                      </label>
+                      <AutocompleteInput
+                        value={newProfile}
+                        onChange={setNewProfile}
+                        onAdd={(valueToAdd) => {
+                          const profileValue = valueToAdd || newProfile;
+                          if (profileValue.trim()) {
+                            setEditableProfile(profileValue.trim());
+                            setNewProfile('');
+                          }
+                        }}
+                        suggestions={profileSuggestions}
+                        placeholder="Enter profile..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (newProfile.trim()) {
+                              setEditableProfile(newProfile.trim());
+                              setNewProfile('');
+                            }
+                          }
+                        }}
+                      />
+                      
+                      {/* Profile display */}
+                      {editableProfile && (
+                        <div className="mt-2">
+                          <div
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
+                              theme === 'light'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                            }`}
+                          >
+                            <span>{editableProfile}</span>
+                            <button
+                              onClick={() => setEditableProfile('')}
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                theme === 'light'
+                                  ? 'hover:bg-blue-200'
+                                  : 'hover:bg-blue-500/30'
+                              } transition-colors`}
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Editable Role */}
+                    <div>
+                      <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
+                        Role
+                      </label>
+                      <AutocompleteInput
+                        value={newRole}
+                        onChange={setNewRole}
+                        onAdd={(valueToAdd) => {
+                          const roleValue = valueToAdd || newRole;
+                          if (roleValue.trim()) {
+                            setEditableRole(roleValue.trim());
+                            setNewRole('');
+                          }
+                        }}
+                        suggestions={roleSuggestions}
+                        placeholder="Enter role..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (newRole.trim()) {
+                              setEditableRole(newRole.trim());
+                              setNewRole('');
+                            }
+                          }
+                        }}
+                      />
+                      
+                      {/* Role display */}
+                      {editableRole && (
+                        <div className="mt-2">
+                          <div
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
+                              theme === 'light'
+                                ? 'bg-green-100 text-green-800 border border-green-200'
+                                : 'bg-green-500/20 text-green-400 border border-green-500/30'
+                            }`}
+                          >
+                            <span>{editableRole}</span>
+                            <button
+                              onClick={() => setEditableRole('')}
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                theme === 'light'
+                                  ? 'hover:bg-green-200'
+                                  : 'hover:bg-green-500/30'
+                              } transition-colors`}
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Access Scope */}
-            <div>
-              <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} mb-4`}>
-                <Key className="w-5 h-5" />
-                <h3 className="font-semibold">Access Scope</h3>
-              </div>
-              
-              {/* Editable Database */}
-              <div className={`${
-                theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-              } border rounded-xl p-4 mb-4`}>
-                <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
-                  Database
-                </label>
-                <AutocompleteInput
-                  value={newDatabase}
-                  onChange={setNewDatabase}
-                  onAdd={(valueToAdd) => {
-                    const dbValue = (typeof valueToAdd === 'string' ? valueToAdd : newDatabase) || '';
-                    if (dbValue.trim() && !editableDatabases.includes(dbValue.trim())) {
-                      setEditableDatabases([...editableDatabases, dbValue.trim()]);
-                      setNewDatabase('');
-                    }
-                  }}
-                  suggestions={databaseSuggestions}
-                  placeholder="Add database..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (newDatabase.trim() && !editableDatabases.includes(newDatabase.trim())) {
-                        setEditableDatabases([...editableDatabases, newDatabase.trim()]);
-                        setNewDatabase('');
-                      }
-                    }
-                  }}
-                />
-                
-                {/* Databases tags */}
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {editableDatabases.map((database) => (
-                    <div
-                      key={database}
-                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                        theme === 'light'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-amber-500/20 text-yellow-400 border border-yellow-500/30'
-                      } group transition-all duration-200 hover:scale-105`}
-                    >
-                      <span>{database}</span>
-                      <button
-                        onClick={() => setEditableDatabases(editableDatabases.filter(d => d !== database))}
-                        className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                          theme === 'light'
-                            ? 'hover:bg-amber-200'
-                            : 'hover:bg-yellow-500/30'
-                        } transition-colors`}
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {editableDatabases.length === 0 && (
-                    <p className={`text-sm ${theme === 'light' ? 'text-gray-500' : 'text-gray-600'}`}>
-                      No databases assigned
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Editable Table */}
-              <div className={`${
-                theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-              } border rounded-xl p-4 mb-4`}>
-                <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
-                  Table
-                </label>
-                <AutocompleteInput
-                  value={newTable}
-                  onChange={setNewTable}
-                  onAdd={(valueToAdd) => {
-                    const tableValue = (typeof valueToAdd === 'string' ? valueToAdd : newTable) || '';
-                    if (tableValue.trim() && !editableTables.includes(tableValue.trim())) {
-                      setEditableTables([...editableTables, tableValue.trim()]);
-                      setNewTable('');
-                    }
-                  }}
-                  suggestions={tableSuggestions}
-                  placeholder="Add table..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (newTable.trim() && !editableTables.includes(newTable.trim())) {
-                        setEditableTables([...editableTables, newTable.trim()]);
-                        setNewTable('');
-                      }
-                    }
-                  }}
-                />
-                
-                {/* Tables tags */}
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {editableTables.map((table) => (
-                    <div
-                      key={table}
-                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                        theme === 'light'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-amber-500/20 text-yellow-400 border border-yellow-500/30'
-                      } group transition-all duration-200 hover:scale-105`}
-                    >
-                      <span>{table}</span>
-                      <button
-                        onClick={() => setEditableTables(editableTables.filter(t => t !== table))}
-                        className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                          theme === 'light'
-                            ? 'hover:bg-amber-200'
-                            : 'hover:bg-yellow-500/30'
-                        } transition-colors`}
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {editableTables.length === 0 && (
-                    <p className={`text-sm ${theme === 'light' ? 'text-gray-500' : 'text-gray-600'}`}>
-                      No tables assigned
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Editable Column */}
-              <div className={`${
-                theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-              } border rounded-xl p-4`}>
-                <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
-                  Column
-                </label>
-                <AutocompleteInput
-                  value={newColumn}
-                  onChange={setNewColumn}
-                  onAdd={(valueToAdd) => {
-                    const columnValue = (typeof valueToAdd === 'string' ? valueToAdd : newColumn) || '';
-                    if (columnValue.trim() && !editableColumns.includes(columnValue.trim())) {
-                      setEditableColumns([...editableColumns, columnValue.trim()]);
-                      setNewColumn('');
-                    }
-                  }}
-                  suggestions={columnSuggestions}
-                  placeholder="Add column..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (newColumn.trim() && !editableColumns.includes(newColumn.trim())) {
-                        setEditableColumns([...editableColumns, newColumn.trim()]);
-                        setNewColumn('');
-                      }
-                    }
-                  }}
-                />
-                
-                {/* Columns tags */}
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {editableColumns.map((column) => (
-                    <div
-                      key={column}
-                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                        theme === 'light'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-amber-500/20 text-yellow-400 border border-yellow-500/30'
-                      } group transition-all duration-200 hover:scale-105`}
-                    >
-                      <span>{column}</span>
-                      <button
-                        onClick={() => setEditableColumns(editableColumns.filter(c => c !== column))}
-                        className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                          theme === 'light'
-                            ? 'hover:bg-amber-200'
-                            : 'hover:bg-yellow-500/30'
-                        } transition-colors`}
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {editableColumns.length === 0 && (
-                    <p className={`text-sm ${theme === 'light' ? 'text-gray-500' : 'text-gray-600'}`}>
-                      No columns assigned
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
@@ -895,6 +953,22 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                 </div>
               </div>
             </div>
+
+            {/* Access Scope */}
+            <div>
+              <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} mb-4`}>
+                <Key className="w-5 h-5" />
+                <h3 className="font-semibold">Access Scope</h3>
+              </div>
+              
+              <CascadingAccessSelector
+                rows={accessScopeRows}
+                onAddRow={handleAddAccessScopeRow}
+                onRemoveRow={handleRemoveAccessScopeRow}
+                onUpdateRow={handleUpdateAccessScopeRow}
+                databaseStructure={databaseStructure}
+              />
+            </div>
           </div>
         </div>
 
@@ -930,14 +1004,17 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
           )}
           <button
             onClick={handleSave}
+            disabled={isSaving}
             className={`px-6 py-2.5 rounded-lg ${
-              theme === 'light'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
-                : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-gray-900'
+              isSaving
+                ? 'bg-gray-400 cursor-not-allowed'
+                : theme === 'light'
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
+                  : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-gray-900'
             } transition-all duration-200 flex items-center gap-2 font-medium shadow-lg hover:shadow-xl`}
           >
             <Save className="w-4 h-4" />
-            Save
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
@@ -1037,18 +1114,30 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                         <Lock className="w-4 h-4" />
                         Password
                       </label>
-                      <input
-                        type="text"
-                        value={copyPassword}
-                        onChange={(e) => setCopyPassword(e.target.value)}
-                        placeholder="Enter new password..."
-                        autoComplete="off"
-                        className={`w-full px-3 py-2 rounded-lg border ${
-                          theme === 'light'
-                            ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
-                            : 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500 focus:border-yellow-500/50'
-                        } focus:outline-none transition-colors text-sm`}
-                      />
+                      <div className="relative">
+                        <input
+                          type={showCopyPassword ? 'text' : 'password'}
+                          value={copyPassword}
+                          onChange={(e) => setCopyPassword(e.target.value)}
+                          placeholder="Enter new password..."
+                          autoComplete="off"
+                          className={`w-full px-3 py-2 rounded-lg border ${
+                            theme === 'light'
+                              ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
+                              : 'bg-gray-900/50 border-gray-700 text-white placeholder-gray-500 focus:border-yellow-500/50'
+                          } focus:outline-none transition-colors text-sm`}
+                        />
+                        <button
+                          onClick={() => setShowCopyPassword(!showCopyPassword)}
+                          className={`absolute right-3 top-1/2 transform -translate-y-1/2 ${
+                            theme === 'light'
+                              ? 'text-gray-400 hover:text-amber-500'
+                              : 'text-gray-500 hover:text-yellow-500'
+                          }`}
+                        >
+                          {showCopyPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

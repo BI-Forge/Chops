@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"clickhouse-ops/internal/api"
 	"clickhouse-ops/internal/api/v1/models"
 	"clickhouse-ops/internal/clickhouse"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/internal/logger"
@@ -371,4 +373,223 @@ func InsertTestMetricsData(t TestingT, nodeName string) error {
 	}
 
 	return nil
+}
+
+// CreateTestClickHouseUser creates a test user in ClickHouse for testing purposes
+func CreateTestClickHouseUser(t TestingT, userName, password string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		// Try default connection if node not found
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Create user if not exists
+	createUserQuery := fmt.Sprintf("CREATE USER IF NOT EXISTS `%s` IDENTIFIED BY '%s'", userName, password)
+	if err := conn.Exec(ctx, createUserQuery); err != nil {
+		return fmt.Errorf("Failed to create test user: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTestClickHouseUser deletes a test user from ClickHouse
+func DeleteTestClickHouseUser(t TestingT, userName string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		// Try default connection if node not found
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Drop user if exists
+	dropUserQuery := fmt.Sprintf("DROP USER IF EXISTS `%s`", userName)
+	if err := conn.Exec(ctx, dropUserQuery); err != nil {
+		return fmt.Errorf("Failed to delete test user: %v", err)
+	}
+
+	return nil
+}
+
+// CreateTestClickHouseProfile creates a test profile in ClickHouse for testing purposes
+func CreateTestClickHouseProfile(t TestingT, profileName string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		// Try default connection if node not found
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Escape backticks in profile name for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Create profile if not exists with basic settings
+	createProfileQuery := fmt.Sprintf("CREATE PROFILE IF NOT EXISTS `%s` SETTINGS max_memory_usage = 10000000000, max_execution_time = 300", escapeIdentifier(profileName))
+	if err := conn.Exec(ctx, createProfileQuery); err != nil {
+		return fmt.Errorf("Failed to create test profile: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTestClickHouseProfile deletes a test profile from ClickHouse
+func DeleteTestClickHouseProfile(t TestingT, profileName string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		// Try default connection if node not found
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Escape backticks in profile name for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Drop profile if exists
+	dropProfileQuery := fmt.Sprintf("DROP PROFILE IF EXISTS `%s`", escapeIdentifier(profileName))
+	if err := conn.Exec(ctx, dropProfileQuery); err != nil {
+		return fmt.Errorf("Failed to delete test profile: %v", err)
+	}
+
+	return nil
+}
+
+// CreateTestClickHouseUserWithProfile creates a test user in ClickHouse with a specified profile
+func CreateTestClickHouseUserWithProfile(t TestingT, userName, password, profileName, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+	escapePassword := func(pwd string) string {
+		return strings.ReplaceAll(pwd, "'", "''")
+	}
+	escapeProfileName := func(name string) string {
+		return strings.ReplaceAll(name, "'", "''")
+	}
+
+	createUserQuery := fmt.Sprintf("CREATE USER IF NOT EXISTS `%s` IDENTIFIED BY '%s' SETTINGS PROFILE '%s'",
+		escapeIdentifier(userName), escapePassword(password), escapeProfileName(profileName))
+	if err := conn.Exec(ctx, createUserQuery); err != nil {
+		return fmt.Errorf("Failed to create test user with profile: %v", err)
+	}
+
+	return nil
+}
+
+// GetTestClickHouseUserDetails fetches user details directly from ClickHouse for verification
+func GetTestClickHouseUserDetails(t TestingT, userName, nodeName string) (*chmodels.UserDetails, error) {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return nil, fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return nil, fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+	var profile sql.NullString
+	// Query profile from system.settings_profile_elements where user_name matches
+	// This matches the query used in GetUsersList
+	query := `SELECT inherit_profile as profile
+		FROM system.settings_profile_elements
+		WHERE user_name = ?
+		LIMIT 1`
+	err = conn.QueryRow(ctx, query, userName).Scan(&profile)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// User exists but has no profile assigned
+			return &chmodels.UserDetails{Profile: ""}, nil
+		}
+		return nil, fmt.Errorf("failed to query user profile: %w", err)
+	}
+
+	return &chmodels.UserDetails{Profile: profile.String}, nil
 }

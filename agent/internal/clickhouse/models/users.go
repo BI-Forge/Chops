@@ -10,8 +10,8 @@ type UserList struct {
 	Grants   []string `json:"grants"`
 }
 
-// UserBasicInfo represents detailed user information including settings and scope.
-type UserBasicInfo struct {
+// UserDetails represents detailed user information including settings and scope.
+type UserDetails struct {
 	Name            string            `json:"name"`
 	ID              string            `json:"id"`
 	Profile         string            `json:"profile"`

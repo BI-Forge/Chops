@@ -98,7 +98,7 @@ export function AutocompleteInputFlex({
         } focus:outline-none transition-colors text-sm`}
       />
       <button
-        onClick={onAdd}
+        onClick={() => onAdd(value)}
         className={`absolute right-3 top-1/2 transform -translate-y-1/2 ${
           theme === 'light'
             ? 'text-gray-400 hover:text-amber-500'

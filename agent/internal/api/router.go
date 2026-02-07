@@ -108,6 +108,7 @@ type handlersContainer struct {
 	QueryLogHandler *clickhouseHandlers.QueryLogHandler
 	ProcessHandler  *clickhouseHandlers.ProcessHandler
 	UsersHandler    *clickhouseHandlers.UsersHandler
+	ProfilesHandler *clickhouseHandlers.ProfilesHandler
 	BackupHandler   *clickhouseHandlers.BackupHandler
 }
 
@@ -152,6 +153,13 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 		cfg.Logger.Errorf("Failed to initialize users handler: %v", err)
 	}
 	container.UsersHandler = usersHandler
+
+	// Initialize profiles handler
+	profilesHandler, err := clickhouseHandlers.NewProfilesHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize profiles handler: %v", err)
+	}
+	container.ProfilesHandler = profilesHandler
 
 	// Initialize backup handler
 	backupHandler, err := clickhouseHandlers.NewBackupHandler(cfg.Logger, cfg.Config)
@@ -201,6 +209,7 @@ func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, hand
 		setupQueryLogRoutes(protected, handlers)
 		setupProcessRoutes(protected, handlers)
 		setupUsersRoutes(protected, handlers)
+		setupProfilesRoutes(protected, handlers)
 		setupBackupRoutes(protected, handlers)
 	}
 }
@@ -258,9 +267,25 @@ func setupUsersRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 	users := protected.Group("/clickhouse/users")
 	{
 		// Register more specific routes first to avoid route conflicts
-		users.GET("/basic-info", handlers.UsersHandler.UserBasicInfo)
+		users.GET("/details", handlers.UsersHandler.UserDetails)
 		users.GET("/list", handlers.UsersHandler.GetUsersList)
+		users.PUT("/rename", handlers.UsersHandler.UpdateUserLogin)
+		users.PUT("/password", handlers.UsersHandler.UpdatePassword)
+		users.PUT("/profile", handlers.UsersHandler.UpdateProfile)
+		users.POST("", handlers.UsersHandler.CreateUser)
 		users.GET("", handlers.UsersHandler.GetUsers)
+	}
+}
+
+// setupProfilesRoutes configures profiles endpoints
+func setupProfilesRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.ProfilesHandler == nil {
+		return
+	}
+
+	profiles := protected.Group("/clickhouse/profiles")
+	{
+		profiles.GET("/list", handlers.ProfilesHandler.GetProfilesList)
 	}
 }
 
