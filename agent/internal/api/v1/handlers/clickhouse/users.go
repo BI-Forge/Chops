@@ -37,6 +37,7 @@ type UsersRepository interface {
 	CreateUser(ctx context.Context, nodeName, userName, password string) error
 	UpdatePassword(ctx context.Context, nodeName, userName, password string) error
 	UpdateProfile(ctx context.Context, nodeName, userName, profileName string) error
+	UpdateRole(ctx context.Context, nodeName, userName, roleName string) error
 }
 
 // UsersHandler handles ClickHouse users endpoints.
@@ -598,6 +599,119 @@ func (h *UsersHandler) UpdateProfile(c *gin.Context) {
 		Message:     message,
 		UserName:    req.UserName,
 		ProfileName: req.ProfileName,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// UpdateRole updates role for an existing ClickHouse user.
+// @Summary      Update ClickHouse user role
+// @Description  Updates the role for an existing ClickHouse user on the specified node
+// @Tags         users
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        node         query     string                      true   "ClickHouse node hostname"
+// @Param        request      body      models.UpdateUserRoleRequest  true  "User role update request"
+// @Success      200          {object}  models.UpdateUserRoleResponse
+// @Failure      400          {object}  models.ErrorResponse
+// @Failure      404          {object}  models.ErrorResponse
+// @Failure      500          {object}  models.ErrorResponse
+// @Router       /api/v1/clickhouse/users/role [put]
+func (h *UsersHandler) UpdateRole(c *gin.Context) {
+	nodeName := strings.TrimSpace(c.Query("node"))
+
+	var req models.UpdateUserRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Validate request
+	req.UserName = strings.TrimSpace(req.UserName)
+	req.RoleName = strings.TrimSpace(req.RoleName)
+
+	if req.UserName == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request",
+			Message: "user_name parameter is required",
+		})
+		return
+	}
+
+	// RoleName can be empty to remove role from user
+	// Empty role name is allowed, validation will be done in repository if needed
+
+	// Validate Cyrillic characters
+	if containsCyrillic(req.UserName) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request",
+			Message: "user_name cannot contain Cyrillic characters",
+		})
+		return
+	}
+
+	// Validate Cyrillic characters only if role name is not empty
+	if req.RoleName != "" && containsCyrillic(req.RoleName) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request",
+			Message: "role_name cannot contain Cyrillic characters",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), usersQueryTimeout)
+	defer cancel()
+
+	err := h.repo.UpdateRole(ctx, nodeName, req.UserName, req.RoleName)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Errorf("Failed to update role: %v", err)
+		}
+		// Check if user not found
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{
+				Error:   "User not found",
+				Message: err.Error(),
+			})
+			return
+		}
+		// Check if role not found
+		if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "doesn't exist") {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				Error:   "Role not found",
+				Message: err.Error(),
+			})
+			return
+		}
+		// Check if user is in users.xml file
+		if strings.Contains(err.Error(), "users.xml file") {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				Error:   "Cannot update role",
+				Message: err.Error(),
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Failed to update role",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Determine success message based on whether role was set or removed
+	message := "User role updated successfully"
+	if req.RoleName == "" {
+		message = "User role removed successfully"
+	}
+
+	response := models.UpdateUserRoleResponse{
+		Message:  message,
+		UserName: req.UserName,
+		RoleName: req.RoleName,
 	}
 
 	c.JSON(http.StatusOK, response)

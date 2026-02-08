@@ -1771,3 +1771,430 @@ func TestUsersHandlerRemoveProfile(t *testing.T) {
 	// Profile should be empty or default after removal
 	assert.Empty(t, userDetailsAfter.Profile, "User profile should be removed")
 }
+
+func TestUsersHandlerUpdateRole(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_update_role")
+
+	// Create test user in ClickHouse
+	testUserName := "test_user_role_" + time.Now().Format("20060102150405")
+	testPassword := "test_password_123"
+	newRole := "test_role_" + time.Now().Format("20060102150405")
+
+	// Cleanup
+	defer func() {
+		_ = testutil.DeleteTestClickHouseUser(t, testUserName, "test_node")
+		_ = testutil.DeleteTestClickHouseRole(t, newRole, "test_node")
+	}()
+
+	// Create test role first
+	err := testutil.CreateTestClickHouseRole(t, newRole, "test_node")
+	require.NoError(t, err, "Failed to create test role")
+
+	// Create test user
+	err = testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "test_node")
+	require.NoError(t, err, "Failed to create test user")
+
+	// Test PUT /api/v1/clickhouse/users/role
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: testUserName,
+		RoleName: newRole,
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp models.UpdateUserRoleResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "User role updated successfully", resp.Message)
+	assert.Equal(t, testUserName, resp.UserName)
+	assert.Equal(t, newRole, resp.RoleName)
+}
+
+func TestUsersHandlerUpdateRoleUserNotFound(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_update_role_not_found")
+
+	// Test PUT /api/v1/clickhouse/users/role with non-existent user
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: "nonexistent_user_12345",
+		RoleName: "readonly",
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "User not found")
+	assert.Contains(t, resp.Message, "nonexistent_user_12345")
+}
+
+func TestUsersHandlerUpdateRoleRoleNotFound(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_update_role_role_not_found")
+
+	// Create test user
+	testUserName := "test_user_role_not_found_" + time.Now().Format("20060102150405")
+	testPassword := "test_password_123"
+
+	// Cleanup
+	defer func() {
+		_ = testutil.DeleteTestClickHouseUser(t, testUserName, "test_node")
+	}()
+
+	// Create test user
+	err := testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "test_node")
+	require.NoError(t, err, "Failed to create test user")
+
+	// Test PUT /api/v1/clickhouse/users/role with non-existent role
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: testUserName,
+		RoleName: "nonexistent_role_12345",
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Role not found")
+	assert.Contains(t, resp.Message, "nonexistent_role_12345")
+}
+
+func TestUsersHandlerUpdateRoleUsersXmlStorage(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_update_role_xml_storage")
+
+	// Attempt to update role for a user typically defined in users.xml (e.g., "default")
+	userName := "default" // "default" user is usually defined in users.xml
+	newRole := "readonly"
+
+	// Test PUT /api/v1/clickhouse/users/role
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: userName,
+		RoleName: newRole,
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Cannot update role")
+	assert.Contains(t, resp.Message, "user is defined in users.xml file on the server")
+}
+
+func TestUsersHandlerUpdateRoleMissingUserName(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_upd_role_missing_usr")
+
+	// Test PUT /api/v1/clickhouse/users/role without user_name
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: "",
+		RoleName: "readonly",
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Invalid request")
+	// Gin validation returns field name in Go format (UserName), not JSON (user_name)
+	assert.Contains(t, resp.Message, "UserName")
+}
+
+func TestUsersHandlerUpdateRoleRequiresAuth(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Test without auth token
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: "test_user",
+		RoleName: "readonly",
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", bytes.NewBuffer(bodyBytes))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestUsersHandlerUpdateRoleWithoutNode(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_update_role_no_node")
+
+	// Create test user
+	testUserName := "test_user_no_node_role_" + time.Now().Format("20060102150405")
+	testPassword := "test_password_123"
+	newRole := "test_role_no_node_" + time.Now().Format("20060102150405")
+
+	// Cleanup
+	defer func() {
+		_ = testutil.DeleteTestClickHouseUser(t, testUserName, "")
+		_ = testutil.DeleteTestClickHouseRole(t, newRole, "")
+	}()
+
+	// Create test role first
+	err := testutil.CreateTestClickHouseRole(t, newRole, "")
+	require.NoError(t, err, "Failed to create test role")
+
+	// Create test user
+	err = testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "")
+	require.NoError(t, err, "Failed to create test user")
+
+	// Test PUT /api/v1/clickhouse/users/role without node parameter
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: testUserName,
+		RoleName: newRole,
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should work (node is optional, uses default connection)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp models.UpdateUserRoleResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "User role updated successfully", resp.Message)
+	assert.Equal(t, testUserName, resp.UserName)
+	assert.Equal(t, newRole, resp.RoleName)
+}
+
+func TestUsersHandlerUpdateRoleWithCyrillicInUserName(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_upd_role_cyr_usr")
+
+	// Test PUT /api/v1/clickhouse/users/role with Cyrillic characters in user_name
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: "пользователь_тест", // Cyrillic characters
+		RoleName: "readonly",
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Invalid request")
+	assert.Contains(t, resp.Message, "user_name cannot contain Cyrillic characters")
+}
+
+func TestUsersHandlerUpdateRoleWithCyrillicInRoleName(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_upd_role_cyr_role")
+
+	// Test PUT /api/v1/clickhouse/users/role with Cyrillic characters in role_name
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: "test_user",
+		RoleName: "роль_тест", // Cyrillic characters
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Invalid request")
+	assert.Contains(t, resp.Message, "role_name cannot contain Cyrillic characters")
+}
+
+func TestUsersHandlerRemoveRole(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	// Register user and get token
+	token := testutil.RegisterTestUser(t, router, "test_remove_role")
+
+	// Create test user in ClickHouse
+	testUserName := "test_user_remove_role_" + time.Now().Format("20060102150405")
+	testPassword := "test_password_123"
+	testRoleName := "test_role_remove_" + time.Now().Format("20060102150405")
+
+	// Cleanup
+	defer func() {
+		_ = testutil.DeleteTestClickHouseUser(t, testUserName, "test_node")
+		_ = testutil.DeleteTestClickHouseRole(t, testRoleName, "test_node")
+	}()
+
+	// Create test role first
+	err := testutil.CreateTestClickHouseRole(t, testRoleName, "test_node")
+	require.NoError(t, err, "Failed to create test role")
+
+	// Create test user
+	err = testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "test_node")
+	require.NoError(t, err, "Failed to create test user")
+
+	// Assign role to user first
+	requestBodyAssign := models.UpdateUserRoleRequest{
+		UserName: testUserName,
+		RoleName: testRoleName,
+	}
+	bodyBytesAssign, err := json.Marshal(requestBodyAssign)
+	require.NoError(t, err)
+
+	reqAssign, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytesAssign)
+	require.NoError(t, err)
+	reqAssign.Header.Set("Content-Type", "application/json")
+
+	wAssign := httptest.NewRecorder()
+	router.ServeHTTP(wAssign, reqAssign)
+	require.Equal(t, http.StatusOK, wAssign.Code, "Failed to assign role to user")
+
+	// Verify user has role before removal
+	userDetails, err := testutil.GetTestClickHouseUserDetails(t, testUserName, "test_node")
+	require.NoError(t, err, "Failed to get user details before removal")
+	assert.Equal(t, testRoleName, userDetails.RoleName, "User should have role before removal")
+
+	// Test PUT /api/v1/clickhouse/users/role with empty role_name to remove role
+	requestBody := models.UpdateUserRoleRequest{
+		UserName: testUserName,
+		RoleName: "", // Empty role name to remove role
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/users/role?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp models.UpdateUserRoleResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "User role removed successfully", resp.Message)
+	assert.Equal(t, testUserName, resp.UserName)
+	assert.Equal(t, "", resp.RoleName)
+
+	// Verify user role was removed by getting details
+	userDetailsAfter, err := testutil.GetTestClickHouseUserDetails(t, testUserName, "test_node")
+	require.NoError(t, err, "Failed to get user details after removal")
+	// Role should be empty after removal
+	assert.Empty(t, userDetailsAfter.RoleName, "User role should be removed")
+}

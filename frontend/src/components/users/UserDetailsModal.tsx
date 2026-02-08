@@ -27,6 +27,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   const [loadingBasicInfo, setLoadingBasicInfo] = useState(false);
   const [originalUserName, setOriginalUserName] = useState<string>('');
   const [originalProfile, setOriginalProfile] = useState<string>('');
+  const [originalRole, setOriginalRole] = useState<string>('');
   const [originalPassword, setOriginalPassword] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [profileUpdateInProgress, setProfileUpdateInProgress] = useState(false);
@@ -34,9 +35,15 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   const profileUpdateRequestRef = useRef<Promise<void> | null>(null);
   const saveRequestRef = useRef<Promise<void> | null>(null);
   
-  // Mock data for autocomplete
-  const availableRoles = ['admin', 'developer', 'analyst', 'viewer', 'editor', 'manager', 'operator', 'readonly'];
-  const availableProfiles = ['default', 'readonly', 'readonly_2', 'web', 'default_profile', 'readonly_profile'];
+  // State for profiles list from API
+  const [availableProfiles, setAvailableProfiles] = useState<string[]>([]);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const profilesLoadedRef = useRef(false);
+  
+  // State for roles list from API
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [loadingRoles, setLoadingRoles] = useState(false);
+  const rolesLoadedRef = useRef(false);
   const availableGrants = [
     'SELECT', 'INSERT', 'ALTER', 'CREATE', 'DROP', 'TRUNCATE', 'OPTIMIZE', 'SHOW', 
     'ALL', 'READ', 'WRITE', 'BACKUP', 'KILL QUERY', 'SYSTEM', 'INTROSPECTION',
@@ -138,8 +145,9 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
           setOriginalUserName(basicInfo.name);
           setEditableProfile(basicInfo.profile || '');
           setOriginalProfile(basicInfo.profile || '');
-          setOriginalPassword(''); // Password is not returned from API, so we track changes by non-empty editablePassword
           setEditableRole(basicInfo.role_name || '');
+          setOriginalRole(basicInfo.role_name || '');
+          setOriginalPassword(''); // Password is not returned from API, so we track changes by non-empty editablePassword
           setEditableGrants(basicInfo.grants || []);
           // Initialize access scope rows from scope if available
           if (basicInfo.scope) {
@@ -196,6 +204,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
       setEditablePassword('');
       setEditableProfile('');
       setEditableRole('');
+      setOriginalRole('');
       setNewRole('');
       setNewProfile('');
       setAccessScopeRows([]);
@@ -212,6 +221,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         setEditableProfile(user.profile || '');
         setOriginalProfile(user.profile || '');
         setEditableRole(user.role_name || '');
+        setOriginalRole(user.role_name || '');
         setNewRole('');
         setNewProfile('');
         // Initialize access scope rows - will be populated from API if available
@@ -224,8 +234,9 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
           // editableName is already set from API in the first useEffect
           setEditableProfile(userBasicInfo.profile || '');
           setOriginalProfile(userBasicInfo.profile || '');
-          setOriginalPassword(''); // Password is not returned from API
           setEditableRole(userBasicInfo.role_name || '');
+          setOriginalRole(userBasicInfo.role_name || '');
+          setOriginalPassword(''); // Password is not returned from API
           if (userBasicInfo.grants && userBasicInfo.grants.length > 0) {
             setEditableGrants([...userBasicInfo.grants]);
           }
@@ -258,6 +269,60 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
+
+  // Load profiles list when modal opens or selectedNode changes
+  // This ensures profiles are ready when user focuses on the input
+  useEffect(() => {
+    if (!isOpen) {
+      profilesLoadedRef.current = false;
+      setAvailableProfiles([]);
+      return;
+    }
+
+    // Load profiles when modal opens (only once per modal session)
+    if (!loadingProfiles && !profilesLoadedRef.current) {
+      profilesLoadedRef.current = true;
+      setLoadingProfiles(true);
+      (async () => {
+        try {
+          const profiles = await usersAPI.getProfilesList(selectedNode);
+          setAvailableProfiles(profiles || []);
+        } catch (err) {
+          console.error('Failed to load profiles list:', err);
+          setAvailableProfiles([]);
+        } finally {
+          setLoadingProfiles(false);
+        }
+      })();
+    }
+  }, [isOpen, selectedNode, loadingProfiles]);
+
+  // Load roles list when modal opens or selectedNode changes
+  // This ensures roles are ready when user focuses on the input
+  useEffect(() => {
+    if (!isOpen) {
+      rolesLoadedRef.current = false;
+      setAvailableRoles([]);
+      return;
+    }
+
+    // Load roles when modal opens (only once per modal session)
+    if (!loadingRoles && !rolesLoadedRef.current) {
+      rolesLoadedRef.current = true;
+      setLoadingRoles(true);
+      (async () => {
+        try {
+          const roles = await usersAPI.getRolesList(selectedNode);
+          setAvailableRoles(roles || []);
+        } catch (err) {
+          console.error('Failed to load roles list:', err);
+          setAvailableRoles([]);
+        } finally {
+          setLoadingRoles(false);
+        }
+      })();
+    }
+  }, [isOpen, selectedNode, loadingRoles]);
 
   if (!isOpen || (!user && !isNewUser)) return null;
 
@@ -344,6 +409,25 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               // Notification is shown automatically by api interceptor
             } catch (profileErr: any) {
               console.error('Failed to update user profile after creation:', profileErr);
+              // Error notification is already shown by api interceptor
+              return;
+            }
+          }
+
+          // If role is specified, update it after user creation (and profile update if any)
+          const trimmedRole = editableRole.trim();
+          if (trimmedRole) {
+            // Validate Cyrillic characters in role
+            if (containsCyrillic(trimmedRole)) {
+              showError('Role name cannot contain Cyrillic characters');
+              return;
+            }
+            
+            try {
+              await usersAPI.updateUserRole(trimmedName, trimmedRole, selectedNode);
+              // Notification is shown automatically by api interceptor
+            } catch (roleErr: any) {
+              console.error('Failed to update user role after creation:', roleErr);
               // Error notification is already shown by api interceptor
               return;
             }
@@ -441,6 +525,32 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         await profileUpdatePromise;
       }
 
+      // Step 4: If role changed and it's not a new user, update the role
+      const trimmedRole = editableRole.trim();
+      // Normalize originalRole to handle null/undefined cases
+      const normalizedOriginalRole = (originalRole || '').trim();
+      // Check if role actually changed (handle both empty and non-empty cases)
+      // Send update if role changed, even if one of them is empty
+      // This handles both setting a role and removing a role (empty string)
+      if (trimmedRole !== normalizedOriginalRole) {
+        // Validate Cyrillic characters in role (only if role is not empty)
+        if (trimmedRole && containsCyrillic(trimmedRole)) {
+          showError('Role name cannot contain Cyrillic characters');
+          return;
+        }
+
+        try {
+          // Pass trimmedRole (which can be empty string to remove role)
+          await usersAPI.updateUserRole(currentUserName, trimmedRole, selectedNode);
+          setOriginalRole(trimmedRole);
+          // Notification is shown automatically by api interceptor
+        } catch (err: any) {
+          console.error('Failed to update user role:', err);
+          // Error notification is already shown by api interceptor
+          return;
+        }
+      }
+
       // Refresh users list once after all successful updates
       if (onRefreshUsers) {
         onRefreshUsers();
@@ -524,15 +634,27 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   };
 
   const getRoleSuggestions = () => {
-    if (!newRole) return [];
-    return availableRoles.filter(role => 
+    // Ensure availableRoles is always an array
+    const roles = availableRoles || [];
+    // If user hasn't typed anything, show all roles (for focus display)
+    if (!newRole || newRole.length === 0) {
+      return roles;
+    }
+    // If user has typed 1+ characters, filter roles
+    return roles.filter(role => 
       role.toLowerCase().includes(newRole.toLowerCase())
     );
   };
 
   const getProfileSuggestions = () => {
-    if (!newProfile) return [];
-    return availableProfiles.filter(profile => 
+    // Ensure availableProfiles is always an array
+    const profiles = availableProfiles || [];
+    // If user hasn't typed anything, show all profiles (for focus display)
+    if (!newProfile || newProfile.length === 0) {
+      return profiles;
+    }
+    // If user has typed 1+ characters, filter profiles
+    return profiles.filter(profile => 
       profile.toLowerCase().includes(newProfile.toLowerCase())
     );
   };

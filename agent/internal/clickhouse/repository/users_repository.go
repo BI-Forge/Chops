@@ -131,10 +131,11 @@ func (r *UsersRepository) GetUsersList(ctx context.Context, nodeName string) ([]
     users.id,
     ups.profile,
     users.storage,
-    grants.role_name,
+    role_grants.granted_role_name as role_name,
     groupArray(grants.access_type) as grants
 FROM system.users
 LEFT JOIN system.grants ON users.name = grants.user_name
+LEFT JOIN system.role_grants ON users.name = role_grants.user_name
 LEFT JOIN (
     SELECT spe.user_name as user_name, spe.inherit_profile as profile
     FROM system.settings_profile_elements AS spe
@@ -143,7 +144,7 @@ LEFT JOIN (
 GROUP BY users.name,
          users.id,
          users.storage,
-         grants.role_name,
+         role_grants.granted_role_name,
          ups.profile,
          grants.database,
          grants.table,
@@ -239,11 +240,12 @@ func (r *UsersRepository) GetUserDetails(ctx context.Context, nodeName, userName
     ups.user_settings,
     ups.profile_settings,
     users.storage,
-    grants.role_name,
+    role_grants.granted_role_name as role_name,
     arrayStringConcat([grants.database, grants.table, grants.column], '.'),
     groupArray(grants.access_type) as grants
 FROM system.users
 LEFT JOIN system.grants ON users.name = grants.user_name
+LEFT JOIN system.role_grants ON users.name = role_grants.user_name
 LEFT JOIN (
     SELECT spe.user_name as user_name, spe.inherit_profile as profile, user_setting.settings as user_settings, profile_setting.settings as profile_settings
     FROM system.settings_profile_elements AS spe
@@ -265,7 +267,7 @@ WHERE users.name = ?
 GROUP BY users.name,
          users.id,
          users.storage,
-         grants.role_name,
+         role_grants.granted_role_name,
          ups.profile,
          ups.user_settings,
          ups.profile_settings,
@@ -544,6 +546,104 @@ func (r *UsersRepository) UpdateProfile(ctx context.Context, nodeName, userName,
 			r.logger.Infof("Successfully removed profile for user %s on node %s", userName, nodeName)
 		} else {
 			r.logger.Infof("Successfully updated profile for user %s on node %s", userName, nodeName)
+		}
+	}
+
+	return nil
+}
+
+// UpdateRole updates role for an existing ClickHouse user.
+func (r *UsersRepository) UpdateRole(ctx context.Context, nodeName, userName, roleName string) error {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
+	}
+
+	// Validate input
+	if userName == "" {
+		return fmt.Errorf("user name cannot be empty")
+	}
+	// Role name can be empty to remove role from user
+
+	// Check if user exists before updating role
+	userDetails, err := r.GetUserDetails(ctx, nodeName, userName)
+	if err != nil {
+		return fmt.Errorf("user %s not found: %w", userName, err)
+	}
+
+	// Check if user is defined in users.xml
+	if userDetails.Storage == "users_xml" {
+		return fmt.Errorf("cannot update role for user %s: user is defined in users.xml file on the server", userName)
+	}
+
+	// Escape backticks in user name and role name for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	var query string
+	if roleName == "" {
+		// To remove role from user, we need to:
+		// 1. Get current role(s) assigned to user
+		// 2. Revoke the role(s) from user
+		// 3. Set default role to NONE
+		
+		// First, get current role from user details
+		currentRole := userDetails.RoleName
+		if currentRole != "" {
+			// Revoke the role from user
+			escapeRoleName := func(role string) string {
+				return escapeIdentifier(role)
+			}
+			revokeQuery := fmt.Sprintf("REVOKE `%s` FROM `%s`", escapeRoleName(currentRole), escapeIdentifier(userName))
+			if err := conn.Exec(ctx, revokeQuery); err != nil {
+				// Log error but continue - role might not be granted or already revoked
+				// This is not critical, as the role might already be revoked
+				if r.logger != nil {
+					r.logger.Errorf("Failed to revoke role %s from user %s (may already be revoked): %v", currentRole, userName, err)
+				}
+			}
+		}
+		
+		// Remove default role from user by setting it to NONE
+		// ClickHouse uses NONE keyword to remove default role assignment
+		query = fmt.Sprintf("ALTER USER `%s` DEFAULT ROLE NONE", escapeIdentifier(userName))
+	} else {
+		// First, grant the role to user (if not already granted)
+		// Then set it as default role
+		escapeRoleName := func(role string) string {
+			return escapeIdentifier(role)
+		}
+
+		// Grant role to user first (if not already granted, this will be a no-op)
+		grantQuery := fmt.Sprintf("GRANT `%s` TO `%s`", escapeRoleName(roleName), escapeIdentifier(userName))
+		if err := conn.Exec(ctx, grantQuery); err != nil {
+			// If role doesn't exist, return error
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "doesn't exist") ||
+				strings.Contains(errLower, "does not exist") ||
+				strings.Contains(errLower, "not found") ||
+				strings.Contains(errLower, "unknown role") ||
+				strings.Contains(errLower, "no role") ||
+				strings.Contains(errLower, "there is no role") {
+				return fmt.Errorf("role %s does not exist: %w", roleName, err)
+			}
+			return fmt.Errorf("failed to grant role %s to user %s: %w", roleName, userName, err)
+		}
+
+		// Set role as default role
+		query = fmt.Sprintf("ALTER USER `%s` DEFAULT ROLE `%s`", escapeIdentifier(userName), escapeRoleName(roleName))
+	}
+
+	if err := conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to update role for user %s: %w", userName, err)
+	}
+
+	if r.logger != nil {
+		if roleName == "" {
+			r.logger.Infof("Successfully removed role for user %s on node %s", userName, nodeName)
+		} else {
+			r.logger.Infof("Successfully updated role for user %s on node %s", userName, nodeName)
 		}
 	}
 

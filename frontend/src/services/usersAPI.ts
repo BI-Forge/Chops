@@ -67,6 +67,25 @@ export interface UpdateUserProfileResponse {
   profile_name: string
 }
 
+export interface ProfilesListResponse {
+  profiles: string[]
+}
+
+export interface RolesListResponse {
+  roles: string[]
+}
+
+export interface UpdateUserRoleRequest {
+  user_name: string
+  role_name: string
+}
+
+export interface UpdateUserRoleResponse {
+  message: string
+  user_name: string
+  role_name: string
+}
+
 export const usersAPI = {
   getUsersList: async (node?: string): Promise<UserList[]> => {
     const params = node ? { node } : {}
@@ -111,6 +130,30 @@ export const usersAPI = {
     const requestBody: UpdateUserProfileRequest = { user_name: userName, profile_name: profileName };
     // Disable retry for profile updates to prevent multiple requests
     const response = await api.put<UpdateUserProfileResponse>('/clickhouse/users/profile', requestBody, { 
+      params,
+      // Mark request to skip retry logic
+      _skipRetry: true 
+    } as any);
+    return response.data;
+  },
+
+  getProfilesList: async (node?: string): Promise<string[]> => {
+    const params = node ? { node } : {}
+    const response = await api.get<ProfilesListResponse>('/clickhouse/profiles/list', { params })
+    return response.data?.profiles || []
+  },
+
+  getRolesList: async (node?: string): Promise<string[]> => {
+    const params = node ? { node } : {}
+    const response = await api.get<RolesListResponse>('/clickhouse/roles/list', { params })
+    return response.data?.roles || []
+  },
+
+  updateUserRole: async (userName: string, roleName: string, node?: string): Promise<UpdateUserRoleResponse> => {
+    const params = node ? { node } : {};
+    const requestBody: UpdateUserRoleRequest = { user_name: userName, role_name: roleName };
+    // Disable retry for role updates to prevent multiple requests
+    const response = await api.put<UpdateUserRoleResponse>('/clickhouse/users/role', requestBody, { 
       params,
       // Mark request to skip retry logic
       _skipRetry: true 

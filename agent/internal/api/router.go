@@ -109,6 +109,7 @@ type handlersContainer struct {
 	ProcessHandler  *clickhouseHandlers.ProcessHandler
 	UsersHandler    *clickhouseHandlers.UsersHandler
 	ProfilesHandler *clickhouseHandlers.ProfilesHandler
+	RolesHandler    *clickhouseHandlers.RolesHandler
 	BackupHandler   *clickhouseHandlers.BackupHandler
 }
 
@@ -161,6 +162,13 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 	}
 	container.ProfilesHandler = profilesHandler
 
+	// Initialize roles handler
+	rolesHandler, err := clickhouseHandlers.NewRolesHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize roles handler: %v", err)
+	}
+	container.RolesHandler = rolesHandler
+
 	// Initialize backup handler
 	backupHandler, err := clickhouseHandlers.NewBackupHandler(cfg.Logger, cfg.Config)
 	if err != nil {
@@ -210,6 +218,7 @@ func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, hand
 		setupProcessRoutes(protected, handlers)
 		setupUsersRoutes(protected, handlers)
 		setupProfilesRoutes(protected, handlers)
+		setupRolesRoutes(protected, handlers)
 		setupBackupRoutes(protected, handlers)
 	}
 }
@@ -272,6 +281,7 @@ func setupUsersRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 		users.PUT("/rename", handlers.UsersHandler.UpdateUserLogin)
 		users.PUT("/password", handlers.UsersHandler.UpdatePassword)
 		users.PUT("/profile", handlers.UsersHandler.UpdateProfile)
+		users.PUT("/role", handlers.UsersHandler.UpdateRole)
 		users.POST("", handlers.UsersHandler.CreateUser)
 		users.GET("", handlers.UsersHandler.GetUsers)
 	}
@@ -286,6 +296,18 @@ func setupProfilesRoutes(protected *gin.RouterGroup, handlers *handlersContainer
 	profiles := protected.Group("/clickhouse/profiles")
 	{
 		profiles.GET("/list", handlers.ProfilesHandler.GetProfilesList)
+	}
+}
+
+// setupRolesRoutes configures roles endpoints
+func setupRolesRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.RolesHandler == nil {
+		return
+	}
+
+	roles := protected.Group("/clickhouse/roles")
+	{
+		roles.GET("/list", handlers.RolesHandler.GetRolesList)
 	}
 }
 

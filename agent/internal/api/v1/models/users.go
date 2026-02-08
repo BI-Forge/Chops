@@ -62,3 +62,17 @@ type UpdateUserProfileResponse struct {
 	UserName    string `json:"user_name" example:"existing_user"`
 	ProfileName string `json:"profile_name" example:"default"`
 }
+
+// UpdateUserRoleRequest represents request to update ClickHouse user role.
+// RoleName can be empty to remove role from user.
+type UpdateUserRoleRequest struct {
+	UserName string `json:"user_name" binding:"required" example:"existing_user"`
+	RoleName string `json:"role_name" example:"analyst_role"`
+}
+
+// UpdateUserRoleResponse represents response after updating user role.
+type UpdateUserRoleResponse struct {
+	Message  string `json:"message" example:"User role updated successfully"`
+	UserName string `json:"user_name" example:"existing_user"`
+	RoleName string `json:"role_name" example:"analyst_role"`
+}

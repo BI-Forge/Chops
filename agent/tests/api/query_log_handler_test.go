@@ -65,13 +65,25 @@ func TestQueryLogHandlerReturnsData(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code, "Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
 
+	// Check that response body is not empty
+	bodyBytes := w.Body.Bytes()
+	require.NotEmpty(t, bodyBytes, "Response body should not be empty. Status: %d", w.Code)
+
+	// Try to unmarshal as JSON to check if it's valid JSON
 	var resp models.QueryLogResponse
-	err = json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
-	assert.NotNil(t, resp.Items)
-	assert.NotNil(t, resp.Pagination)
+	err = json.Unmarshal(bodyBytes, &resp)
+	require.NoError(t, err, "Failed to unmarshal response as JSON. Body: %s", string(bodyBytes))
+	
+	// Items can be empty (no queries in the time range), but should not be nil
+	assert.NotNil(t, resp.Items, "Items should not be nil")
+	assert.NotNil(t, resp.Pagination, "Pagination should not be nil")
+	
+	// Verify pagination structure
+	assert.GreaterOrEqual(t, resp.Pagination.Total, int64(0), "Total should be non-negative")
+	assert.GreaterOrEqual(t, resp.Pagination.Limit, 0, "Limit should be non-negative")
+	assert.GreaterOrEqual(t, resp.Pagination.Offset, 0, "Offset should be non-negative")
 }
 
 func TestQueryLogHandlerGetStats(t *testing.T) {

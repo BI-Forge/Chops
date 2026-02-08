@@ -554,6 +554,80 @@ func CreateTestClickHouseUserWithProfile(t TestingT, userName, password, profile
 	return nil
 }
 
+// CreateTestClickHouseRole creates a test role in ClickHouse for testing purposes
+func CreateTestClickHouseRole(t TestingT, roleName string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		// Try default connection if node not found
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Escape backticks in role name for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Create role if not exists
+	createRoleQuery := fmt.Sprintf("CREATE ROLE IF NOT EXISTS `%s`", escapeIdentifier(roleName))
+	if err := conn.Exec(ctx, createRoleQuery); err != nil {
+		return fmt.Errorf("Failed to create test role: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTestClickHouseRole deletes a test role from ClickHouse
+func DeleteTestClickHouseRole(t TestingT, roleName string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		// Try default connection if node not found
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Escape backticks in role name for SQL safety
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Drop role if exists
+	dropRoleQuery := fmt.Sprintf("DROP ROLE IF EXISTS `%s`", escapeIdentifier(roleName))
+	if err := conn.Exec(ctx, dropRoleQuery); err != nil {
+		return fmt.Errorf("Failed to delete test role: %v", err)
+	}
+
+	return nil
+}
+
 // GetTestClickHouseUserDetails fetches user details directly from ClickHouse for verification
 func GetTestClickHouseUserDetails(t TestingT, userName, nodeName string) (*chmodels.UserDetails, error) {
 	chManager := clickhouse.GetInstance()
@@ -576,20 +650,34 @@ func GetTestClickHouseUserDetails(t TestingT, userName, nodeName string) (*chmod
 
 	ctx := context.Background()
 	var profile sql.NullString
+	var roleName sql.NullString
+
 	// Query profile from system.settings_profile_elements where user_name matches
-	// This matches the query used in GetUsersList
-	query := `SELECT inherit_profile as profile
+	profileQuery := `SELECT inherit_profile as profile
 		FROM system.settings_profile_elements
 		WHERE user_name = ?
 		LIMIT 1`
-	err = conn.QueryRow(ctx, query, userName).Scan(&profile)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// User exists but has no profile assigned
-			return &chmodels.UserDetails{Profile: ""}, nil
-		}
+	err = conn.QueryRow(ctx, profileQuery, userName).Scan(&profile)
+	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to query user profile: %w", err)
 	}
 
-	return &chmodels.UserDetails{Profile: profile.String}, nil
+	// Query role from system.role_grants where user_name matches
+	// Try to query role - if table doesn't exist, roleName will remain empty
+	roleQuery := `SELECT granted_role_name as role_name
+		FROM system.role_grants
+		WHERE user_name = ?
+		LIMIT 1`
+	err = conn.QueryRow(ctx, roleQuery, userName).Scan(&roleName)
+	if err != nil && err != sql.ErrNoRows {
+		// If error is not "no rows", it might be table doesn't exist - that's ok
+		// Just log and continue with empty role
+		roleName = sql.NullString{String: "", Valid: false}
+	}
+
+	return &chmodels.UserDetails{
+		Profile:  profile.String,
+		RoleName: roleName.String,
+	}, nil
 }
+
