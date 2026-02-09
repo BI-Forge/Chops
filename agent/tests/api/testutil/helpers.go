@@ -681,3 +681,90 @@ func GetTestClickHouseUserDetails(t TestingT, userName, nodeName string) (*chmod
 	}, nil
 }
 
+// CreateTestClickHouseGrant creates a test grant in ClickHouse for testing purposes.
+// database, table, and column can be empty strings or "All" to represent wildcard.
+func CreateTestClickHouseGrant(t TestingT, userName, accessType, database, table, column, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Build GRANT statement
+	// If database/table/column is empty or "All", use ON *.*, database.*, or database.table.*
+	var grantQuery string
+	if database == "" || database == "All" {
+		// Global grant: ON *.*
+		grantQuery = fmt.Sprintf("GRANT %s ON *.* TO `%s`", accessType, escapeIdentifier(userName))
+	} else if table == "" || table == "All" {
+		// Database-level grant: ON database.*
+		grantQuery = fmt.Sprintf("GRANT %s ON `%s`.* TO `%s`", accessType, escapeIdentifier(database), escapeIdentifier(userName))
+	} else if column == "" || column == "All" {
+		// Table-level grant: ON database.table
+		grantQuery = fmt.Sprintf("GRANT %s ON `%s`.`%s` TO `%s`", accessType, escapeIdentifier(database), escapeIdentifier(table), escapeIdentifier(userName))
+	} else {
+		// Column-level grant: GRANT access_type(column) ON database.table TO user
+		grantQuery = fmt.Sprintf("GRANT %s(`%s`) ON `%s`.`%s` TO `%s`", accessType, escapeIdentifier(column), escapeIdentifier(database), escapeIdentifier(table), escapeIdentifier(userName))
+	}
+
+	if err := conn.Exec(ctx, grantQuery); err != nil {
+		return fmt.Errorf("Failed to create test grant: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTestClickHouseGrants deletes all grants for a test user from ClickHouse.
+func DeleteTestClickHouseGrants(t TestingT, userName, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Revoke all grants from user
+	revokeQuery := fmt.Sprintf("REVOKE ALL ON *.* FROM `%s`", escapeIdentifier(userName))
+	if err := conn.Exec(ctx, revokeQuery); err != nil {
+		// Ignore errors - user might not have any grants
+		return nil
+	}
+
+	return nil
+}
+

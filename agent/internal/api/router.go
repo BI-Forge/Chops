@@ -102,15 +102,16 @@ func initializeJWTManager(cfg RouterConfig) *auth.JWTManager {
 
 // handlersContainer holds all initialized handlers
 type handlersContainer struct {
-	AuthHandler     *handlers.AuthHandler
-	HealthHandler   *handlers.HealthHandler
-	MetricsHandler  *clickhouseHandlers.MetricsHandler
-	QueryLogHandler *clickhouseHandlers.QueryLogHandler
-	ProcessHandler  *clickhouseHandlers.ProcessHandler
-	UsersHandler    *clickhouseHandlers.UsersHandler
-	ProfilesHandler *clickhouseHandlers.ProfilesHandler
-	RolesHandler    *clickhouseHandlers.RolesHandler
-	BackupHandler   *clickhouseHandlers.BackupHandler
+	AuthHandler        *handlers.AuthHandler
+	HealthHandler      *handlers.HealthHandler
+	MetricsHandler     *clickhouseHandlers.MetricsHandler
+	QueryLogHandler    *clickhouseHandlers.QueryLogHandler
+	ProcessHandler     *clickhouseHandlers.ProcessHandler
+	UsersHandler       *clickhouseHandlers.UsersHandler
+	ProfilesHandler    *clickhouseHandlers.ProfilesHandler
+	RolesHandler       *clickhouseHandlers.RolesHandler
+	AccessScopeHandler *clickhouseHandlers.AccessScopeHandler
+	BackupHandler      *clickhouseHandlers.BackupHandler
 }
 
 // initializeHandlers creates and initializes all handlers
@@ -169,6 +170,13 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 	}
 	container.RolesHandler = rolesHandler
 
+	// Initialize access scope handler
+	accessScopeHandler, err := clickhouseHandlers.NewAccessScopeHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize access scope handler: %v", err)
+	}
+	container.AccessScopeHandler = accessScopeHandler
+
 	// Initialize backup handler
 	backupHandler, err := clickhouseHandlers.NewBackupHandler(cfg.Logger, cfg.Config)
 	if err != nil {
@@ -219,6 +227,7 @@ func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, hand
 		setupUsersRoutes(protected, handlers)
 		setupProfilesRoutes(protected, handlers)
 		setupRolesRoutes(protected, handlers)
+		setupAccessScopeRoutes(protected, handlers)
 		setupBackupRoutes(protected, handlers)
 	}
 }
@@ -308,6 +317,18 @@ func setupRolesRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 	roles := protected.Group("/clickhouse/roles")
 	{
 		roles.GET("/list", handlers.RolesHandler.GetRolesList)
+	}
+}
+
+// setupAccessScopeRoutes configures access scope endpoints
+func setupAccessScopeRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.AccessScopeHandler == nil {
+		return
+	}
+
+	accessScope := protected.Group("/clickhouse/access-scope")
+	{
+		accessScope.GET("", handlers.AccessScopeHandler.GetUserAccessScopes)
 	}
 }
 

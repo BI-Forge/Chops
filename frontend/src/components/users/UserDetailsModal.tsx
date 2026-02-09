@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Users, XCircle, Shield, Database, Key, Hash, Save, Copy, Lock, Eye, EyeOff, Trash2, Settings } from 'lucide-react';
+import { Users, XCircle, Database, Key, Hash, Save, Copy, Lock, Eye, EyeOff, Trash2, Settings } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAlert } from '../../contexts/AlertContext';
 import { AutocompleteInput } from '../AutocompleteInput';
@@ -28,7 +28,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   const [originalUserName, setOriginalUserName] = useState<string>('');
   const [originalProfile, setOriginalProfile] = useState<string>('');
   const [originalRole, setOriginalRole] = useState<string>('');
-  const [originalPassword, setOriginalPassword] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [profileUpdateInProgress, setProfileUpdateInProgress] = useState(false);
   // Use refs to track active requests to prevent duplicate calls even in StrictMode
@@ -69,9 +68,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   const [editableProfile, setEditableProfile] = useState('');
   const [editableRole, setEditableRole] = useState('');
   const [accessScopeRows, setAccessScopeRows] = useState<AccessScopeRow[]>([]);
-  const [editableGrants, setEditableGrants] = useState<string[]>([]);
   const [editableSettings, setEditableSettings] = useState<Array<{name: string, value: string}>>([]);
-  const [newGrant, setNewGrant] = useState('');
   const [newSetting, setNewSetting] = useState('');
   const [newRole, setNewRole] = useState('');
   const [newProfile, setNewProfile] = useState('');
@@ -147,8 +144,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
           setOriginalProfile(basicInfo.profile || '');
           setEditableRole(basicInfo.role_name || '');
           setOriginalRole(basicInfo.role_name || '');
-          setOriginalPassword(''); // Password is not returned from API, so we track changes by non-empty editablePassword
-          setEditableGrants(basicInfo.grants || []);
+          // Password is not returned from API, so we track changes by non-empty editablePassword
           // Initialize access scope rows from scope if available
           if (basicInfo.scope) {
             // Parse scope string if needed (format: "database.table.column")
@@ -158,7 +154,8 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                 id: `row-${Date.now()}`,
                 database: scopeParts[0] || '',
                 table: scopeParts[1] || '',
-                column: scopeParts[2] || ''
+                column: scopeParts[2] || '',
+                permissions: basicInfo.grants || []
               }]);
             }
           }
@@ -200,16 +197,14 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
       setEditableName('');
       setOriginalUserName('');
       setOriginalProfile('');
-      setOriginalPassword('');
       setEditablePassword('');
       setEditableProfile('');
       setEditableRole('');
       setOriginalRole('');
-      setNewRole('');
-      setNewProfile('');
-      setAccessScopeRows([]);
-      setEditableGrants([]);
-      setEditableSettings([]);
+        setNewRole('');
+        setNewProfile('');
+        setAccessScopeRows([]);
+        setEditableSettings([]);
     } else if (user && !loadingBasicInfo) {
       // Only initialize if we're not currently loading from API
       // Use API data if available, otherwise use props data
@@ -217,7 +212,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         setEditableName(user.name);
         setOriginalUserName(user.name);
         setEditablePassword('');
-        setOriginalPassword('');
         setEditableProfile(user.profile || '');
         setOriginalProfile(user.profile || '');
         setEditableRole(user.role_name || '');
@@ -226,7 +220,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         setNewProfile('');
         // Initialize access scope rows - will be populated from API if available
         setAccessScopeRows([]);
-        setEditableGrants([...user.grants]);
         setEditableSettings([]);
       } else {
         // Update fields from API data if available
@@ -236,10 +229,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
           setOriginalProfile(userBasicInfo.profile || '');
           setEditableRole(userBasicInfo.role_name || '');
           setOriginalRole(userBasicInfo.role_name || '');
-          setOriginalPassword(''); // Password is not returned from API
-          if (userBasicInfo.grants && userBasicInfo.grants.length > 0) {
-            setEditableGrants([...userBasicInfo.grants]);
-          }
+          // Password is not returned from API
         }
       }
     }
@@ -326,17 +316,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
 
   if (!isOpen || (!user && !isNewUser)) return null;
 
-  const handleAddGrant = (valueToAdd?: string) => {
-    const grantValue = valueToAdd || newGrant;
-    if (grantValue.trim() && !editableGrants.includes(grantValue.trim().toUpperCase())) {
-      setEditableGrants([...editableGrants, grantValue.trim().toUpperCase()]);
-      setNewGrant('');
-    }
-  };
-
-  const handleRemoveGrant = (grant: string) => {
-    setEditableGrants(editableGrants.filter(g => g !== grant));
-  };
 
   const handleAddSetting = (valueToAdd?: string) => {
     const settingValue = (typeof valueToAdd === 'string' ? valueToAdd : newSetting) || '';
@@ -482,7 +461,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
 
         try {
           await usersAPI.updateUserPassword(currentUserName, trimmedPassword, selectedNode);
-          setOriginalPassword(trimmedPassword);
           setEditablePassword(''); // Clear password field after successful update
           // Notification is shown automatically by api interceptor
         } catch (err: any) {
@@ -575,7 +553,8 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
       id: `row-${Date.now()}-${Math.random()}`,
       database: '',
       table: '',
-      column: ''
+      column: '',
+      permissions: []
     }]);
   };
   
@@ -584,9 +563,33 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   };
   
   const handleUpdateAccessScopeRow = (id: string, field: 'database' | 'table' | 'column', value: string) => {
-    setAccessScopeRows(accessScopeRows.map(row => 
-      row.id === id ? { ...row, [field]: value } : row
-    ));
+    setAccessScopeRows(prevRows => {
+      return prevRows.map(row => 
+        row.id === id ? { ...row, [field]: value } : row
+      );
+    });
+  };
+
+  const handleAddPermissionToRow = (id: string, permission: string) => {
+    setAccessScopeRows(accessScopeRows.map(row => {
+      if (row.id === id) {
+        const permissions = row.permissions || [];
+        if (!permissions.includes(permission)) {
+          return { ...row, permissions: [...permissions, permission] };
+        }
+      }
+      return row;
+    }));
+  };
+
+  const handleRemovePermissionFromRow = (id: string, permission: string) => {
+    setAccessScopeRows(accessScopeRows.map(row => {
+      if (row.id === id) {
+        const permissions = row.permissions || [];
+        return { ...row, permissions: permissions.filter(p => p !== permission) };
+      }
+      return row;
+    }));
   };
 
   const handleCopy = () => {
@@ -617,14 +620,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   };
 
   // Filter suggestions based on input
-  const getGrantSuggestions = () => {
-    if (!newGrant) return [];
-    return availableGrants.filter(grant => 
-      grant.toLowerCase().includes(newGrant.toLowerCase()) && 
-      !editableGrants.includes(grant)
-    );
-  };
-
   const getSettingSuggestions = () => {
     if (!newSetting) return [];
     return availableSettings.filter(setting => 
@@ -659,7 +654,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     );
   };
 
-  const grantSuggestions = getGrantSuggestions();
   const settingSuggestions = getSettingSuggestions();
   const roleSuggestions = getRoleSuggestions();
   const profileSuggestions = getProfileSuggestions();
@@ -919,69 +913,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               </div>
             </div>
 
-            {/* Permissions */}
-            <div>
-              <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} mb-4`}>
-                <Shield className="w-5 h-5" />
-                <h3 className="font-semibold">Permissions ({editableGrants.length} {editableGrants.length === 1 ? 'grant' : 'grants'})</h3>
-              </div>
-
-              <div className={`${
-                theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
-              } border rounded-xl p-4`}>
-                {/* Add new permission */}
-                <div className="mb-4">
-                  <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
-                    Add Permission
-                  </label>
-                  <AutocompleteInputFlex
-                    value={newGrant}
-                    onChange={setNewGrant}
-                    onAdd={handleAddGrant}
-                    suggestions={grantSuggestions}
-                    placeholder="Enter permission name..."
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddGrant();
-                      }
-                    }}
-                  />
-                </div>
-
-                {/* Permissions tags */}
-                <div className="flex flex-wrap gap-2">
-                  {editableGrants.map((grant) => (
-                    <div
-                      key={grant}
-                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                        theme === 'light'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-amber-500/20 text-yellow-400 border border-yellow-500/30'
-                      } group transition-all duration-200 hover:scale-105`}
-                    >
-                      <span>{grant}</span>
-                      <button
-                        onClick={() => handleRemoveGrant(grant)}
-                        className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                          theme === 'light'
-                            ? 'hover:bg-amber-200'
-                            : 'hover:bg-yellow-500/30'
-                        } transition-colors`}
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {editableGrants.length === 0 && (
-                    <p className={`text-sm ${theme === 'light' ? 'text-gray-500' : 'text-gray-600'}`}>
-                      No permissions assigned
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* Settings */}
             <div>
               <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} mb-4`}>
@@ -1088,7 +1019,10 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                 onAddRow={handleAddAccessScopeRow}
                 onRemoveRow={handleRemoveAccessScopeRow}
                 onUpdateRow={handleUpdateAccessScopeRow}
+                onAddPermission={handleAddPermissionToRow}
+                onRemovePermission={handleRemovePermissionFromRow}
                 databaseStructure={databaseStructure}
+                availablePermissions={availableGrants}
               />
             </div>
           </div>

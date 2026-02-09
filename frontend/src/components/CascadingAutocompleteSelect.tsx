@@ -57,10 +57,11 @@ export function CascadingAutocompleteSelect({
 
   // Sync searchValue with value when value changes externally
   useEffect(() => {
-    if (!showDropdown && value !== displayValue) {
-      // Value was updated externally, ensure display is correct
+    if (!showDropdown) {
+      // Reset searchValue when dropdown is closed and value changes
+      setSearchValue('');
     }
-  }, [value, showDropdown, displayValue]);
+  }, [value, showDropdown]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (showDropdown && filteredOptions.length > 0) {
@@ -83,15 +84,10 @@ export function CascadingAutocompleteSelect({
   };
 
   const selectOption = (option: string) => {
-    console.log('selectOption called with:', option);
     onChange(option);
     setShowDropdown(false);
     setSearchValue('');
     setSelectedIndex(-1);
-    // Blur input after selection
-    if (inputRef.current) {
-      inputRef.current.blur();
-    }
   };
 
   const handleFocus = () => {
@@ -110,15 +106,9 @@ export function CascadingAutocompleteSelect({
           type="text"
           value={showDropdown ? searchValue : displayValue}
           onChange={(e) => {
-            const newValue = e.target.value;
-            setSearchValue(newValue);
+            setSearchValue(e.target.value);
             if (!showDropdown) {
               setShowDropdown(true);
-            }
-            // If user types and matches an option exactly, select it
-            const exactMatch = options.find(opt => opt.toLowerCase() === newValue.toLowerCase());
-            if (exactMatch && newValue.length > 0) {
-              // Don't auto-select, let user choose
             }
           }}
           onKeyDown={handleKeyDown}
@@ -154,7 +144,7 @@ export function CascadingAutocompleteSelect({
       {showDropdown && !disabled && (
         <div
           ref={dropdownRef}
-          className={`absolute top-full left-0 right-0 mt-1 rounded-lg border shadow-lg z-50 max-h-60 overflow-y-auto custom-scrollbar ${
+          className={`absolute top-full left-0 right-0 mt-1 rounded-lg border shadow-lg z-[10000] max-h-60 overflow-y-auto custom-scrollbar ${
             theme === 'light'
               ? 'bg-white border-amber-500/30'
               : 'bg-gray-800 border-yellow-500/30'

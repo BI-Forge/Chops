@@ -75,6 +75,17 @@ export interface RolesListResponse {
   roles: string[]
 }
 
+export interface AccessScope {
+  database: string
+  table: string
+  column: string
+  permissions: string[]
+}
+
+export interface AccessScopeListResponse {
+  access_scopes: AccessScope[]
+}
+
 export interface UpdateUserRoleRequest {
   user_name: string
   role_name: string
@@ -159,5 +170,12 @@ export const usersAPI = {
       _skipRetry: true 
     } as any);
     return response.data;
+  },
+
+  getUserAccessScopes: async (userName: string, node?: string): Promise<AccessScope[]> => {
+    const params: { user_name: string; node?: string } = { user_name: userName }
+    if (node) params.node = node
+    const response = await api.get<AccessScopeListResponse>('/clickhouse/access-scope', { params })
+    return response.data?.access_scopes || []
   },
 }
