@@ -1,0 +1,16 @@
+#!/bin/sh
+# Removes Cursor-related trailers from commit message (e.g. Co-authored-by: Cursor <cursoragent@cursor.com>).
+# Install: cp build/git-hooks/prepare-commit-msg .git/hooks/prepare-commit-msg && chmod +x .git/hooks/prepare-commit-msg
+
+msgfile="$1"
+[ -z "$msgfile" ] && exit 0
+[ ! -f "$msgfile" ] && exit 0
+
+# Use sed in-place; fallback to temp file for portability
+if sed --version >/dev/null 2>&1; then
+  sed -i -e '/[Cc]ursoragent@cursor\.com/d' -e '/Co-authored-by:.*[Cc]ursor/d' "$msgfile"
+else
+  tmp=$(mktemp 2>/dev/null || echo "${msgfile}.tmp")
+  grep -v -i -e 'cursoragent@cursor\.com' -e 'Co-authored-by:.*Cursor' "$msgfile" > "$tmp" && mv "$tmp" "$msgfile"
+fi
+exit 0
