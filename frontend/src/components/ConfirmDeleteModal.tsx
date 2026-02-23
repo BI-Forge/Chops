@@ -5,11 +5,13 @@ import { useTheme } from '../contexts/ThemeContext';
 interface ConfirmDeleteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   userName: string;
+  /** When true, Delete button shows loading and is disabled. */
+  isConfirming?: boolean;
 }
 
-export function ConfirmDeleteModal({ isOpen, onClose, onConfirm, userName }: ConfirmDeleteModalProps) {
+export function ConfirmDeleteModal({ isOpen, onClose, onConfirm, userName, isConfirming = false }: ConfirmDeleteModalProps) {
   const { theme } = useTheme();
 
   if (!isOpen) return null;
@@ -95,14 +97,24 @@ export function ConfirmDeleteModal({ isOpen, onClose, onConfirm, userName }: Con
           </button>
           <button
             onClick={onConfirm}
+            disabled={isConfirming}
             className={`px-6 py-2.5 rounded-lg ${
               theme === 'light'
                 ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white'
                 : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white'
-            } transition-all duration-200 flex items-center gap-2 font-medium shadow-lg hover:shadow-xl`}
+            } transition-all duration-200 flex items-center gap-2 font-medium shadow-lg hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed`}
           >
-            <Trash2 className="w-4 h-4" />
-            Delete
+            {isConfirming ? (
+              <>
+                <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </>
+            )}
           </button>
         </div>
       </div>

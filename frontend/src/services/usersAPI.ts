@@ -46,6 +46,11 @@ export interface CreateUserResponse {
   name: string
 }
 
+export interface DeleteUserResponse {
+  message: string
+  name: string
+}
+
 export interface UpdateUserPasswordRequest {
   user_name: string
   password: string
@@ -84,6 +89,48 @@ export interface AccessScope {
 
 export interface AccessScopeListResponse {
   access_scopes: AccessScope[]
+}
+
+// API returns string[] for schemas/tables/columns (backend: /clickhouse/schemas|tables|columns/list)
+export interface SchemasListResponse {
+  schemas: string[]
+}
+
+export interface TablesListResponse {
+  tables: string[]
+}
+
+export interface ColumnsListResponse {
+  columns: string[]
+}
+
+export interface AvailableSetting {
+  name: string
+  type: string
+  default: string
+  description: string
+  min?: string
+  max?: string
+}
+
+export interface AvailableSettingsResponse {
+  settings: AvailableSetting[]
+}
+
+export interface UserSettingItem {
+  name: string
+  value: string
+}
+
+export interface UpdateUserSettingsRequest {
+  user_name: string
+  settings: UserSettingItem[]
+}
+
+export interface UserSettingsResponse {
+  user_name: string
+  user_settings: Record<string, string>
+  profile_settings: Record<string, string>
 }
 
 export interface UpdateUserRoleRequest {
@@ -126,6 +173,13 @@ export const usersAPI = {
       name,
       password
     }, { params })
+    return response.data
+  },
+
+  deleteUser: async (userName: string, node?: string): Promise<DeleteUserResponse> => {
+    const params: { node?: string; name: string } = { name: userName }
+    if (node) params.node = node
+    const response = await api.delete<DeleteUserResponse>('/clickhouse/users', { params })
     return response.data
   },
 
@@ -177,5 +231,67 @@ export const usersAPI = {
     if (node) params.node = node
     const response = await api.get<AccessScopeListResponse>('/clickhouse/access-scope', { params })
     return response.data?.access_scopes || []
+  },
+
+  /** Replaces all access scopes for the user (same request/response shape as getUserAccessScopes). */
+  updateUserAccessScopes: async (userName: string, accessScopes: AccessScope[], node?: string): Promise<AccessScope[]> => {
+    const params = node ? { node } : {}
+    const response = await api.put<AccessScopeListResponse>('/clickhouse/access-scope', {
+      user_name: userName,
+      access_scopes: accessScopes,
+    }, { params })
+    return response.data?.access_scopes || []
+  },
+
+  getSchemasList: async (node?: string, name?: string): Promise<string[]> => {
+    const params: { node?: string; name?: string } = {}
+    if (node) params.node = node
+    if (name) params.name = name
+    const response = await api.get<SchemasListResponse>('/clickhouse/schemas/list', { params })
+    const raw = response.data?.schemas || []
+    return raw.filter((s): s is string => typeof s === 'string' && s.length > 0)
+  },
+
+  getTablesList: async (node?: string, schema?: string, name?: string): Promise<string[]> => {
+    const params: { node?: string; schema?: string; name?: string } = {}
+    if (node) params.node = node
+    if (schema) params.schema = schema
+    if (name) params.name = name
+    const response = await api.get<TablesListResponse>('/clickhouse/tables/list', { params })
+    const raw = response.data?.tables || []
+    return raw.filter((t): t is string => typeof t === 'string' && t.length > 0)
+  },
+
+  getColumnsList: async (node?: string, schema?: string, table?: string, name?: string): Promise<string[]> => {
+    const params: { node?: string; schema?: string; table?: string; name?: string } = {}
+    if (node) params.node = node
+    if (schema) params.schema = schema
+    if (table) params.table = table
+    if (name) params.name = name
+    const response = await api.get<ColumnsListResponse>('/clickhouse/columns/list', { params })
+    const raw = response.data?.columns || []
+    return raw.filter((c): c is string => typeof c === 'string' && c.length > 0)
+  },
+
+  getUserSettings: async (userName: string, node?: string): Promise<UserSettingsResponse> => {
+    const params: { user_name: string; node?: string } = { user_name: userName }
+    if (node) params.node = node
+    const response = await api.get<UserSettingsResponse>('/clickhouse/settings', { params })
+    return response.data
+  },
+
+  getAvailableSettings: async (node?: string): Promise<AvailableSetting[]> => {
+    const params = node ? { node } : {}
+    const response = await api.get<AvailableSettingsResponse>('/clickhouse/settings/available', { params })
+    return response.data?.settings ?? []
+  },
+
+  updateUserSettings: async (userName: string, settings: UserSettingItem[], node?: string): Promise<UserSettingsResponse> => {
+    const params = node ? { node } : {}
+    const response = await api.put<UserSettingsResponse>('/clickhouse/settings', {
+      user_name: userName,
+      settings,
+    }, { params })
+    return response.data
   },
 }

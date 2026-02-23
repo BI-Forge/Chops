@@ -25,12 +25,14 @@ export function CascadingAutocompleteSelect({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Filter options based on search
-  const filteredOptions = options.filter((option) =>
-    option.toLowerCase().includes(searchValue.toLowerCase())
+  // Ensure options are valid strings and filter safely
+  const validOptions = (options || []).filter((option) => option && typeof option === 'string');
+  const filteredOptions = validOptions.filter((option) =>
+    option.toLowerCase().includes((searchValue || '').toLowerCase())
   );
 
-  // Get display value
-  const displayValue = value || '';
+  // Get display value - convert empty string to "All" for display
+  const displayValue = value === '' || value === 'All' ? 'All' : (value || '');
 
   // Reset selected index when search changes
   useEffect(() => {
@@ -84,7 +86,9 @@ export function CascadingAutocompleteSelect({
   };
 
   const selectOption = (option: string) => {
-    onChange(option);
+    // Convert "All" back to empty string for storage (empty string means "all" in the UI)
+    const valueToStore = option === 'All' ? '' : option;
+    onChange(valueToStore);
     setShowDropdown(false);
     setSearchValue('');
     setSelectedIndex(-1);
@@ -163,7 +167,7 @@ export function CascadingAutocompleteSelect({
                     ? theme === 'light'
                       ? 'bg-amber-100 text-amber-900'
                       : 'bg-yellow-500/20 text-yellow-300'
-                    : value === option
+                    : (value === option || (value === '' && option === 'All'))
                       ? theme === 'light'
                         ? 'bg-amber-50 text-amber-800'
                         : 'bg-yellow-500/10 text-yellow-400'

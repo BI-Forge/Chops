@@ -5,6 +5,19 @@ test:
 	docker compose -f docker-compose.test.yml exec -T app go test -v ./tests/...
 	docker compose -f docker-compose.test.yml down
 
+# Run custom backend tests in Docker (with test databases)
+# Usage: make test-custom TEST=TestName
+# Example: make test-custom TEST=TestSchemasHandlerGetSchemasList
+test-custom:
+	docker compose -f docker-compose.test.yml down
+	docker compose -f docker-compose.test.yml up -d --build app
+	@if [ -n "$(TEST)" ]; then \
+		docker compose -f docker-compose.test.yml exec -T app go test -v ./tests/... -run $(TEST); \
+	else \
+		docker compose -f docker-compose.test.yml exec -T app go test -v ./tests/...; \
+	fi
+	docker compose -f docker-compose.test.yml down
+
 # Run ClickHouse tests in Docker (with test databases)
 test-clickhouse:
 	docker compose -f docker-compose.test.yml down

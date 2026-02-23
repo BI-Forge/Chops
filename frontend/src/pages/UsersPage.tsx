@@ -22,6 +22,7 @@ export function UsersPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [userToCopy, setUserToCopy] = useState<User | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('All Roles');
@@ -71,27 +72,27 @@ export function UsersPage() {
       return;
     }
 
-    try {
-      setLoading(true);
-      const usersList = await usersAPI.getUsersList(selectedNode);
-      // Map API response to User interface
-      const mappedUsers: User[] = usersList.map(user => ({
-        name: user.name,
-        id: user.id,
-        profile: user.profile || '',
-        storage: user.storage || '',
-        role_name: user.role_name || '',
-        grants: user.grants || [],
-      }));
-      setUsers(mappedUsers);
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      showError('Failed to load users');
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        setLoading(true);
+        const usersList = await usersAPI.getUsersList(selectedNode);
+        // Map API response to User interface
+        const mappedUsers: User[] = usersList.map(user => ({
+          name: user.name,
+          id: user.id,
+          profile: user.profile || '',
+          storage: user.storage || '',
+          role_name: user.role_name || '',
+          grants: user.grants || [],
+        }));
+        setUsers(mappedUsers);
+      } catch (error) {
+        console.error('Failed to load users:', error);
+        showError('Failed to load users');
+        setUsers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
   useEffect(() => {
     loadUsers();
@@ -133,16 +134,25 @@ export function UsersPage() {
     setCurrentPage(1);
   };
 
-  const handleDeleteUser = (user: User) => {
-    console.log('Deleting user:', user.name);
-    success(`User ${user.name} deleted successfully`);
-    setUserToDelete(null);
-  };
-
-  const handleCopyUser = (user: User) => {
-    console.log('Copying user:', user.name);
-    success(`User ${user.name} copied successfully`);
-    setUserToCopy(null);
+  const handleDeleteUser = async (user: User) => {
+    if (!selectedNode) {
+      showError('No node selected');
+      return;
+    }
+    setIsDeletingUser(true);
+    try {
+      await usersAPI.deleteUser(user.name, selectedNode);
+      success(`User ${user.name} deleted successfully`);
+      setUserToDelete(null);
+      loadUsers();
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err && typeof (err as { response?: { data?: { error?: string } } }).response?.data?.error === 'string'
+        ? (err as { response: { data: { error: string } } }).response.data.error
+        : 'Failed to delete user';
+      showError(msg);
+    } finally {
+      setIsDeletingUser(false);
+    }
   };
 
   return (
@@ -307,13 +317,17 @@ export function UsersPage() {
         </div>
       </div>
 
-      {/* User Details Modal */}
+      {/* User Details Modal (edit) */}
       <UserDetailsModal
         isOpen={!!selectedUser}
         onClose={() => setSelectedUser(null)}
         user={selectedUser}
         selectedNode={selectedNode}
         onRefreshUsers={loadUsers}
+        onCopyUser={(u) => {
+          setSelectedUser(null);
+          setUserToCopy(u);
+        }}
       />
 
       {/* Create User Modal */}
@@ -330,21 +344,19 @@ export function UsersPage() {
       <ConfirmDeleteModal
         isOpen={userToDelete !== null}
         onClose={() => setUserToDelete(null)}
-        onConfirm={() => {
-          if (userToDelete) {
-            handleDeleteUser(userToDelete);
-          }
-        }}
+        onConfirm={() => { if (userToDelete) void handleDeleteUser(userToDelete); }}
         userName={userToDelete?.name || ''}
+        isConfirming={isDeletingUser}
       />
 
-      {/* Confirm Copy User Modal */}
+      {/* Copy User Modal: form pre-filled from source user, Save creates new user (POST) */}
       {userToCopy && (
         <UserDetailsModal
           isOpen={true}
           onClose={() => setUserToCopy(null)}
           user={userToCopy}
-          isNewUser={false}
+          isNewUser={true}
+          copyFromUser={userToCopy}
           selectedNode={selectedNode}
           onRefreshUsers={loadUsers}
         />

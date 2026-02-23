@@ -19,6 +19,7 @@ interface AccessScopeRowEditorProps {
   onAddPermission: (id: string, permission: string) => void;
   onRemovePermission: (id: string, permission: string) => void;
   onRemoveRow: (id: string) => void;
+  isReadOnly?: boolean; // If true, scope fields (database, table, column) cannot be edited
 }
 
 export function AccessScopeRowEditor({
@@ -36,23 +37,54 @@ export function AccessScopeRowEditor({
   onAddPermission,
   onRemovePermission,
   onRemoveRow,
+  isReadOnly = false,
 }: AccessScopeRowEditorProps) {
   const { theme } = useTheme();
   const [newPermission, setNewPermission] = useState('');
 
   // Get suggested permissions based on scope level
+  // Note: empty string means "All" in the UI
   const getSuggestedPermissions = () => {
-    if (!database) return [];
-
-    if (database === 'All' && table === 'All' && column === 'All') {
-      return ['SELECT', 'INSERT', 'ALTER', 'CREATE', 'DROP', 'TRUNCATE', 'OPTIMIZE', 'SHOW', 'ALL'];
-    } else if (database !== 'All' && (table === 'All' || !table)) {
-      return ['SELECT', 'INSERT', 'CREATE', 'DROP', 'ALTER', 'SHOW'];
-    } else if (database !== 'All' && table !== 'All' && (column === 'All' || !column)) {
-      return ['SELECT', 'INSERT', 'ALTER', 'TRUNCATE', 'OPTIMIZE'];
-    } else if (database !== 'All' && table !== 'All' && column !== 'All' && column) {
-      return ['SELECT', 'INSERT'];
+    const isAll = (value: string) => !value || value === 'All';
+    
+    // If database is "All" (empty), it means global scope
+    if (isAll(database) && isAll(table) && isAll(column)) {
+      return [
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+        'ALTER', 'ALTER TABLE', 'ALTER VIEW', 'ALTER DATABASE',
+        'CREATE', 'CREATE TABLE', 'CREATE VIEW', 'CREATE DATABASE', 'CREATE DICTIONARY',
+        'DROP', 'DROP TABLE', 'DROP VIEW', 'DROP DATABASE', 'DROP DICTIONARY',
+        'TRUNCATE', 'UNDROP TABLE',
+        'OPTIMIZE', 'OPTIMIZE TABLE',
+        'SHOW', 'SHOW TABLES', 'SHOW DATABASES',
+        'SYSTEM', 'BACKUP', 'RESTORE',
+        'ALL', 'READ', 'WRITE'
+      ];
+    } else if (!isAll(database) && isAll(table)) {
+      return [
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+        'CREATE', 'CREATE TABLE', 'CREATE VIEW', 'CREATE DICTIONARY',
+        'DROP', 'DROP TABLE', 'DROP VIEW', 'DROP DICTIONARY',
+        'ALTER', 'ALTER TABLE', 'ALTER VIEW',
+        'TRUNCATE', 'UNDROP TABLE',
+        'OPTIMIZE', 'OPTIMIZE TABLE',
+        'SHOW', 'SHOW TABLES'
+      ];
+    } else if (!isAll(database) && !isAll(table) && isAll(column)) {
+      return [
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+        'ALTER', 'ALTER TABLE', 'ALTER VIEW', 'ALTER TTL', 'ALTER SETTINGS',
+        'TRUNCATE', 'UNDROP TABLE',
+        'OPTIMIZE', 'OPTIMIZE TABLE',
+        'DROP', 'DROP TABLE', 'DROP VIEW',
+        'CHECK', 'CHECK TABLE'
+      ];
+    } else if (!isAll(database) && !isAll(table) && !isAll(column)) {
+      return [
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE'
+      ];
     }
+    // If database is "All" but table/column are not, return empty (invalid state)
     return [];
   };
 
@@ -63,6 +95,7 @@ export function AccessScopeRowEditor({
     if (!newPermission) return [];
     return availablePermissions.filter(
       (perm) =>
+        perm && typeof perm === 'string' &&
         perm.toLowerCase().includes(newPermission.toLowerCase()) &&
         !permissions.includes(perm)
     );
@@ -78,7 +111,13 @@ export function AccessScopeRowEditor({
     }
   };
 
-  const scopePath = [database, table, column].filter(Boolean).join(' → ') || '(empty)';
+  // Build scope path, converting empty strings to "All"
+  const formatScopeValue = (val: string) => val === '' || val === 'All' ? 'All' : val;
+  const scopePath = [
+    formatScopeValue(database),
+    formatScopeValue(table),
+    formatScopeValue(column)
+  ].join(' → ') || '(empty)';
 
   return (
     <div
@@ -124,6 +163,7 @@ export function AccessScopeRowEditor({
             onChange={(value) => onUpdateField(id, 'database', value)}
             options={databaseOptions}
             placeholder="Select Database"
+            disabled={isReadOnly}
           />
         </div>
 
@@ -142,7 +182,7 @@ export function AccessScopeRowEditor({
             onChange={(value) => onUpdateField(id, 'table', value)}
             options={tableOptions}
             placeholder="Select Table"
-            disabled={!database}
+            disabled={isReadOnly || !database || database === '' || database === 'All'}
           />
         </div>
 
@@ -161,7 +201,7 @@ export function AccessScopeRowEditor({
             onChange={(value) => onUpdateField(id, 'column', value)}
             options={columnOptions}
             placeholder="Select Column"
-            disabled={!table}
+            disabled={isReadOnly || !table || table === '' || table === 'All'}
           />
         </div>
       </div>
@@ -179,18 +219,14 @@ export function AccessScopeRowEditor({
       </div>
 
       {/* Permissions Section */}
-      {database && (
+      {/* Always show permissions section - database can be empty (meaning "All") */}
+      {true && (
         <div className={`pt-3 mt-3 border-t ${theme === 'light' ? 'border-gray-200' : 'border-gray-700/50'}`}>
           <div className="flex items-center gap-2 mb-3">
             <Shield className={`w-4 h-4 ${theme === 'light' ? 'text-amber-600' : 'text-yellow-500'}`} />
             <span className={`text-sm font-medium ${theme === 'light' ? 'text-gray-700' : 'text-gray-300'}`}>
               Permissions for this path
             </span>
-            {suggestedPermissions.length > 0 && (
-              <span className={`text-xs ${theme === 'light' ? 'text-gray-500' : 'text-gray-600'}`}>
-                (Suggested: {suggestedPermissions.join(', ')})
-              </span>
-            )}
           </div>
 
           {/* Add Permission Input */}

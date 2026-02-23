@@ -768,3 +768,150 @@ func DeleteTestClickHouseGrants(t TestingT, userName, nodeName string) error {
 	return nil
 }
 
+// CreateTestClickHouseDatabase creates a test database (schema) in ClickHouse for testing purposes.
+func CreateTestClickHouseDatabase(t TestingT, databaseName, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Create database if not exists
+	createDatabaseQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", escapeIdentifier(databaseName))
+	if err := conn.Exec(ctx, createDatabaseQuery); err != nil {
+		return fmt.Errorf("Failed to create test database: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTestClickHouseDatabase deletes a test database from ClickHouse.
+func DeleteTestClickHouseDatabase(t TestingT, databaseName, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Drop database if exists
+	dropDatabaseQuery := fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", escapeIdentifier(databaseName))
+	if err := conn.Exec(ctx, dropDatabaseQuery); err != nil {
+		return fmt.Errorf("Failed to delete test database: %v", err)
+	}
+
+	return nil
+}
+
+// CreateTestClickHouseTable creates a test table in ClickHouse for testing purposes.
+func CreateTestClickHouseTable(t TestingT, databaseName, tableName string, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Create table if not exists
+	createTableQuery := fmt.Sprintf(
+		"CREATE TABLE IF NOT EXISTS `%s`.`%s` ("+
+			"id UInt64, "+
+			"name String, "+
+			"value String, "+
+			"created_at DateTime DEFAULT now()"+
+			") ENGINE = MergeTree ORDER BY id SETTINGS index_granularity = 8192",
+		escapeIdentifier(databaseName), escapeIdentifier(tableName))
+	if err := conn.Exec(ctx, createTableQuery); err != nil {
+		return fmt.Errorf("Failed to create test table: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTestClickHouseTable deletes a test table from ClickHouse.
+func DeleteTestClickHouseTable(t TestingT, databaseName, tableName, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	// Drop table if exists
+	dropTableQuery := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`", escapeIdentifier(databaseName), escapeIdentifier(tableName))
+	if err := conn.Exec(ctx, dropTableQuery); err != nil {
+		return fmt.Errorf("Failed to delete test table: %v", err)
+	}
+
+	return nil
+}
+

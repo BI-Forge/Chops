@@ -112,6 +112,10 @@ type handlersContainer struct {
 	RolesHandler       *clickhouseHandlers.RolesHandler
 	AccessScopeHandler *clickhouseHandlers.AccessScopeHandler
 	BackupHandler      *clickhouseHandlers.BackupHandler
+	SchemasHandler     *clickhouseHandlers.SchemasHandler
+	TablesHandler      *clickhouseHandlers.TablesHandler
+	ColumnsHandler     *clickhouseHandlers.ColumnsHandler
+	SettingsHandler    *clickhouseHandlers.SettingsHandler
 }
 
 // initializeHandlers creates and initializes all handlers
@@ -184,6 +188,34 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 	}
 	container.BackupHandler = backupHandler
 
+	// Initialize schemas handler
+	schemasHandler, err := clickhouseHandlers.NewSchemasHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize schemas handler: %v", err)
+	}
+	container.SchemasHandler = schemasHandler
+
+	// Initialize tables handler
+	tablesHandler, err := clickhouseHandlers.NewTablesHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize tables handler: %v", err)
+	}
+	container.TablesHandler = tablesHandler
+
+	// Initialize columns handler
+	columnsHandler, err := clickhouseHandlers.NewColumnsHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize columns handler: %v", err)
+	}
+	container.ColumnsHandler = columnsHandler
+
+	// Initialize settings handler
+	settingsHandler, err := clickhouseHandlers.NewSettingsHandler(cfg.Logger, cfg.Config)
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize settings handler: %v", err)
+	}
+	container.SettingsHandler = settingsHandler
+
 	return container
 }
 
@@ -229,6 +261,10 @@ func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, hand
 		setupRolesRoutes(protected, handlers)
 		setupAccessScopeRoutes(protected, handlers)
 		setupBackupRoutes(protected, handlers)
+		setupSchemasRoutes(protected, handlers)
+		setupTablesRoutes(protected, handlers)
+		setupColumnsRoutes(protected, handlers)
+		setupSettingsRoutes(protected, handlers)
 	}
 }
 
@@ -292,6 +328,7 @@ func setupUsersRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 		users.PUT("/profile", handlers.UsersHandler.UpdateProfile)
 		users.PUT("/role", handlers.UsersHandler.UpdateRole)
 		users.POST("", handlers.UsersHandler.CreateUser)
+		users.DELETE("", handlers.UsersHandler.DeleteUser)
 		users.GET("", handlers.UsersHandler.GetUsers)
 	}
 }
@@ -329,6 +366,9 @@ func setupAccessScopeRoutes(protected *gin.RouterGroup, handlers *handlersContai
 	accessScope := protected.Group("/clickhouse/access-scope")
 	{
 		accessScope.GET("", handlers.AccessScopeHandler.GetUserAccessScopes)
+		if handlers.UsersHandler != nil {
+			accessScope.PUT("", handlers.UsersHandler.UpdateUserAccessScopes)
+		}
 	}
 }
 
@@ -344,5 +384,57 @@ func setupBackupRoutes(protected *gin.RouterGroup, handlers *handlersContainer) 
 		backups.GET("/in-progress", handlers.BackupHandler.GetInProgress)
 		backups.GET("/completed", handlers.BackupHandler.GetCompleted)
 		backups.GET("/:id", handlers.BackupHandler.GetByID)
+	}
+}
+
+// setupSchemasRoutes configures schemas endpoints
+func setupSchemasRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.SchemasHandler == nil {
+		return
+	}
+
+	schemas := protected.Group("/clickhouse/schemas")
+	{
+		schemas.GET("/list", handlers.SchemasHandler.GetSchemasList)
+	}
+}
+
+// setupTablesRoutes configures tables endpoints
+func setupTablesRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.TablesHandler == nil {
+		return
+	}
+
+	tables := protected.Group("/clickhouse/tables")
+	{
+		tables.GET("/list", handlers.TablesHandler.GetTablesList)
+	}
+}
+
+// setupColumnsRoutes configures columns endpoints
+func setupColumnsRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.ColumnsHandler == nil {
+		return
+	}
+
+	columns := protected.Group("/clickhouse/columns")
+	{
+		columns.GET("/list", handlers.ColumnsHandler.GetColumnsList)
+	}
+}
+
+// setupSettingsRoutes configures user settings endpoints
+func setupSettingsRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.SettingsHandler == nil {
+		return
+	}
+
+	settings := protected.Group("/clickhouse/settings")
+	{
+		if handlers.UsersHandler != nil {
+			settings.GET("", handlers.UsersHandler.GetUserSettings)
+			settings.PUT("", handlers.UsersHandler.UpdateUserSettings)
+		}
+		settings.GET("/available", handlers.SettingsHandler.GetAvailableSettings)
 	}
 }

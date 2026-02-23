@@ -37,6 +37,12 @@ type CreateUserResponse struct {
 	Name    string `json:"name" example:"new_user"`
 }
 
+// DeleteUserResponse represents response after deleting user.
+type DeleteUserResponse struct {
+	Message string `json:"message" example:"User deleted successfully"`
+	Name    string `json:"name" example:"deleted_user"`
+}
+
 // UpdateUserPasswordRequest represents request to update ClickHouse user password.
 type UpdateUserPasswordRequest struct {
 	UserName string `json:"user_name" binding:"required" example:"existing_user"`

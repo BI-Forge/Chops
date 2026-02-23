@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -82,17 +83,17 @@ func TestAccessScopeHandlerGetUserAccessScopes(t *testing.T) {
 	}
 
 	// Check global scope (All.All.All)
-	globalScope, exists := scopeMap["All.All.All"]
+	globalScope, exists := scopeMap["all.all.all"]
 	assert.True(t, exists, "Global scope should exist")
 	assert.Contains(t, globalScope.Permissions, "SELECT", "Global scope should have SELECT permission")
 
 	// Check database-level scope (test_db.All.All)
-	dbScope, exists := scopeMap["test_db.All.All"]
+	dbScope, exists := scopeMap["test_db.all.all"]
 	assert.True(t, exists, "Database scope should exist")
 	assert.Contains(t, dbScope.Permissions, "INSERT", "Database scope should have INSERT permission")
 
 	// Check table-level scope (test_db.test_table.All)
-	tableScope, exists := scopeMap["test_db.test_table.All"]
+	tableScope, exists := scopeMap["test_db.test_table.all"]
 	assert.True(t, exists, "Table scope should exist")
 	// ClickHouse may store ALTER as "ALTER TABLE" or "ALTER VIEW"
 	hasAlter := false
@@ -285,12 +286,163 @@ func TestAccessScopeHandlerGetUserAccessScopesWithNullValues(t *testing.T) {
 	// Verify that empty values are converted to "All"
 	foundAllScope := false
 	for _, scope := range resp.AccessScopes {
-		if scope.Database == "All" && scope.Table == "All" && scope.Column == "All" {
+		if scope.Database == "all" && scope.Table == "all" && scope.Column == "all" {
 			foundAllScope = true
 			assert.Contains(t, scope.Permissions, "SELECT", "All scope should have SELECT permission")
 			break
 		}
 	}
-	assert.True(t, foundAllScope, "Should have scope with All.All.All")
+	assert.True(t, foundAllScope, "Should have scope with all.all.all")
 }
 
+func TestAccessScopeHandlerUpdateUserAccessScopes(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_update_access_scopes")
+	testUserName := "test_user_update_scopes_" + time.Now().Format("20060102150405")
+	testPassword := "testpass123"
+
+	defer func() {
+		_ = testutil.DeleteTestClickHouseGrants(t, testUserName, "test_node")
+		_ = testutil.DeleteTestClickHouseUser(t, testUserName, "test_node")
+	}()
+
+	err := testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "test_node")
+	require.NoError(t, err)
+
+	// Initial grants
+	err = testutil.CreateTestClickHouseGrant(t, testUserName, "SELECT", "", "", "", "test_node")
+	require.NoError(t, err)
+	err = testutil.CreateTestClickHouseGrant(t, testUserName, "INSERT", "test_db", "", "", "test_node")
+	require.NoError(t, err)
+
+	// Update: replace with new scopes (one global SELECT, one table-level ALTER)
+	reqBody := models.UpdateAccessScopeRequest{
+		UserName: testUserName,
+		AccessScopes: []models.AccessScope{
+			{Database: "all", Table: "all", Column: "all", Permissions: []string{"SELECT"}},
+			{Database: "test_db", Table: "test_table", Column: "", Permissions: []string{"ALTER"}},
+		},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/access-scope?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp models.AccessScopeListResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp.AccessScopes)
+	// Expect at least: global SELECT and test_db.test_table ALTER
+	assert.GreaterOrEqual(t, len(resp.AccessScopes), 2)
+
+	scopeMap := make(map[string]models.AccessScope)
+	for _, scope := range resp.AccessScopes {
+		key := scope.Database + "." + scope.Table + "." + scope.Column
+		scopeMap[key] = scope
+	}
+	global, ok := scopeMap["all.all.all"]
+	assert.True(t, ok)
+	assert.Contains(t, global.Permissions, "SELECT")
+	tableScope, ok := scopeMap["test_db.test_table.all"]
+	assert.True(t, ok)
+	hasAlter := false
+	for _, p := range tableScope.Permissions {
+		if p == "ALTER" || p == "ALTER TABLE" || p == "ALTER VIEW" {
+			hasAlter = true
+			break
+		}
+	}
+	assert.True(t, hasAlter)
+}
+
+func TestAccessScopeHandlerUpdateUserAccessScopesEmptyList(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_update_access_scopes_empty")
+	testUserName := "test_user_update_scopes_empty_" + time.Now().Format("20060102150405")
+	testPassword := "testpass123"
+
+	defer func() {
+		_ = testutil.DeleteTestClickHouseGrants(t, testUserName, "test_node")
+		_ = testutil.DeleteTestClickHouseUser(t, testUserName, "test_node")
+	}()
+
+	err := testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "test_node")
+	require.NoError(t, err)
+	err = testutil.CreateTestClickHouseGrant(t, testUserName, "SELECT", "", "", "", "test_node")
+	require.NoError(t, err)
+
+	reqBody := models.UpdateAccessScopeRequest{
+		UserName:    testUserName,
+		AccessScopes: []models.AccessScope{},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/access-scope?node=test_node", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp models.AccessScopeListResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp.AccessScopes)
+	assert.Empty(t, resp.AccessScopes)
+}
+
+func TestAccessScopeHandlerUpdateUserAccessScopesRequiresAuth(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	reqBody := models.UpdateAccessScopeRequest{
+		UserName:    "some_user",
+		AccessScopes: []models.AccessScope{},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req, _ := http.NewRequest("PUT", "/api/v1/clickhouse/access-scope", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAccessScopeHandlerUpdateUserAccessScopesMissingUserName(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_update_access_scopes_no_name")
+	reqBody := models.UpdateAccessScopeRequest{
+		UserName:    "",
+		AccessScopes: []models.AccessScope{},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/clickhouse/access-scope", token, bodyBytes)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

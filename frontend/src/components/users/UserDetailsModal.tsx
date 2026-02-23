@@ -9,16 +9,44 @@ import { CascadingAccessSelector, type AccessScopeRow } from '../CascadingAccess
 import { usersAPI } from '../../services/usersAPI';
 import type { User } from './UsersTable';
 
+function sameAccessScopesPayload(a: Array<{ database: string; table: string; column: string; permissions: string[] }>, b: Array<{ database: string; table: string; column: string; permissions: string[] }> | null): boolean {
+  if (b === null) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].database !== b[i].database || a[i].table !== b[i].table || a[i].column !== b[i].column) return false;
+    const pa = a[i].permissions || [];
+    const pb = b[i].permissions || [];
+    if (pa.length !== pb.length) return false;
+    for (let j = 0; j < pa.length; j++) if (pa[j] !== pb[j]) return false;
+  }
+  return true;
+}
+
+function sameSettingsPayload(a: Array<{ name: string; value: string }>, b: Array<{ name: string; value: string }> | null): boolean {
+  if (b === null) return false;
+  if (a.length !== b.length) return false;
+  const am = new Map(a.map((s) => [s.name, s.value]));
+  const bm = new Map(b.map((s) => [s.name, s.value]));
+  if (am.size !== bm.size) return false;
+  for (const [k, v] of am) if (bm.get(k) !== v) return false;
+  return true;
+}
+
 interface UserDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
   isNewUser?: boolean;
+  /** When set, form is pre-filled from this user and Save creates a new user (POST). */
+  copyFromUser?: User | null;
   selectedNode?: string;
   onRefreshUsers?: () => void;
+  /** When set, Copy button in edit mode opens copy-user flow (create new user from current). */
+  onCopyUser?: (user: User) => void;
 }
 
-export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, selectedNode, onRefreshUsers }: UserDetailsModalProps) {
+export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, copyFromUser = null, selectedNode, onRefreshUsers, onCopyUser }: UserDetailsModalProps) {
+  const isCopyMode = !!copyFromUser && copyFromUser === user;
   const { theme } = useTheme();
   const { success, error: showError } = useAlert();
   
@@ -33,7 +61,11 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   // Use refs to track active requests to prevent duplicate calls even in StrictMode
   const profileUpdateRequestRef = useRef<Promise<void> | null>(null);
   const saveRequestRef = useRef<Promise<void> | null>(null);
-  
+  // Initial payloads when loaded (to skip update if unchanged)
+  type AccessScopePayload = { database: string; table: string; column: string; permissions: string[] };
+  const initialAccessScopesRef = useRef<AccessScopePayload[] | null>(null);
+  const initialSettingsRef = useRef<Array<{ name: string; value: string }> | null>(null);
+
   // State for profiles list from API
   const [availableProfiles, setAvailableProfiles] = useState<string[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
@@ -43,25 +75,52 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [loadingRoles, setLoadingRoles] = useState(false);
   const rolesLoadedRef = useRef(false);
+
+  // State for available settings list from API (for Settings block)
+  const [availableSettingsFromAPI, setAvailableSettingsFromAPI] = useState<string[]>([]);
+  const [loadingAvailableSettings, setLoadingAvailableSettings] = useState(false);
+  const availableSettingsLoadedRef = useRef(false);
+
+  // User settings from GET /clickhouse/settings (key-value for display and initial form)
+  const [userSettingsFromAPI, setUserSettingsFromAPI] = useState<{ user_name: string; user_settings: Record<string, string>; profile_settings: Record<string, string> } | null>(null);
+
   const availableGrants = [
-    'SELECT', 'INSERT', 'ALTER', 'CREATE', 'DROP', 'TRUNCATE', 'OPTIMIZE', 'SHOW', 
-    'ALL', 'READ', 'WRITE', 'BACKUP', 'KILL QUERY', 'SYSTEM', 'INTROSPECTION',
-    'KAFKA', 'NATS', 'RABBITMQ', 'SOURCES', 'SET DEFINER', 'SQLITE', 'ODBC', 
-    'JDBC', 'HDFS', 'S3', 'HIVE', 'AZURE', 'FILE', 'URL', 'REMOTE', 'MONGO', 
-    'REDIS', 'MYSQL', 'POSTGRES', 'KILL TRANSACTION', 'MOVE PARTITION BETWEEN SHARDS',
-    'dictGet', 'displaySecretsInShowAndSelect', 'CLUSTER', 'UNDROP TABLE', 
-    'TABLE ENGINE', 'CHECK'
+    // Basic data operations
+    'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+    // DDL operations
+    'ALTER', 'ALTER TABLE', 'ALTER VIEW', 'ALTER DATABASE', 'ALTER TTL', 'ALTER SETTINGS',
+    'CREATE', 'CREATE TABLE', 'CREATE VIEW', 'CREATE DATABASE', 'CREATE DICTIONARY', 'CREATE FUNCTION',
+    'DROP', 'DROP TABLE', 'DROP VIEW', 'DROP DATABASE', 'DROP DICTIONARY', 'DROP FUNCTION',
+    'TRUNCATE', 'UNDROP TABLE',
+    // Query operations
+    'SHOW', 'SHOW TABLES', 'SHOW DATABASES', 'SHOW DICTIONARIES', 'SHOW PROCESSLIST',
+    'OPTIMIZE', 'OPTIMIZE TABLE',
+    // System operations
+    'SYSTEM', 'SYSTEM SHUTDOWN', 'SYSTEM KILL', 'SYSTEM DROP DNS CACHE', 'SYSTEM DROP MARK CACHE',
+    'KILL QUERY', 'KILL TRANSACTION', 'KILL MUTATION',
+    // Backup and restore
+    'BACKUP', 'RESTORE',
+    // Cluster operations
+    'CLUSTER', 'MOVE PARTITION BETWEEN SHARDS',
+    // Introspection
+    'INTROSPECTION', 'INTROSPECTION FUNCTIONS',
+    // Dictionary operations
+    'dictGet',
+    // Table engine operations
+    'TABLE ENGINE',
+    // Data validation
+    'CHECK', 'CHECK TABLE',
+    // Access control
+    'ALL', 'READ', 'WRITE', 'ACCESS MANAGEMENT',
+    // External data sources
+    'FILE', 'URL', 'REMOTE', 'S3', 'HDFS', 'AZURE', 'HIVE',
+    // Database connectors
+    'MYSQL', 'POSTGRES', 'SQLITE', 'ODBC', 'JDBC', 'MONGO', 'REDIS',
+    // Message queues
+    'KAFKA', 'NATS', 'RABBITMQ',
+    // Other
+    'SOURCES', 'SET DEFINER', 'displaySecretsInShowAndSelect'
   ];
-  const availableSettings = [
-    'readonly', 'allow_ddl', 'allow_introspection_functions', 'max_memory_usage',
-    'max_execution_time', 'max_rows_to_read', 'max_bytes_to_read', 'max_result_rows',
-    'max_result_bytes', 'result_overflow_mode', 'max_rows_to_group_by', 'group_by_overflow_mode',
-    'max_rows_to_sort', 'max_bytes_to_sort', 'sort_overflow_mode', 'max_columns_to_read',
-    'max_temporary_columns', 'max_temporary_non_const_columns', 'max_subquery_depth',
-    'max_pipeline_depth', 'max_ast_depth', 'max_ast_elements', 'max_expanded_ast_elements',
-    'readonly_2', 'allow_experimental_analyzer', 'enable_optimize_predicate_expression'
-  ];
-  
   // Editable states
   const [editableName, setEditableName] = useState('');
   const [editablePassword, setEditablePassword] = useState('');
@@ -73,42 +132,6 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
   const [newRole, setNewRole] = useState('');
   const [newProfile, setNewProfile] = useState('');
   
-  // Mock database structure for CascadingAccessSelector
-  const databaseStructure: Record<string, Record<string, string[]>> = {
-    analytics: {
-      users: ['id', 'name', 'email', 'created_at'],
-      orders: ['id', 'user_id', 'amount', 'status', 'created_at'],
-      events: ['id', 'user_id', 'event_type', 'timestamp']
-    },
-    production: {
-      users: ['id', 'name', 'email', 'created_at', 'updated_at'],
-      products: ['id', 'name', 'price', 'stock', 'category'],
-      transactions: ['id', 'user_id', 'amount', 'timestamp', 'status']
-    },
-    staging: {
-      users: ['id', 'name', 'email'],
-      logs: ['id', 'message', 'level', 'timestamp']
-    },
-    development: {
-      users: ['id', 'name', 'email'],
-      test_data: ['id', 'value', 'timestamp']
-    },
-    logs: {
-      application: ['id', 'message', 'level', 'timestamp'],
-      errors: ['id', 'error', 'stack', 'timestamp']
-    },
-    metrics: {
-      performance: ['id', 'metric_name', 'value', 'timestamp'],
-      system: ['id', 'cpu', 'memory', 'timestamp']
-    },
-    system: {
-      users: ['name', 'id', 'storage'],
-      grants: ['user_name', 'access_type', 'database', 'table', 'column']
-    },
-    backup: {
-      snapshots: ['id', 'name', 'created_at', 'size']
-    }
-  };
   
   // Copy modal states
   const [showCopyModal, setShowCopyModal] = useState(false);
@@ -118,11 +141,11 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
 
   // Delete confirmation modal state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-
-  // Load user basic info from API when modal opens
+  // Load user basic info from API when modal opens (edit existing user or copy-from user)
   useEffect(() => {
-    if (isOpen && !isNewUser && user && user.name) {
+    if (isOpen && user && user.name && (!isNewUser || isCopyMode)) {
       const loadUserBasicInfo = async () => {
         try {
           setLoadingBasicInfo(true);
@@ -138,26 +161,63 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
             scope: basicInfo.scope,
           });
           // Update editable fields with API data
-          setEditableName(basicInfo.name);
-          setOriginalUserName(basicInfo.name);
+          if (isCopyMode) {
+            const copyName = `${basicInfo.name || user.name}_copy`;
+            setEditableName(copyName);
+            setOriginalUserName('');
+            setEditablePassword('');
+          } else {
+            setEditableName(basicInfo.name);
+            setOriginalUserName(basicInfo.name);
+          }
           setEditableProfile(basicInfo.profile || '');
           setOriginalProfile(basicInfo.profile || '');
           setEditableRole(basicInfo.role_name || '');
           setOriginalRole(basicInfo.role_name || '');
           // Password is not returned from API, so we track changes by non-empty editablePassword
-          // Initialize access scope rows from scope if available
-          if (basicInfo.scope) {
-            // Parse scope string if needed (format: "database.table.column")
-            const scopeParts = basicInfo.scope.split('.');
-            if (scopeParts.length >= 3) {
-              setAccessScopeRows([{
-                id: `row-${Date.now()}`,
-                database: scopeParts[0] || '',
-                table: scopeParts[1] || '',
-                column: scopeParts[2] || '',
-                permissions: basicInfo.grants || []
-              }]);
-            }
+          
+          // Load access scopes from API
+          try {
+            const accessScopes = await usersAPI.getUserAccessScopes(user.name, selectedNode);
+            // Convert AccessScope[] to AccessScopeRow[]
+            // Note: "all" from API means empty string in UI (represents "All" wildcard)
+            const baseTimestamp = Date.now();
+            const accessScopeRows: AccessScopeRow[] = accessScopes.map((scope, index) => ({
+              id: `row-${baseTimestamp}-${index}-${Math.random()}`,
+              database: scope.database === 'all' ? '' : scope.database,
+              table: scope.table === 'all' ? '' : scope.table,
+              column: scope.column === 'all' ? '' : scope.column,
+              permissions: scope.permissions || [],
+              isReadOnly: true // Existing scopes from API are read-only
+            }));
+            setAccessScopeRows(accessScopeRows);
+            // Don't set initial ref here — set it only after successful save, so first Save after open always sends
+          } catch (err) {
+            console.error('[UserDetailsModal] Failed to load access scopes:', err);
+            // Don't show error to user - just use empty array
+            setAccessScopeRows([]);
+            initialAccessScopesRef.current = [];
+          }
+
+          // Load user settings from GET /clickhouse/settings for key-value display and form
+          try {
+            const settingsResp = await usersAPI.getUserSettings(user.name, selectedNode);
+            const userSettings = settingsResp.user_settings || {};
+            const profileSettings = settingsResp.profile_settings || {};
+            setUserSettingsFromAPI({
+              user_name: settingsResp.user_name,
+              user_settings: userSettings,
+              profile_settings: profileSettings,
+            });
+            // Editable list: only user_settings (profile_settings are read-only and not sent on update)
+            const pairs: Array<{ name: string; value: string }> = Object.entries(userSettings).map(([name, value]) => ({ name, value }));
+            setEditableSettings(pairs);
+            // Don't set initial ref here — set it only after successful save, so first Save after open always sends
+          } catch (err) {
+            console.error('[UserDetailsModal] Failed to load user settings:', err);
+            setUserSettingsFromAPI(null);
+            setEditableSettings([]);
+            initialSettingsRef.current = null;
           }
         } catch (err) {
           console.error('Failed to load user basic info:', err);
@@ -187,13 +247,14 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
       });
     } else {
       setUserBasicInfo(null);
+      setUserSettingsFromAPI(null);
     }
-  }, [isOpen, user, isNewUser, selectedNode, showError]);
+  }, [isOpen, user, isNewUser, isCopyMode, selectedNode, showError]);
 
   // Initialize editable states when user changes (but don't override API-loaded data)
   useEffect(() => {
-    if (isNewUser) {
-      // New user - start with empty fields
+    if (isNewUser && !isCopyMode) {
+      // New user - start with empty fields (copy mode is filled by the load effect above)
       setEditableName('');
       setOriginalUserName('');
       setOriginalProfile('');
@@ -201,40 +262,46 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
       setEditableProfile('');
       setEditableRole('');
       setOriginalRole('');
-        setNewRole('');
-        setNewProfile('');
-        setAccessScopeRows([]);
-        setEditableSettings([]);
-    } else if (user && !loadingBasicInfo) {
-      // Only initialize if we're not currently loading from API
-      // Use API data if available, otherwise use props data
-      if (!userBasicInfo) {
-        setEditableName(user.name);
-        setOriginalUserName(user.name);
-        setEditablePassword('');
-        setEditableProfile(user.profile || '');
-        setOriginalProfile(user.profile || '');
-        setEditableRole(user.role_name || '');
-        setOriginalRole(user.role_name || '');
-        setNewRole('');
-        setNewProfile('');
-        // Initialize access scope rows - will be populated from API if available
-        setAccessScopeRows([]);
-        setEditableSettings([]);
-      } else {
-        // Update fields from API data if available
-        if (userBasicInfo) {
-          // editableName is already set from API in the first useEffect
-          setEditableProfile(userBasicInfo.profile || '');
-          setOriginalProfile(userBasicInfo.profile || '');
-          setEditableRole(userBasicInfo.role_name || '');
-          setOriginalRole(userBasicInfo.role_name || '');
-          // Password is not returned from API
-        }
-      }
+      setNewRole('');
+      setNewProfile('');
+      setAccessScopeRows([]);
+      setEditableSettings([]);
+      setUserSettingsFromAPI(null);
+      initialAccessScopesRef.current = [];
+      initialSettingsRef.current = [];
+    } else if (user && !loadingBasicInfo && !userBasicInfo && !isCopyMode) {
+      // Only initialize if we're not currently loading from API and userBasicInfo is not set
+      // This means we're using props data, not API data
+      setEditableName(user.name);
+      setOriginalUserName(user.name);
+      setEditablePassword('');
+      setEditableProfile(user.profile || '');
+      setOriginalProfile(user.profile || '');
+      setEditableRole(user.role_name || '');
+      setOriginalRole(user.role_name || '');
+      setNewRole('');
+      setNewProfile('');
+      // Don't clear access scope rows here - they may be loaded from API
+      setEditableSettings([]);
+    } else if (user && userBasicInfo && !loadingBasicInfo) {
+      // Update fields from API data if available
+      // editableName is already set from API in the first useEffect
+      setEditableProfile(userBasicInfo.profile || '');
+      setOriginalProfile(userBasicInfo.profile || '');
+      setEditableRole(userBasicInfo.role_name || '');
+      setOriginalRole(userBasicInfo.role_name || '');
+      // Password is not returned from API
+      // Access scope rows are already set in the first useEffect - DO NOT CLEAR THEM
     }
-  }, [user, isNewUser, userBasicInfo, loadingBasicInfo]);
+  }, [user, isNewUser, isCopyMode, userBasicInfo, loadingBasicInfo]);
 
+  // Clear access scope rows when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setAccessScopeRows([]);
+    }
+  }, [isOpen]);
+  
   // Block body scroll when modal is open
   useEffect(() => {
     if (isOpen) {
@@ -314,7 +381,32 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     }
   }, [isOpen, selectedNode, loadingRoles]);
 
-  if (!isOpen || (!user && !isNewUser)) return null;
+  // Load available settings list when modal opens (for Settings block input)
+  useEffect(() => {
+    if (!isOpen) {
+      availableSettingsLoadedRef.current = false;
+      setAvailableSettingsFromAPI([]);
+      return;
+    }
+
+    if (!loadingAvailableSettings && !availableSettingsLoadedRef.current) {
+      availableSettingsLoadedRef.current = true;
+      setLoadingAvailableSettings(true);
+      (async () => {
+        try {
+          const list = await usersAPI.getAvailableSettings(selectedNode);
+          setAvailableSettingsFromAPI(list.map((s) => s.name));
+        } catch (err) {
+          console.error('Failed to load available settings list:', err);
+          setAvailableSettingsFromAPI([]);
+        } finally {
+          setLoadingAvailableSettings(false);
+        }
+      })();
+    }
+  }, [isOpen, selectedNode, loadingAvailableSettings]);
+
+  if (!isOpen || (!user && !isNewUser && !copyFromUser)) return null;
 
 
   const handleAddSetting = (valueToAdd?: string) => {
@@ -345,8 +437,8 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
       try {
         setIsSaving(true);
 
-      // If it's a new user, create the user
-      if (isNewUser) {
+      // If it's a new user or copy-from user, create the user (POST)
+      if (isNewUser || isCopyMode) {
         const trimmedName = editableName.trim();
         const trimmedPassword = editablePassword.trim();
 
@@ -411,9 +503,36 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               return;
             }
           }
+
+          // Save user settings from form (before access scopes)
+          try {
+            const settingsPayload = editableSettings.map((s) => ({ name: s.name, value: s.value }));
+            await usersAPI.updateUserSettings(trimmedName, settingsPayload, selectedNode);
+          } catch (settingsErr: any) {
+            console.error('Failed to update user settings after creation:', settingsErr);
+            return;
+          }
+
+          // Save access scopes from form (same as for existing user)
+          if (accessScopeRows.length > 0) {
+            try {
+              const accessScopes = accessScopeRows.map((row) => ({
+                database: row.database || '',
+                table: row.table || '',
+                column: row.column || '',
+                permissions: row.permissions || [],
+              }));
+              await usersAPI.updateUserAccessScopes(trimmedName, accessScopes, selectedNode);
+              success('Access scopes updated successfully');
+            } catch (scopeErr: any) {
+              console.error('Failed to update user access scopes after creation:', scopeErr);
+              return;
+            }
+          }
           
-          // Notification is shown automatically by api interceptor
-          // Refresh users list after successful creation
+          if (isCopyMode) {
+            success(`User ${trimmedName} created successfully`);
+          }
           if (onRefreshUsers) {
             onRefreshUsers();
           }
@@ -529,6 +648,41 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         }
       }
 
+      // Step 5: Save user settings from form only if changed (ref is set after successful save)
+      const settingsPayload = editableSettings.map((s) => ({ name: s.name, value: s.value }));
+      if (!sameSettingsPayload(settingsPayload, initialSettingsRef.current)) {
+        try {
+          await usersAPI.updateUserSettings(currentUserName, settingsPayload, selectedNode);
+          initialSettingsRef.current = settingsPayload.map((s) => ({ name: s.name, value: s.value }));
+        } catch (err: any) {
+          console.error('Failed to update user settings:', err);
+          return;
+        }
+      }
+
+      // Step 6: Save access scopes from form only if changed (ref is set after successful save)
+      const accessScopes = accessScopeRows.map((row) => ({
+        database: row.database || '',
+        table: row.table || '',
+        column: row.column || '',
+        permissions: row.permissions || [],
+      }));
+      if (!sameAccessScopesPayload(accessScopes, initialAccessScopesRef.current)) {
+        try {
+          await usersAPI.updateUserAccessScopes(currentUserName, accessScopes, selectedNode);
+          initialAccessScopesRef.current = accessScopes.map((s) => ({
+            database: s.database,
+            table: s.table,
+            column: s.column,
+            permissions: [...(s.permissions || [])],
+          }));
+          success('Access scopes updated successfully');
+        } catch (err: any) {
+          console.error('Failed to update user access scopes:', err);
+          return;
+        }
+      }
+
       // Refresh users list once after all successful updates
       if (onRefreshUsers) {
         onRefreshUsers();
@@ -612,19 +766,35 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
     setShowDeleteConfirm(true);
   };
 
-  const handleConfirmDelete = () => {
-    console.log('Deleting user:', editableName);
-    success('User deleted successfully');
-    setShowDeleteConfirm(false);
-    onClose();
+  const handleConfirmDelete = async () => {
+    if (!selectedNode) {
+      showError('No node selected');
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      await usersAPI.deleteUser(editableName, selectedNode);
+      success('User deleted successfully');
+      setShowDeleteConfirm(false);
+      onClose();
+      onRefreshUsers?.();
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err && typeof (err as { response?: { data?: { error?: string } } }).response?.data?.error === 'string'
+        ? (err as { response: { data: { error: string } } }).response.data.error
+        : 'Failed to delete user';
+      showError(msg);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  // Filter suggestions based on input
+  // Filter suggestions based on input (use settings from API; show all when empty, like roles/profiles)
   const getSettingSuggestions = () => {
-    if (!newSetting) return [];
-    return availableSettings.filter(setting => 
-      setting.toLowerCase().includes(newSetting.toLowerCase()) && 
-      !editableSettings.some(s => s.name === setting)
+    const settings = availableSettingsFromAPI || [];
+    const notYetAdded = settings.filter(s => !editableSettings.some(ed => ed.name === s));
+    if (!newSetting || newSetting.length === 0) return notYetAdded;
+    return notYetAdded.filter(setting =>
+      setting.toLowerCase().includes(newSetting.toLowerCase())
     );
   };
 
@@ -693,10 +863,10 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               <h2 className={`text-xl font-semibold ${
                 theme === 'light' ? 'text-amber-700' : 'text-yellow-400'
               }`}>
-                {isNewUser ? 'New User' : editableName}
+                {isCopyMode ? 'Copy User' : isNewUser ? 'New User' : editableName}
               </h2>
               <p className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-500'} text-sm mt-0.5`}>
-                {isNewUser ? 'Create New User' : 'User Details'}
+                {isCopyMode ? `Create user from ${copyFromUser?.name || ''}` : isNewUser ? 'Create New User' : 'User Details'}
               </p>
             </div>
           </div>
@@ -766,8 +936,8 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                   />
                 </div>
 
-                {/* User ID (Read-only) - Hide for new users */}
-                {!isNewUser && (
+                {/* User ID (Read-only) - Hide for new/copy users */}
+                {!isNewUser && !isCopyMode && (
                   <div className={`${
                     theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
                   } border rounded-xl p-4`}>
@@ -781,8 +951,8 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                   </div>
                 )}
 
-                {/* Storage (Read-only) - Hide for new users */}
-                {!isNewUser && (
+                {/* Storage (Read-only) - Hide for new/copy users */}
+                {!isNewUser && !isCopyMode && (
                   <div className={`${
                     theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
                   } border rounded-xl p-4`}>
@@ -923,6 +1093,54 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               <div className={`${
                 theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
               } border rounded-xl p-4`}>
+                {/* User-level settings (editable below) and profile settings (read-only, cannot be changed) */}
+                {userSettingsFromAPI && Object.keys(userSettingsFromAPI.user_settings).length > 0 && (
+                  <div className="mb-4">
+                    <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
+                      User-level settings
+                    </label>
+                    <div className={`rounded-lg border ${
+                      theme === 'light' ? 'bg-white/50 border-gray-200' : 'bg-gray-900/30 border-gray-700/50'
+                    } overflow-hidden`}>
+                      {editableSettings.map((s) => (
+                        <div
+                          key={s.name}
+                          className={`flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0 ${
+                            theme === 'light' ? 'border-gray-200' : 'border-gray-700/50'
+                          }`}
+                        >
+                          <span className={`font-medium ${theme === 'light' ? 'text-amber-800' : 'text-yellow-400'}`}>{s.name}</span>
+                          <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-400'}>=</span>
+                          <span className={theme === 'light' ? 'text-gray-800' : 'text-gray-200'}>{s.value || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {userSettingsFromAPI && Object.keys(userSettingsFromAPI.profile_settings).length > 0 && (
+                  <div className="mb-4">
+                    <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
+                      From profile (read-only)
+                    </label>
+                    <div className={`rounded-lg border ${
+                      theme === 'light' ? 'bg-white/50 border-gray-200' : 'bg-gray-900/30 border-gray-700/50'
+                    } overflow-hidden`}>
+                      {Object.entries(userSettingsFromAPI.profile_settings).map(([name, value]) => (
+                        <div
+                          key={name}
+                          className={`flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0 ${
+                            theme === 'light' ? 'border-gray-200' : 'border-gray-700/50'
+                          }`}
+                        >
+                          <span className={`font-medium ${theme === 'light' ? 'text-amber-800' : 'text-yellow-400'}`}>{name}</span>
+                          <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-400'}>=</span>
+                          <span className={theme === 'light' ? 'text-gray-600' : 'text-gray-400'}>{value || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Add new setting */}
                 <div className="mb-4">
                   <label className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2 block`}>
@@ -933,7 +1151,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                     onChange={setNewSetting}
                     onAdd={handleAddSetting}
                     suggestions={settingSuggestions}
-                    placeholder="Enter setting name..."
+                    placeholder={loadingAvailableSettings ? 'Loading settings...' : 'Select or enter setting name...'}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -1021,8 +1239,8 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
                 onUpdateRow={handleUpdateAccessScopeRow}
                 onAddPermission={handleAddPermissionToRow}
                 onRemovePermission={handleRemovePermissionFromRow}
-                databaseStructure={databaseStructure}
                 availablePermissions={availableGrants}
+                selectedNode={selectedNode}
               />
             </div>
           </div>
@@ -1032,7 +1250,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         <div className={`flex items-center justify-end gap-3 p-6 border-t ${
           theme === 'light' ? 'border-amber-500/20' : 'border-yellow-500/20'
         }`}>
-          {!isNewUser && (
+          {!isNewUser && !isCopyMode && (
             <button
               onClick={handleDelete}
               className={`px-6 py-2.5 rounded-lg border ${
@@ -1045,9 +1263,16 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               Delete
             </button>
           )}
-          {!isNewUser && (
+          {!isNewUser && !isCopyMode && (
             <button
-              onClick={handleCopy}
+              onClick={() => {
+                if (onCopyUser && user) {
+                  onCopyUser(user);
+                  onClose();
+                } else {
+                  handleCopy();
+                }
+              }}
               className={`px-6 py-2.5 rounded-lg border ${
                 theme === 'light'
                   ? 'bg-white hover:bg-gray-50 border-gray-300 hover:border-amber-500/40 text-gray-700 hover:text-amber-700'
@@ -1055,7 +1280,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
               } transition-all duration-200 flex items-center gap-2 font-medium`}
             >
               <Copy className="w-4 h-4" />
-              Copy
+              {onCopyUser ? 'Copy user' : 'Copy'}
             </button>
           )}
           <button
@@ -1226,6 +1451,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, sel
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleConfirmDelete}
         userName={editableName}
+        isConfirming={isDeleting}
       />
     </div>
   );

@@ -12,3 +12,9 @@ type AccessScope struct {
 type AccessScopeListResponse struct {
 	AccessScopes []AccessScope `json:"access_scopes"`
 }
+
+// UpdateAccessScopeRequest is the request body for updating user access scopes (same shape as GetUserAccessScopes response).
+type UpdateAccessScopeRequest struct {
+	UserName    string        `json:"user_name"`    // ClickHouse user to update
+	AccessScopes []AccessScope `json:"access_scopes"` // New list of scopes (replaces all existing)
+}

@@ -927,6 +927,150 @@ func TestUsersHandlerCreateUserWithCyrillicInPassword(t *testing.T) {
 	assert.Contains(t, resp.Message, "password cannot contain Cyrillic characters")
 }
 
+func TestUsersHandlerDeleteUser(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_delete_user")
+
+	testUserName := "test_user_delete_" + time.Now().Format("20060102150405")
+	testPassword := "test_password_123"
+
+	err := testutil.CreateTestClickHouseUser(t, testUserName, testPassword, "test_node")
+	require.NoError(t, err, "Failed to create test user")
+
+	req, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/clickhouse/users?node=test_node&name="+testUserName, token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp models.DeleteUserResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "User deleted successfully", resp.Message)
+	assert.Equal(t, testUserName, resp.Name)
+
+	// Verify user is gone
+	reqDetails, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users/details?node=test_node&name="+testUserName, token, nil)
+	require.NoError(t, err)
+	wDetails := httptest.NewRecorder()
+	router.ServeHTTP(wDetails, reqDetails)
+	assert.Equal(t, http.StatusNotFound, wDetails.Code)
+}
+
+func TestUsersHandlerDeleteUserUserNotFound(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_delete_user_not_found")
+	req, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/clickhouse/users?node=test_node&name=nonexistent_user_12345", token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "User not found")
+}
+
+func TestUsersHandlerDeleteUserMissingName(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_delete_user_missing_name")
+	req, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/clickhouse/users?node=test_node", token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Invalid request")
+	assert.Contains(t, resp.Message, "name")
+}
+
+func TestUsersHandlerDeleteUserRequiresAuth(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	req, _ := http.NewRequest("DELETE", "/api/v1/clickhouse/users?node=test_node&name=some_user", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestUsersHandlerDeleteUserWithCyrillicInName(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_delete_user_cyrillic")
+	req, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/clickhouse/users?node=test_node&name=пользователь", token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Message, "Cyrillic")
+}
+
+func TestUsersHandlerDeleteUserUsersXmlStorage(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_delete_user_users_xml")
+
+	reqDetails, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/users/details?node=test_node&name=default", token, nil)
+	require.NoError(t, err)
+	wDetails := httptest.NewRecorder()
+	router.ServeHTTP(wDetails, reqDetails)
+
+	if wDetails.Code != http.StatusOK {
+		t.Skip("Cannot get default user details, skipping test")
+		return
+	}
+
+	var userDetails chmodels.UserDetails
+	err = json.Unmarshal(wDetails.Body.Bytes(), &userDetails)
+	require.NoError(t, err)
+	if userDetails.Storage != "users_xml" {
+		t.Skipf("Default user storage is '%s', not 'users_xml', skipping test", userDetails.Storage)
+		return
+	}
+
+	req, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/clickhouse/users?node=test_node&name=default", token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp models.ErrorResponse
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Contains(t, resp.Error, "Cannot delete user")
+	assert.Contains(t, resp.Message, "users.xml file")
+}
+
 func TestUsersHandlerUpdateUserLoginWithCyrillicInOldName(t *testing.T) {
 	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {

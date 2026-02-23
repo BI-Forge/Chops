@@ -649,3 +649,39 @@ func (r *UsersRepository) UpdateRole(ctx context.Context, nodeName, userName, ro
 
 	return nil
 }
+
+// DropUser removes a ClickHouse user (DROP USER). User must not be defined in users.xml.
+func (r *UsersRepository) DropUser(ctx context.Context, nodeName, userName string) error {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return err
+	}
+
+	if userName == "" {
+		return fmt.Errorf("user name cannot be empty")
+	}
+
+	userDetails, err := r.GetUserDetails(ctx, nodeName, userName)
+	if err != nil {
+		return fmt.Errorf("user %s not found: %w", userName, err)
+	}
+
+	if userDetails.Storage == "users_xml" {
+		return fmt.Errorf("cannot drop user %s: user is defined in users.xml file on the server", userName)
+	}
+
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+
+	query := fmt.Sprintf("DROP USER IF EXISTS `%s`", escapeIdentifier(userName))
+	if err := conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to drop user %s: %w", userName, err)
+	}
+
+	if r.logger != nil {
+		r.logger.Infof("Successfully dropped user %s on node %s", userName, nodeName)
+	}
+
+	return nil
+}

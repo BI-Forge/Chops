@@ -112,7 +112,7 @@ export function AutocompleteInputFlex({
       {showSuggestions && suggestions.length > 0 && (
         <div
           ref={suggestionsRef}
-          className={`absolute top-full left-0 right-0 mt-1 rounded-lg border shadow-lg z-50 max-h-60 overflow-y-auto ${
+          className={`absolute top-full left-0 right-0 mt-1 rounded-lg border shadow-lg z-50 max-h-60 overflow-y-auto custom-scrollbar ${
             theme === 'light'
               ? 'bg-white border-amber-500/30'
               : 'bg-gray-800 border-yellow-500/30'
