@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/clickhouse/repository"
 
@@ -21,7 +21,7 @@ const (
 // user storage is users_xml. Use for all user update/delete endpoints. Returns false otherwise.
 func RejectUserFromUsersXml(c *gin.Context, userDetails *chmodels.UserDetails, errorLabel string) bool {
 	if userDetails != nil && userDetails.Storage == usersXmlStorage {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   errorLabel,
 			Message: usersXmlMessage,
 		})
@@ -31,8 +31,8 @@ func RejectUserFromUsersXml(c *gin.Context, userDetails *chmodels.UserDetails, e
 }
 
 // UsersXmlErrorResponse returns a 400 ErrorResponse for users.xml restriction. Use when mapping repo error to response.
-func UsersXmlErrorResponse(errorLabel string) models.ErrorResponse {
-	return models.ErrorResponse{
+func UsersXmlErrorResponse(errorLabel string) apiSystemModels.ErrorResponse {
+	return apiSystemModels.ErrorResponse{
 		Error:   errorLabel,
 		Message: usersXmlMessage,
 	}
@@ -46,7 +46,7 @@ func IsUsersXmlError(err error) bool {
 // ParseClickHouseSettingsError maps ClickHouse UpdateUserSettings errors to a 400 Bad Request
 // response when the error is a known validation/parse error. Returns (response, true) if the
 // error should be returned as 400, or (nil, false) for unknown errors (caller should use 500).
-func ParseClickHouseSettingsError(err error) (*models.ErrorResponse, bool) {
+func ParseClickHouseSettingsError(err error) (*apiSystemModels.ErrorResponse, bool) {
 	if err == nil {
 		return nil, false
 	}
@@ -54,27 +54,27 @@ func ParseClickHouseSettingsError(err error) (*models.ErrorResponse, bool) {
 
 	switch {
 	case strings.Contains(errStr, "Cannot parse bool") || strings.Contains(errStr, "code: 467"):
-		return &models.ErrorResponse{
+		return &apiSystemModels.ErrorResponse{
 			Error:   "Invalid setting value",
 			Message: "One or more settings expect a boolean value. Use 0, 1, true or false for boolean settings.",
 		}, true
 	case strings.Contains(errStr, "Cannot parse number"):
-		return &models.ErrorResponse{
+		return &apiSystemModels.ErrorResponse{
 			Error:   "Invalid setting value",
 			Message: "One or more settings expect a numeric value. Check that values are valid numbers.",
 		}, true
 	case strings.Contains(errStr, "Cannot read floating point value") || strings.Contains(errStr, "code: 72"):
-		return &models.ErrorResponse{
+		return &apiSystemModels.ErrorResponse{
 			Error:   "Invalid setting value",
 			Message: "One or more settings expect a numeric value. Empty values are not allowed for numeric settings.",
 		}, true
 	case strings.Contains(errStr, "Unexpected value") || strings.Contains(errStr, "code: 213"):
-		return &models.ErrorResponse{
+		return &apiSystemModels.ErrorResponse{
 			Error:   "Invalid setting value",
 			Message: "One or more settings expect a specific value. Empty values are not allowed; use one of the allowed values for enum/string settings.",
 		}, true
 	case strings.Contains(errStr, "Unknown setting") || strings.Contains(errStr, "code: 115"):
-		return &models.ErrorResponse{
+		return &apiSystemModels.ErrorResponse{
 			Error:   "Invalid setting",
 			Message: "One or more setting names are not valid or not supported by this ClickHouse version.",
 		}, true

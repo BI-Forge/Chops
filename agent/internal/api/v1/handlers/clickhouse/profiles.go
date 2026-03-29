@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
@@ -68,7 +69,7 @@ func (h *ProfilesHandler) GetProfilesList(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to get profiles list: %v", err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to load profiles list",
 			Message: err.Error(),
 		})
@@ -81,4 +82,3 @@ func (h *ProfilesHandler) GetProfilesList(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
-

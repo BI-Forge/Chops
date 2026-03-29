@@ -91,13 +91,28 @@ export interface AccessScopeListResponse {
   access_scopes: AccessScope[]
 }
 
-// API returns string[] for schemas/tables/columns (backend: /clickhouse/schemas|tables|columns/list)
+// API returns string[] for schemas/columns (backend: /clickhouse/schemas|columns/list)
 export interface SchemasListResponse {
   schemas: string[]
 }
 
+export interface TablesListItem {
+  uuid: string
+  name: string
+  database: string
+  engine: string
+  rows: number
+  parts: number
+  active_parts: number
+  bytes: string
+  size_bytes: number
+}
+
 export interface TablesListResponse {
-  tables: string[]
+  tables: TablesListItem[]
+  total?: number
+  limit?: number
+  offset?: number
 }
 
 export interface ColumnsListResponse {
@@ -253,13 +268,13 @@ export const usersAPI = {
   },
 
   getTablesList: async (node?: string, schema?: string, name?: string): Promise<string[]> => {
-    const params: { node?: string; schema?: string; name?: string } = {}
+    const params: { node?: string; schema?: string; name?: string; limit?: number } = { limit: 500 }
     if (node) params.node = node
     if (schema) params.schema = schema
     if (name) params.name = name
     const response = await api.get<TablesListResponse>('/clickhouse/tables/list', { params })
     const raw = response.data?.tables || []
-    return raw.filter((t): t is string => typeof t === 'string' && t.length > 0)
+    return raw.map((t) => t.name).filter((n) => typeof n === 'string' && n.length > 0)
   },
 
   getColumnsList: async (node?: string, schema?: string, table?: string, name?: string): Promise<string[]> => {

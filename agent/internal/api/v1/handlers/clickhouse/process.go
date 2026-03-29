@@ -10,6 +10,7 @@ import (
 
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
@@ -104,7 +105,7 @@ func (h *ProcessHandler) GetCurrentProcesses(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to get processes for node %s: %v", nodeName, err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to load processes",
 			Message: "ClickHouse query failed",
 		})
@@ -214,7 +215,7 @@ func (h *ProcessHandler) StreamProcesses(c *gin.Context) {
 func (h *ProcessHandler) KillProcess(c *gin.Context) {
 	var req models.KillProcessRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid request",
 			Message: err.Error(),
 		})
@@ -222,7 +223,7 @@ func (h *ProcessHandler) KillProcess(c *gin.Context) {
 	}
 
 	if req.QueryID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid request",
 			Message: "query_id is required",
 		})
@@ -230,7 +231,7 @@ func (h *ProcessHandler) KillProcess(c *gin.Context) {
 	}
 
 	if req.Node == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid request",
 			Message: "node is required",
 		})
@@ -264,7 +265,7 @@ func (h *ProcessHandler) KillProcess(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to kill query %s on node %s: %v", req.QueryID, req.Node, err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to kill query",
 			Message: err.Error(),
 		})

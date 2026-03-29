@@ -1,4 +1,3 @@
-import React from 'react';
 import { Search, Filter, Check, Play } from 'lucide-react';
 import { CustomSelect } from '../CustomSelect';
 import { AutocompleteSelect } from '../AutocompleteSelect';
@@ -35,8 +34,6 @@ export function TablesFilter({
 }: TablesFilterProps) {
   const { theme } = useTheme();
 
-  // Prepare options for CustomSelect
-  const databaseOptions = ['All Databases', ...databases];
   const engineOptions = ['All Engines', ...engines];
   const itemsPerPageOptions = ['10', '20', '50', '100'];
 
@@ -80,9 +77,14 @@ export function TablesFilter({
             }`} />
             <input
               type="text"
-              placeholder="Search by table name..."
+              placeholder="Filter by table name — Enter or Apply"
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (!isApplyingFilters) onApplyFilters();
+              }}
               className={`w-full ${
                 theme === 'light'
                   ? 'bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-amber-500/50'
@@ -103,6 +105,9 @@ export function TablesFilter({
             options={databases}
             placeholder="Search database..."
             allOptionLabel="All Databases"
+            onEnterApply={() => {
+              if (!isApplyingFilters) onApplyFilters();
+            }}
           />
         </div>
 

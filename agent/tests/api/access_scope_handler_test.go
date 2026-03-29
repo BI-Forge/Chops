@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/tests/api/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -194,7 +195,7 @@ func TestAccessScopeHandlerGetUserAccessScopesMissingUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Message, "user_name")
@@ -385,7 +386,7 @@ func TestAccessScopeHandlerUpdateUserAccessScopesEmptyList(t *testing.T) {
 	require.NoError(t, err)
 
 	reqBody := models.UpdateAccessScopeRequest{
-		UserName:    testUserName,
+		UserName:     testUserName,
 		AccessScopes: []models.AccessScope{},
 	}
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -412,7 +413,7 @@ func TestAccessScopeHandlerUpdateUserAccessScopesRequiresAuth(t *testing.T) {
 	}
 
 	reqBody := models.UpdateAccessScopeRequest{
-		UserName:    "some_user",
+		UserName:     "some_user",
 		AccessScopes: []models.AccessScope{},
 	}
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -433,7 +434,7 @@ func TestAccessScopeHandlerUpdateUserAccessScopesMissingUserName(t *testing.T) {
 
 	token := testutil.RegisterTestUser(t, router, "test_update_access_scopes_no_name")
 	reqBody := models.UpdateAccessScopeRequest{
-		UserName:    "",
+		UserName:     "",
 		AccessScopes: []models.AccessScope{},
 	}
 	bodyBytes, _ := json.Marshal(reqBody)

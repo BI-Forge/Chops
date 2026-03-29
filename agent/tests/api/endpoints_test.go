@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
@@ -55,20 +56,20 @@ func TestRegisterEndpoint(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		payload        models.RegisterRequest
+		payload        apiSystemModels.RegisterRequest
 		expectedStatus int
 		checkResponse  func(*testing.T, *httptest.ResponseRecorder)
 	}{
 		{
 			name: "successful registration",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: "test_user_" + time.Now().Format("20060102150405"),
 				Email:    "test@example.com",
 				Password: "securepass123",
 			},
 			expectedStatus: http.StatusCreated,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response models.TokenResponse
+				var response apiSystemModels.TokenResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.NotEmpty(t, response.Token)
@@ -78,14 +79,14 @@ func TestRegisterEndpoint(t *testing.T) {
 		},
 		{
 			name: "duplicate username",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: "test_duplicate",
 				Email:    "test1@example.com",
 				Password: "securepass123",
 			},
 			expectedStatus: http.StatusConflict,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response models.ErrorResponse
+				var response apiSystemModels.ErrorResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Contains(t, response.Error, "already exists")
@@ -93,7 +94,7 @@ func TestRegisterEndpoint(t *testing.T) {
 		},
 		{
 			name: "invalid email",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: "test_invalid_email",
 				Email:    "invalid-email",
 				Password: "securepass123",
@@ -102,7 +103,7 @@ func TestRegisterEndpoint(t *testing.T) {
 		},
 		{
 			name: "short password",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: "test_short_pass",
 				Email:    "test2@example.com",
 				Password: "short",
@@ -111,7 +112,7 @@ func TestRegisterEndpoint(t *testing.T) {
 		},
 		{
 			name: "missing fields",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: "",
 				Email:    "",
 				Password: "",
@@ -174,19 +175,19 @@ func TestLoginEndpoint(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		payload        models.LoginRequest
+		payload        apiSystemModels.LoginRequest
 		expectedStatus int
 		checkResponse  func(*testing.T, *httptest.ResponseRecorder)
 	}{
 		{
 			name: "successful login",
-			payload: models.LoginRequest{
+			payload: apiSystemModels.LoginRequest{
 				Username: username,
 				Password: password,
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response models.TokenResponse
+				var response apiSystemModels.TokenResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.NotEmpty(t, response.Token)
@@ -196,13 +197,13 @@ func TestLoginEndpoint(t *testing.T) {
 		},
 		{
 			name: "wrong password",
-			payload: models.LoginRequest{
+			payload: apiSystemModels.LoginRequest{
 				Username: username,
 				Password: "wrongpassword",
 			},
 			expectedStatus: http.StatusUnauthorized,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response models.ErrorResponse
+				var response apiSystemModels.ErrorResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Contains(t, response.Error, "Invalid credentials")
@@ -210,13 +211,13 @@ func TestLoginEndpoint(t *testing.T) {
 		},
 		{
 			name: "non-existent user",
-			payload: models.LoginRequest{
+			payload: apiSystemModels.LoginRequest{
 				Username: "nonexistent_user",
 				Password: "password123",
 			},
 			expectedStatus: http.StatusUnauthorized,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response models.ErrorResponse
+				var response apiSystemModels.ErrorResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Contains(t, response.Error, "Invalid credentials")
@@ -224,7 +225,7 @@ func TestLoginEndpoint(t *testing.T) {
 		},
 		{
 			name: "missing fields",
-			payload: models.LoginRequest{
+			payload: apiSystemModels.LoginRequest{
 				Username: "",
 				Password: "",
 			},
@@ -263,7 +264,7 @@ func TestMeEndpoint(t *testing.T) {
 	email := "me_test@example.com"
 
 	// Create user and get token via register endpoint
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
+	registerPayload, _ := json.Marshal(apiSystemModels.RegisterRequest{
 		Username: username,
 		Email:    email,
 		Password: password,
@@ -276,7 +277,7 @@ func TestMeEndpoint(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, registerW.Code)
 
-	var registerResponse models.TokenResponse
+	var registerResponse apiSystemModels.TokenResponse
 	err := json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
@@ -292,7 +293,7 @@ func TestMeEndpoint(t *testing.T) {
 			token:          registerResponse.Token,
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response models.UserInfo
+				var response apiSystemModels.UserInfo
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, username, response.Username)
@@ -415,7 +416,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	password := "securepass123"
 	email := "metrics_test@example.com"
 
-	registerPayload, _ := json.Marshal(models.RegisterRequest{
+	registerPayload, _ := json.Marshal(apiSystemModels.RegisterRequest{
 		Username: username,
 		Email:    email,
 		Password: password,
@@ -427,7 +428,7 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	router.ServeHTTP(registerW, registerReq)
 	require.Equal(t, http.StatusCreated, registerW.Code)
 
-	var registerResponse models.TokenResponse
+	var registerResponse apiSystemModels.TokenResponse
 	err = json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
@@ -493,7 +494,7 @@ func TestRegisterEndpointWithDuplicateEmail(t *testing.T) {
 	username2 := "test_user2_" + time.Now().Format("20060102150405")
 
 	// Register first user
-	payload1, _ := json.Marshal(models.RegisterRequest{
+	payload1, _ := json.Marshal(apiSystemModels.RegisterRequest{
 		Username: username1,
 		Email:    email,
 		Password: "securepass123",
@@ -505,7 +506,7 @@ func TestRegisterEndpointWithDuplicateEmail(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w1.Code, "First user registration should succeed")
 
 	// Try to register second user with same email
-	payload2, _ := json.Marshal(models.RegisterRequest{
+	payload2, _ := json.Marshal(apiSystemModels.RegisterRequest{
 		Username: username2,
 		Email:    email,
 		Password: "securepass123",
@@ -543,7 +544,7 @@ func TestLoginEndpointWithExpiredToken(t *testing.T) {
 	}
 
 	// Login to get token
-	loginPayload, _ := json.Marshal(models.LoginRequest{
+	loginPayload, _ := json.Marshal(apiSystemModels.LoginRequest{
 		Username: username,
 		Password: password,
 	})
@@ -553,7 +554,7 @@ func TestLoginEndpointWithExpiredToken(t *testing.T) {
 	router.ServeHTTP(loginW, loginReq)
 	require.Equal(t, http.StatusOK, loginW.Code)
 
-	var loginResponse models.TokenResponse
+	var loginResponse apiSystemModels.TokenResponse
 	err := json.Unmarshal(loginW.Body.Bytes(), &loginResponse)
 	require.NoError(t, err)
 	require.NotEmpty(t, loginResponse.Token)
@@ -612,12 +613,12 @@ func TestRegisterEndpointWithLongValues(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		payload        models.RegisterRequest
+		payload        apiSystemModels.RegisterRequest
 		expectedStatus int
 	}{
 		{
 			name: "very long username",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: longString,
 				Email:    "test@example.com",
 				Password: "securepass123",
@@ -626,7 +627,7 @@ func TestRegisterEndpointWithLongValues(t *testing.T) {
 		},
 		{
 			name: "very long email",
-			payload: models.RegisterRequest{
+			payload: apiSystemModels.RegisterRequest{
 				Username: "testuser",
 				Email:    longString + "@example.com",
 				Password: "securepass123",

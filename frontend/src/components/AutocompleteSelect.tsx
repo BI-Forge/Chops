@@ -9,6 +9,8 @@ interface AutocompleteSelectProps {
   options: string[];
   placeholder?: string;
   allOptionLabel?: string;
+  /** When set, Enter applies filters if the list is empty or the panel is closed (after picking via keyboard, Enter is consumed by selection). */
+  onEnterApply?: () => void;
 }
 
 export function AutocompleteSelect({
@@ -16,7 +18,8 @@ export function AutocompleteSelect({
   onChange,
   options,
   placeholder = 'Search...',
-  allOptionLabel = 'All'
+  allOptionLabel = 'All',
+  onEnterApply,
 }: AutocompleteSelectProps) {
   const { theme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
@@ -72,21 +75,32 @@ export function AutocompleteSelect({
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((prev) => (prev < filteredOptions.length - 1 ? prev + 1 : prev));
-      } else if (e.key === 'ArrowUp') {
+        return;
+      }
+      if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedIndex((prev) => (prev > 0 ? prev - 1 : -1));
-      } else if (e.key === 'Enter') {
+        return;
+      }
+      if (e.key === 'Enter') {
         e.preventDefault();
         if (selectedIndex >= 0) {
           selectOption(filteredOptions[selectedIndex]);
-        } else if (filteredOptions.length > 0) {
+        } else {
           selectOption(filteredOptions[0]);
         }
-      } else if (e.key === 'Escape') {
+        return;
+      }
+      if (e.key === 'Escape') {
         e.preventDefault();
         setIsOpen(false);
         setSearchTerm('');
+        return;
       }
+    }
+    if (e.key === 'Enter' && onEnterApply) {
+      e.preventDefault();
+      onEnterApply();
     }
   };
 

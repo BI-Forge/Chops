@@ -10,6 +10,7 @@ import (
 
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse"
 	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
@@ -391,7 +392,7 @@ func normalizeStep(stepKey string, expectedStep time.Duration) (time.Duration, s
 func (h *MetricsHandler) GetServerInfo(c *gin.Context) {
 	nodeName := c.Query("node")
 	if nodeName == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid request",
 			Message: "node parameter is required",
 		})
@@ -404,7 +405,7 @@ func (h *MetricsHandler) GetServerInfo(c *gin.Context) {
 	info, err := h.metricsRepo.GetServerInfo(ctx, nodeName)
 	if err != nil {
 		h.logger.Errorf("Failed to get server info for node %s: %v", nodeName, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to get server info",
 			Message: err.Error(),
 		})

@@ -11,6 +11,7 @@ import (
 
 	"clickhouse-ops/internal/api/stream"
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
@@ -134,7 +135,7 @@ func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepositor
 func (h *QueryLogHandler) ListQueryLog(c *gin.Context) {
 	filter, err := h.parseFilter(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid filter",
 			Message: err.Error(),
 		})
@@ -149,7 +150,7 @@ func (h *QueryLogHandler) ListQueryLog(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to list query logs: %v", err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to load query logs",
 			Message: "ClickHouse query failed",
 		})
@@ -193,7 +194,7 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 	// Parse filter without pagination (limit/offset are ignored)
 	filter, err := h.parseFilterForStats(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid filter",
 			Message: err.Error(),
 		})
@@ -208,7 +209,7 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to get query log stats: %v", err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to load query log statistics",
 			Message: "ClickHouse query failed",
 		})
@@ -236,7 +237,7 @@ func (h *QueryLogHandler) StreamQueryLogStats(c *gin.Context) {
 	// Parse filter for stats
 	filter, err := h.parseFilterForStats(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid filter",
 			Message: err.Error(),
 		})
@@ -253,7 +254,7 @@ func (h *QueryLogHandler) StreamQueryLogStats(c *gin.Context) {
 	}
 
 	if userID == "" {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+		c.JSON(http.StatusUnauthorized, apiSystemModels.ErrorResponse{
 			Error:   "Unauthorized",
 			Message: "User ID not found in context",
 		})

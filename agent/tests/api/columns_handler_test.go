@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/tests/api/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -180,7 +181,7 @@ func TestColumnsHandlerGetColumnsListRequiresSchemaWhenTableProvided(t *testing.
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Message, "Schema parameter is required")
@@ -241,4 +242,3 @@ func TestColumnsHandlerGetColumnsListRequiresAuth(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
-

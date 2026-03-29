@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api"
-	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
@@ -233,7 +233,7 @@ func RegisterTestUser(t TestingT, router *gin.Engine, usernamePrefix string) str
 	email := usernamePrefix + "@example.com"
 	password := "securepass123"
 
-	registerPayload, err := json.Marshal(models.RegisterRequest{
+	registerPayload, err := json.Marshal(apiSystemModels.RegisterRequest{
 		Username: username,
 		Email:    email,
 		Password: password,
@@ -248,7 +248,7 @@ func RegisterTestUser(t TestingT, router *gin.Engine, usernamePrefix string) str
 	router.ServeHTTP(registerW, registerReq)
 	require.Equal(t, http.StatusCreated, registerW.Code, "User registration should succeed")
 
-	var registerResponse models.TokenResponse
+	var registerResponse apiSystemModels.TokenResponse
 	err = json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token, "Token should not be empty")
@@ -915,3 +915,57 @@ func DeleteTestClickHouseTable(t TestingT, databaseName, tableName, nodeName str
 	return nil
 }
 
+// CreateTestClickHouseDatabaseAtomic creates an Atomic database (tables get unique UUIDs in system.tables).
+func CreateTestClickHouseDatabaseAtomic(t TestingT, databaseName, nodeName string) error {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return fmt.Errorf("ClickHouse manager not initialized")
+	}
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
+	}
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+	ctx := context.Background()
+	escapeIdentifier := func(name string) string {
+		return strings.ReplaceAll(name, "`", "``")
+	}
+	createQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` ENGINE = Atomic", escapeIdentifier(databaseName))
+	if err := conn.Exec(ctx, createQuery); err != nil {
+		return fmt.Errorf("Failed to create Atomic test database: %v", err)
+	}
+	return nil
+}
+
+// GetTableUUID returns the UUID of a table from system.tables (database, name). Empty string and error if not found.
+func GetTableUUID(t TestingT, databaseName, tableName, nodeName string) (string, error) {
+	chManager := clickhouse.GetInstance()
+	if chManager == nil {
+		return "", fmt.Errorf("ClickHouse manager not initialized")
+	}
+	cluster := chManager.GetCluster()
+	if cluster == nil {
+		return "", fmt.Errorf("ClickHouse cluster not initialized")
+	}
+	conn, _, err := cluster.GetConnectionByNodeName(nodeName)
+	if err != nil {
+		conn, _, err = cluster.GetConnection()
+		if err != nil {
+			return "", fmt.Errorf("Failed to get ClickHouse connection: %v", err)
+		}
+	}
+	ctx := context.Background()
+	query := "SELECT uuid FROM system.tables WHERE database = ? AND name = ? LIMIT 1"
+	row := conn.QueryRow(ctx, query, databaseName, tableName)
+	var uuid string
+	if err := row.Scan(&uuid); err != nil {
+		return "", fmt.Errorf("Failed to get table UUID: %w", err)
+	}
+	return uuid, nil
+}

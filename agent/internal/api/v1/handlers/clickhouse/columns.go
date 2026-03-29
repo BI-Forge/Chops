@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
@@ -69,7 +70,7 @@ func (h *ColumnsHandler) GetColumnsList(c *gin.Context) {
 
 	// Validate: if table is provided, schema must also be provided
 	if tableFilter != "" && schemaFilter == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid request",
 			Message: "Schema parameter is required when table parameter is provided",
 		})
@@ -84,7 +85,7 @@ func (h *ColumnsHandler) GetColumnsList(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to get columns list: %v", err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to load columns list",
 			Message: err.Error(),
 		})
@@ -97,4 +98,3 @@ func (h *ColumnsHandler) GetColumnsList(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
-

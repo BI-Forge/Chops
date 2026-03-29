@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -201,4 +202,295 @@ func (r *SettingsRepository) UpdateUserSettings(ctx context.Context, nodeName, u
 		r.logger.Infof("Successfully updated settings for user %s on node %s", userName, nodeName)
 	}
 	return nil
+}
+
+// AllDBSettingsQuery drives filtering, sorting, and pagination for merged system settings.
+type AllDBSettingsQuery struct {
+	Limit      int
+	Offset     int
+	Tier       string
+	Type       string
+	Server     *bool
+	Sort       string
+	OrderDesc  bool
+	Search     string
+}
+
+// DBSettingRow is one merged settings row from system.settings and/or system.server_settings.
+type DBSettingRow struct {
+	Name                     string
+	Description              string
+	Value                    string
+	Type                     string
+	Changed                  uint8
+	ChangeableWithoutRestart string
+	Server                   bool
+	Tier                     string
+}
+
+// DBSettingDetailRow is like DBSettingRow plus min, max, and readonly from system.settings (zeros when absent on server).
+type DBSettingDetailRow struct {
+	Name                     string
+	Description              string
+	Value                    string
+	Type                     string
+	Changed                  uint8
+	ChangeableWithoutRestart string
+	Server                   bool
+	Tier                     string
+	Min                      string
+	Max                      string
+	Readonly                 uint8
+}
+
+var allDBSettingsSortSQL = map[string]string{
+	"name":    "name",
+	"changed": "changed",
+	"server":  "server",
+}
+
+// mergedDBSettingsUnionInner returns the UNION ALL body for session (system.settings) and optional server (system.server_settings) rows.
+// Session columns are taken from system.settings; changeable_without_restart is not defined there (server-only), so it is an empty string.
+// Server rows use system.server_settings columns; tier exists only on system.settings, so it is synthesized from is_obsolete or empty.
+func mergedDBSettingsUnionInner(hasServerSettings bool) string {
+	sessionPart := `SELECT
+    s.name AS name,
+    coalesce(s.description, '') AS description,
+    toString(s.value) AS value,
+    toString(s.type) AS type,
+    s.changed AS changed,
+    '' AS changeable_without_restart,
+    toUInt8(0) AS server,
+    toString(s.tier) AS tier
+  FROM system.settings AS s`
+	if !hasServerSettings {
+		return sessionPart
+	}
+	return sessionPart + `
+  UNION ALL
+  SELECT
+    ss.name AS name,
+    coalesce(ss.description, '') AS description,
+    toString(ss.value) AS value,
+    toString(ss.type) AS type,
+    ss.changed AS changed,
+    toString(ss.changeable_without_restart) AS changeable_without_restart,
+    toUInt8(1) AS server,
+    multiIf(ss.is_obsolete != 0, 'obsolete', '') AS tier
+  FROM system.server_settings AS ss`
+}
+
+// mergedDBSettingDetailUnionInner is like mergedDBSettingsUnionInner but adds min, max, and readonly from system.settings; server branch pads missing columns.
+func mergedDBSettingDetailUnionInner(hasServerSettings bool) string {
+	sessionPart := `SELECT
+    s.name AS name,
+    coalesce(s.description, '') AS description,
+    toString(s.value) AS value,
+    toString(s.type) AS type,
+    s.changed AS changed,
+    '' AS changeable_without_restart,
+    toUInt8(0) AS server,
+    toString(s.tier) AS tier,
+    ifNull(toString(s.min), '') AS min,
+    ifNull(toString(s.max), '') AS max,
+    toUInt8(s.readonly) AS readonly
+  FROM system.settings AS s`
+	if !hasServerSettings {
+		return sessionPart
+	}
+	return sessionPart + `
+  UNION ALL
+  SELECT
+    ss.name AS name,
+    coalesce(ss.description, '') AS description,
+    toString(ss.value) AS value,
+    toString(ss.type) AS type,
+    ss.changed AS changed,
+    toString(ss.changeable_without_restart) AS changeable_without_restart,
+    toUInt8(1) AS server,
+    multiIf(ss.is_obsolete != 0, 'obsolete', '') AS tier,
+    '' AS min,
+    '' AS max,
+    toUInt8(0) AS readonly
+  FROM system.server_settings AS ss`
+}
+
+func escapeClickHouseLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+func buildAllDBSettingsWhere(q AllDBSettingsQuery) (clause string, args []interface{}) {
+	clause = "WHERE 1=1"
+	if q.Tier != "" {
+		clause += " AND lower(tier) = ?"
+		args = append(args, strings.ToLower(q.Tier))
+	}
+	if q.Type != "" {
+		clause += " AND type = ?"
+		args = append(args, q.Type)
+	}
+	if q.Server != nil {
+		var v uint8
+		if *q.Server {
+			v = 1
+		}
+		clause += " AND server = ?"
+		args = append(args, v)
+	}
+	if q.Search != "" {
+		pat := "%" + escapeClickHouseLike(q.Search) + "%"
+		clause += " AND (lower(name) LIKE lower(?) OR lower(description) LIKE lower(?))"
+		args = append(args, pat, pat)
+	}
+	return clause, args
+}
+
+// GetAllDBSettings returns merged rows from system.settings and system.server_settings (when present) with total count.
+func (r *SettingsRepository) GetAllDBSettings(ctx context.Context, nodeName string, q AllDBSettingsQuery) ([]DBSettingRow, int, error) {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.settings"); err != nil {
+		return nil, 0, err
+	}
+
+	hasServerSettings := checkTableExists(ctx, conn, "system.server_settings") == nil
+	unionInner := mergedDBSettingsUnionInner(hasServerSettings)
+
+	orderCol := "name"
+	if col, ok := allDBSettingsSortSQL[q.Sort]; ok {
+		orderCol = col
+	}
+	orderDir := "ASC"
+	if q.OrderDesc {
+		orderDir = "DESC"
+	}
+
+	whereClause, whereArgs := buildAllDBSettingsWhere(q)
+
+	countSQL := `WITH unified AS (
+` + unionInner + `
+)
+SELECT count() FROM unified
+` + whereClause
+
+	var totalU64 uint64
+	if err := conn.QueryRow(ctx, countSQL, whereArgs...).Scan(&totalU64); err != nil {
+		return nil, 0, fmt.Errorf("failed to count merged settings: %w", err)
+	}
+	total := int(totalU64)
+
+	listSQL := `WITH unified AS (
+` + unionInner + `
+)
+SELECT
+  name,
+  description,
+  value,
+  type,
+  changed,
+  changeable_without_restart,
+  server,
+  tier
+FROM unified
+` + whereClause + `
+ORDER BY ` + orderCol + ` ` + orderDir + `
+LIMIT ? OFFSET ?`
+
+	listArgs := append(append([]interface{}{}, whereArgs...), q.Limit, q.Offset)
+
+	rows, err := conn.Query(ctx, listSQL, listArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query merged settings: %w", err)
+	}
+	defer rows.Close()
+
+	var result []DBSettingRow
+	for rows.Next() {
+		var row DBSettingRow
+		var srv uint8
+		if err := rows.Scan(
+			&row.Name,
+			&row.Description,
+			&row.Value,
+			&row.Type,
+			&row.Changed,
+			&row.ChangeableWithoutRestart,
+			&srv,
+			&row.Tier,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan merged setting row: %w", err)
+		}
+		row.Server = srv != 0
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("merged settings iteration failed: %w", err)
+	}
+
+	return result, total, nil
+}
+
+// GetDBSettingByName returns one merged setting row by exact name, preferring session over server; includes min, max, readonly from system.settings when applicable.
+func (r *SettingsRepository) GetDBSettingByName(ctx context.Context, nodeName, settingName string) (*DBSettingDetailRow, error) {
+	conn, err := getConnection(nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.settings"); err != nil {
+		return nil, err
+	}
+
+	hasServerSettings := checkTableExists(ctx, conn, "system.server_settings") == nil
+	unionInner := mergedDBSettingDetailUnionInner(hasServerSettings)
+
+	querySQL := `WITH unified AS (
+` + unionInner + `
+)
+SELECT
+  name,
+  description,
+  value,
+  type,
+  changed,
+  changeable_without_restart,
+  server,
+  tier,
+  min,
+  max,
+  readonly
+FROM unified
+WHERE name = ?
+ORDER BY server ASC
+LIMIT 1`
+
+	row := conn.QueryRow(ctx, querySQL, settingName)
+	var out DBSettingDetailRow
+	var srv uint8
+	if err := row.Scan(
+		&out.Name,
+		&out.Description,
+		&out.Value,
+		&out.Type,
+		&out.Changed,
+		&out.ChangeableWithoutRestart,
+		&srv,
+		&out.Tier,
+		&out.Min,
+		&out.Max,
+		&out.Readonly,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query setting by name: %w", err)
+	}
+	out.Server = srv != 0
+	return &out, nil
 }

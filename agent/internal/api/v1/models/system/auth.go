@@ -1,4 +1,4 @@
-package models
+package system
 
 // LoginRequest represents login request
 type LoginRequest struct {
@@ -18,12 +18,6 @@ type TokenResponse struct {
 	Token     string `json:"token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`
 	Type      string `json:"type" example:"Bearer"`
 	ExpiresIn int64  `json:"expires_in" example:"3600"`
-}
-
-// ErrorResponse represents error response
-type ErrorResponse struct {
-	Error   string `json:"error" example:"Invalid credentials"`
-	Message string `json:"message,omitempty" example:"The provided username or password is incorrect"`
 }
 
 // UserInfo represents user information

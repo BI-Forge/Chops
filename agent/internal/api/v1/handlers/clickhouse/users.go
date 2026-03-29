@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/api/v1/validators"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/clickhouse/repository"
@@ -32,7 +33,7 @@ func containsCyrillic(s string) bool {
 
 // respondBadRequest sends 400 with "Invalid request" and message.
 func (h *UsersHandler) respondBadRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request", Message: message})
+	c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{Error: "Invalid request", Message: message})
 }
 
 // respondCyrillicBadRequest sends 400 when field contains Cyrillic characters.
@@ -49,10 +50,10 @@ func (h *UsersHandler) handleGetUserDetailsErr(c *gin.Context, err error, logCon
 		h.logger.Errorf("Failed to get user details for %s: %v", logContext, err)
 	}
 	if strings.Contains(err.Error(), "not found") {
-		c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "User not found", Message: err.Error()})
+		c.JSON(http.StatusNotFound, apiSystemModels.ErrorResponse{Error: "User not found", Message: err.Error()})
 		return true
 	}
-	c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to load user", Message: err.Error()})
+	c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{Error: "Failed to load user", Message: err.Error()})
 	return true
 }
 
@@ -65,10 +66,10 @@ func (h *UsersHandler) handleUserRepoErr(c *gin.Context, err error, logMsg, inte
 		h.logger.Errorf("%s: %v", logMsg, err)
 	}
 	if strings.Contains(err.Error(), "not found") {
-		c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "User not found", Message: err.Error()})
+		c.JSON(http.StatusNotFound, apiSystemModels.ErrorResponse{Error: "User not found", Message: err.Error()})
 		return true
 	}
-	c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: internalLabel, Message: err.Error()})
+	c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{Error: internalLabel, Message: err.Error()})
 	return true
 }
 
@@ -93,7 +94,7 @@ func (h *UsersHandler) logAndRespond500(c *gin.Context, err error, logMsg, errLa
 	if err != nil {
 		msg = err.Error()
 	}
-	c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: errLabel, Message: msg})
+	c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{Error: errLabel, Message: msg})
 }
 
 // UsersRepository defines the subset of repository methods required by the handler.
@@ -353,7 +354,7 @@ func (h *UsersHandler) CreateUser(c *gin.Context) {
 			h.logger.Errorf("Failed to create user: %v", err)
 		}
 		if strings.Contains(err.Error(), "already exists") {
-			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "User already exists", Message: err.Error()})
+			c.JSON(http.StatusConflict, apiSystemModels.ErrorResponse{Error: "User already exists", Message: err.Error()})
 			return
 		}
 		h.logAndRespond500(c, err, "Failed to create user", "Failed to create user")
@@ -555,11 +556,11 @@ func (h *UsersHandler) UpdateRole(c *gin.Context) {
 			h.logger.Errorf("Failed to update role: %v", err)
 		}
 		if strings.Contains(err.Error(), "not found") {
-			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "User not found", Message: err.Error()})
+			c.JSON(http.StatusNotFound, apiSystemModels.ErrorResponse{Error: "User not found", Message: err.Error()})
 			return
 		}
 		if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "doesn't exist") {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Role not found", Message: err.Error()})
+			c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{Error: "Role not found", Message: err.Error()})
 			return
 		}
 		h.logAndRespond500(c, err, "Failed to update role", "Failed to update role")
@@ -595,7 +596,7 @@ func (h *UsersHandler) GetUserSettings(c *gin.Context) {
 		return
 	}
 	if h.settingsRepo == nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Service error", Message: "settings repository not available"})
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{Error: "Service error", Message: "settings repository not available"})
 		return
 	}
 
@@ -607,7 +608,7 @@ func (h *UsersHandler) GetUserSettings(c *gin.Context) {
 			h.logger.Errorf("Failed to get user settings: %v", err)
 		}
 		if strings.Contains(err.Error(), "not found") {
-			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "User not found", Message: err.Error()})
+			c.JSON(http.StatusNotFound, apiSystemModels.ErrorResponse{Error: "User not found", Message: err.Error()})
 			return
 		}
 		h.logAndRespond500(c, err, "Failed to get user settings", "Failed to load user settings")
@@ -655,7 +656,7 @@ func (h *UsersHandler) UpdateUserAccessScopes(c *gin.Context) {
 		req.AccessScopes = []models.AccessScope{}
 	}
 	if h.accessScopeRepo == nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Service error", Message: "access scope repository not available"})
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{Error: "Service error", Message: "access scope repository not available"})
 		return
 	}
 
@@ -710,7 +711,7 @@ func (h *UsersHandler) UpdateUserSettings(c *gin.Context) {
 		req.Settings = []models.UserSettingItem{}
 	}
 	if h.settingsRepo == nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Service error", Message: "settings repository not available"})
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{Error: "Service error", Message: "settings repository not available"})
 		return
 	}
 
@@ -736,7 +737,7 @@ func (h *UsersHandler) UpdateUserSettings(c *gin.Context) {
 	for _, p := range pairs {
 		if profileValue, isProfile := profileSettings[p.Name]; isProfile {
 			if p.Value != profileValue {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 					Error:   "Changing profile_settings is not allowed",
 					Message: "Setting \"" + p.Name + "\" is defined by the user's profile. Only user-level settings can be changed or removed.",
 				})

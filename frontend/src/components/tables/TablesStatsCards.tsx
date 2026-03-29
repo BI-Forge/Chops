@@ -5,20 +5,13 @@ import { useTheme } from '../../contexts/ThemeContext';
 interface TablesStatsCardsProps {
   totalTables: number;
   totalRows: number;
-  totalSize: number;
+  /** Human-readable total size (e.g. from GET /tables/stats). */
+  totalSizeLabel: string;
   totalParts: number;
 }
 
-export function TablesStatsCards({ totalTables, totalRows, totalSize, totalParts }: TablesStatsCardsProps) {
+export function TablesStatsCards({ totalTables, totalRows, totalSizeLabel, totalParts }: TablesStatsCardsProps) {
   const { theme } = useTheme();
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
-  };
 
   const formatNumber = (num: number): string => {
     return num.toLocaleString();
@@ -43,7 +36,7 @@ export function TablesStatsCards({ totalTables, totalRows, totalSize, totalParts
     },
     {
       title: 'Total Size',
-      value: formatBytes(totalSize),
+      value: totalSizeLabel,
       icon: HardDrive,
       color: 'text-green-400',
       bg: 'bg-green-500/20',

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/logger"
@@ -64,7 +65,7 @@ func (h *AccessScopeHandler) GetUserAccessScopes(c *gin.Context) {
 	nodeName := strings.TrimSpace(c.Query("node"))
 
 	if userName == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
 			Error:   "Invalid request",
 			Message: "user_name parameter is required",
 		})
@@ -79,7 +80,7 @@ func (h *AccessScopeHandler) GetUserAccessScopes(c *gin.Context) {
 		if h.logger != nil {
 			h.logger.Errorf("Failed to get user access scopes: %v", err)
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
 			Error:   "Failed to load access scopes",
 			Message: err.Error(),
 		})

@@ -33,3 +33,38 @@ type UpdateUserSettingsRequest struct {
 	UserName string            `json:"user_name"`
 	Settings []UserSettingItem `json:"settings"`
 }
+
+// DBSettingItem is one merged row from system.settings and system.server_settings.
+type DBSettingItem struct {
+	Name                     string `json:"name"`
+	Description              string `json:"description"`
+	Value                    string `json:"value"`
+	Type                     string `json:"type"`
+	Changed                  bool   `json:"changed"`
+	ChangeableWithoutRestart string `json:"changeable_without_restart"`
+	Server                   bool   `json:"server"`
+	Tier                     string `json:"tier"`
+}
+
+// AllDBSettingsResponse is the paginated list of merged ClickHouse settings.
+type AllDBSettingsResponse struct {
+	Settings []DBSettingItem `json:"settings"`
+	Total    int             `json:"total"`
+	Limit    int             `json:"limit"`
+	Offset   int             `json:"offset"`
+}
+
+// DBSettingDetailItem is the GET /settings/one response: merged setting plus min, max, and readonly from system.settings (zeroed for server-only rows).
+type DBSettingDetailItem struct {
+	Name                     string `json:"name"`
+	Description              string `json:"description"`
+	Value                    string `json:"value"`
+	Type                     string `json:"type"`
+	Changed                  bool   `json:"changed"`
+	ChangeableWithoutRestart string `json:"changeable_without_restart"`
+	Server                   bool   `json:"server"`
+	Tier                     string `json:"tier"`
+	Min                      string `json:"min,omitempty"`
+	Max                      string `json:"max,omitempty"`
+	Readonly                 bool   `json:"readonly"`
+}

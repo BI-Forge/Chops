@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/tests/api/testutil"
 
@@ -160,7 +161,7 @@ func TestUsersHandlerUserBasicInfoWithoutName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -184,7 +185,7 @@ func TestUsersHandlerUserBasicInfoUserNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User not found")
@@ -380,7 +381,7 @@ func TestUsersHandlerUpdateUserLoginUserNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User not found")
@@ -413,7 +414,7 @@ func TestUsersHandlerUpdateUserLoginMissingOldName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -447,7 +448,7 @@ func TestUsersHandlerUpdateUserLoginMissingNewName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -575,7 +576,7 @@ func TestUsersHandlerUpdateUserLoginUsersXmlStorage(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Cannot rename user")
@@ -676,7 +677,7 @@ func TestUsersHandlerCreateUserAlreadyExists(t *testing.T) {
 
 	assert.Equal(t, http.StatusConflict, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User already exists")
@@ -709,7 +710,7 @@ func TestUsersHandlerCreateUserMissingName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -743,7 +744,7 @@ func TestUsersHandlerCreateUserMissingPassword(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -887,7 +888,7 @@ func TestUsersHandlerCreateUserWithCyrillicInName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -920,7 +921,7 @@ func TestUsersHandlerCreateUserWithCyrillicInPassword(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -975,7 +976,7 @@ func TestUsersHandlerDeleteUserUserNotFound(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User not found")
@@ -994,7 +995,7 @@ func TestUsersHandlerDeleteUserMissingName(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1026,7 +1027,7 @@ func TestUsersHandlerDeleteUserWithCyrillicInName(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Message, "Cyrillic")
@@ -1064,7 +1065,7 @@ func TestUsersHandlerDeleteUserUsersXmlStorage(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Cannot delete user")
@@ -1097,7 +1098,7 @@ func TestUsersHandlerUpdateUserLoginWithCyrillicInOldName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1130,7 +1131,7 @@ func TestUsersHandlerUpdateUserLoginWithCyrillicInNewName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1163,7 +1164,7 @@ func TestUsersHandlerUpdateUserLoginWithCyrillicInBothNames(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1244,7 +1245,7 @@ func TestUsersHandlerUpdatePasswordUserNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User not found")
@@ -1281,7 +1282,7 @@ func TestUsersHandlerUpdatePasswordUsersXmlStorage(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Cannot update password")
@@ -1314,7 +1315,7 @@ func TestUsersHandlerUpdatePasswordMissingUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1348,7 +1349,7 @@ func TestUsersHandlerUpdatePasswordMissingPassword(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1454,7 +1455,7 @@ func TestUsersHandlerUpdatePasswordWithCyrillicInUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1487,7 +1488,7 @@ func TestUsersHandlerUpdatePasswordWithCyrillicInPassword(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1573,7 +1574,7 @@ func TestUsersHandlerUpdateProfileUserNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User not found")
@@ -1610,7 +1611,7 @@ func TestUsersHandlerUpdateProfileUsersXmlStorage(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Cannot update user profile")
@@ -1643,7 +1644,7 @@ func TestUsersHandlerUpdateProfileMissingUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1812,7 +1813,7 @@ func TestUsersHandlerUpdateProfileWithCyrillicInUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1845,7 +1846,7 @@ func TestUsersHandlerUpdateProfileWithCyrillicInProfileName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -1995,7 +1996,7 @@ func TestUsersHandlerUpdateRoleUserNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "User not found")
@@ -2041,7 +2042,7 @@ func TestUsersHandlerUpdateRoleRoleNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Role not found")
@@ -2078,7 +2079,7 @@ func TestUsersHandlerUpdateRoleUsersXmlStorage(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Cannot update role")
@@ -2111,7 +2112,7 @@ func TestUsersHandlerUpdateRoleMissingUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -2223,7 +2224,7 @@ func TestUsersHandlerUpdateRoleWithCyrillicInUserName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
@@ -2256,7 +2257,7 @@ func TestUsersHandlerUpdateRoleWithCyrillicInRoleName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp models.ErrorResponse
+	var resp apiSystemModels.ErrorResponse
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp.Error, "Invalid request")
