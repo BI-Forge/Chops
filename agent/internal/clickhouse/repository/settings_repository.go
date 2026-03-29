@@ -173,7 +173,6 @@ func (r *SettingsRepository) UpdateUserSettings(ctx context.Context, nodeName, u
 
 	// 1. Drop all user settings
 	dropQuery := fmt.Sprintf("ALTER USER `%s` DROP ALL SETTINGS", escapeIdentifier(userName))
-	fmt.Println(dropQuery)
 	if err := conn.Exec(ctx, dropQuery); err != nil {
 		return fmt.Errorf("failed to drop user settings: %w", err)
 	}
@@ -191,7 +190,6 @@ func (r *SettingsRepository) UpdateUserSettings(ctx context.Context, nodeName, u
 		}
 		if len(parts) > 0 {
 			addQuery := fmt.Sprintf("ALTER USER `%s` ADD SETTINGS %s", escapeIdentifier(userName), strings.Join(parts, ", "))
-			fmt.Println(addQuery)
 			if err := conn.Exec(ctx, addQuery); err != nil {
 				return fmt.Errorf("failed to add user settings: %w", err)
 			}

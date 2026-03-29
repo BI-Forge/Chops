@@ -9,6 +9,7 @@ import { QueriesPage } from './pages/QueriesPage'
 import { BackupsPage } from './pages/BackupsPage'
 import { UsersPage } from './pages/UsersPage'
 import { TablesPage } from './pages/TablesPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { AlertSystem } from './components/AlertSystem'
 
 // Protected Route Component
@@ -72,6 +73,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <TablesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <SettingsPage />
           </ProtectedRoute>
         }
       />

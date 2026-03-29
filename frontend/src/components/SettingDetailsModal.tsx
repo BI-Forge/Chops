@@ -1,28 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { XCircle, Settings, Info, Shield, Lock, Tag, FileText, Save } from 'lucide-react';
+import { useEffect } from 'react';
+import { XCircle, Settings, Info, Shield, Lock, Tag, FileText } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import { useAlert } from '../contexts/AlertContext';
 import { Setting } from './SettingsTable';
 
 interface SettingDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   setting: Setting | null;
+  /** When true, shows a loading state in the modal body */
+  detailLoading?: boolean;
 }
 
-export function SettingDetailsModal({ isOpen, onClose, setting }: SettingDetailsModalProps) {
+export function SettingDetailsModal({
+  isOpen,
+  onClose,
+  setting,
+  detailLoading = false,
+}: SettingDetailsModalProps) {
   const { theme } = useTheme();
-  const { success } = useAlert();
-  
-  // Editable states
-  const [editableValue, setEditableValue] = useState('');
-
-  // Initialize editable states when setting changes
-  useEffect(() => {
-    if (setting) {
-      setEditableValue(setting.value);
-    }
-  }, [setting]);
 
   // Block body scroll when modal is open
   useEffect(() => {
@@ -50,14 +45,6 @@ export function SettingDetailsModal({ isOpen, onClose, setting }: SettingDetails
   }, [isOpen, onClose]);
 
   if (!isOpen || !setting) return null;
-
-  const handleSave = () => {
-    success('Setting value updated successfully');
-    console.log('Saving setting:', {
-      name: setting.name,
-      value: editableValue
-    });
-  };
 
   return (
     <div 
@@ -114,7 +101,18 @@ export function SettingDetailsModal({ isOpen, onClose, setting }: SettingDetails
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar relative">
+          {detailLoading && (
+            <div
+              className={`absolute inset-0 z-10 flex items-center justify-center ${
+                theme === 'light' ? 'bg-white/60' : 'bg-gray-900/60'
+              } backdrop-blur-[2px]`}
+            >
+              <span className={`text-sm ${theme === 'light' ? 'text-amber-800' : 'text-yellow-300'}`}>
+                Loading details…
+              </span>
+            </div>
+          )}
           <div className="space-y-6">
             {/* Basic Information */}
             <div>
@@ -143,25 +141,23 @@ export function SettingDetailsModal({ isOpen, onClose, setting }: SettingDetails
                   />
                 </div>
 
-                {/* Value - EDITABLE */}
+                {/* Value */}
                 <div className={`${
-                  theme === 'light' ? 'bg-amber-50/50 border-amber-400/50' : 'bg-yellow-500/5 border-yellow-500/30'
-                } border-2 rounded-xl p-4`}>
-                  <label className={`flex items-center gap-2 ${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-sm mb-2 font-semibold`}>
+                  theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
+                } border rounded-xl p-4`}>
+                  <label className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>
                     <FileText className="w-4 h-4" />
-                    Value (Editable)
+                    Value
                   </label>
                   <input
                     type="text"
-                    value={editableValue}
-                    onChange={(e) => setEditableValue(e.target.value)}
+                    value={setting.value}
+                    disabled
                     className={`w-full px-3 py-2 rounded-lg border ${
                       theme === 'light'
-                        ? 'bg-white border-amber-500/50 text-gray-800 focus:border-amber-500'
-                        : 'bg-gray-900/50 border-yellow-500/50 text-white focus:border-yellow-500'
-                    } focus:outline-none focus:ring-2 ${
-                      theme === 'light' ? 'focus:ring-amber-500/20' : 'focus:ring-yellow-500/20'
-                    } transition-colors text-sm font-mono`}
+                        ? 'bg-gray-100 border-gray-300 text-gray-500'
+                        : 'bg-gray-800/50 border-gray-700 text-gray-500'
+                    } text-sm font-mono cursor-not-allowed`}
                   />
                 </div>
 
@@ -362,36 +358,18 @@ export function SettingDetailsModal({ isOpen, onClose, setting }: SettingDetails
               <div className={`${
                 theme === 'light' ? 'bg-gray-100/50 border-gray-300/50' : 'bg-gray-800/30 border-gray-700/50'
               } border rounded-xl p-4`}>
-                <textarea
-                  value={setting.description}
-                  disabled
-                  rows={6}
+                <div
                   className={`w-full px-3 py-2 rounded-lg border ${
                     theme === 'light'
-                      ? 'bg-gray-100 border-gray-300 text-gray-500'
-                      : 'bg-gray-800/50 border-gray-700 text-gray-500'
-                  } text-sm resize-none cursor-not-allowed`}
-                />
+                      ? 'bg-gray-100 border-gray-300 text-gray-600'
+                      : 'bg-gray-800/50 border-gray-700 text-gray-400'
+                  } text-sm whitespace-pre-wrap break-words`}
+                >
+                  {setting.description || '—'}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Footer with Action Buttons */}
-        <div className={`flex items-center justify-end gap-3 p-6 border-t ${
-          theme === 'light' ? 'border-amber-500/20' : 'border-yellow-500/20'
-        }`}>
-          <button
-            onClick={handleSave}
-            className={`px-6 py-2.5 rounded-lg ${
-              theme === 'light'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
-                : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-gray-900'
-            } transition-all duration-200 flex items-center gap-2 font-medium shadow-lg hover:shadow-xl`}
-          >
-            <Save className="w-4 h-4" />
-            Save
-          </button>
         </div>
       </div>
     </div>
