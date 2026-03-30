@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"clickhouse-ops/internal/db/models"
 	"clickhouse-ops/internal/db"
+	"clickhouse-ops/internal/db/models"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -38,11 +38,20 @@ func (r *UserRepository) CreateUser(username, email, password string) (*models.U
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	var adminRole models.Role
+	if err := r.db.Where("name = ?", "admin").First(&adminRole).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("default role admin not found: %w", err)
+		}
+		return nil, fmt.Errorf("resolve default role: %w", err)
+	}
+
 	user := &models.User{
 		Username:     username,
 		Email:        email,
 		PasswordHash: string(hashedPassword),
 		IsActive:     true,
+		RoleID:       adminRole.ID,
 	}
 
 	if err := r.db.Create(user).Error; err != nil {

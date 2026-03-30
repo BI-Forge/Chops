@@ -13,6 +13,12 @@ func GetMigrations() []Migration {
 			Up:      createUserTable,
 			Down:    dropUserTable,
 		},
+		{
+			Version: 2,
+			Name:    "rbac_roles_permissions",
+			Up:      rbacUp,
+			Down:    rbacDown,
+		},
 	}
 }
 
