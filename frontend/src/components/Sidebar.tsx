@@ -95,6 +95,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
   const activeItem = getActiveItem();
   
   const userName = user?.username || 'Admin User';
+  const systemRoleLabel = user?.role_name?.trim() || 'User';
   const userInitial = userName.charAt(0).toUpperCase();
   
   // Generate color based on first letter of name
@@ -296,7 +297,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse }: SidebarP
             </div>
             <div className="flex-1 text-left">
               <div className={`text-sm ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{userName}</div>
-              <div className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>Administrator</div>
+              <div className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{systemRoleLabel}</div>
             </div>
             <ChevronDown className={`w-4 h-4 ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'} transition-transform duration-200 ${userMenuOpen ? 'rotate-180' : ''}`} />
           </button>

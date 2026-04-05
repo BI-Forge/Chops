@@ -5,7 +5,7 @@ import type { UserInfo } from '../types/auth'
 interface AuthContextType {
   user: UserInfo | null
   token: string | null
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
   loading: boolean
@@ -46,8 +46,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }: { 
     }
   }, [])
 
-  const login = async (username: string, password: string) => {
-    const response = await authAPI.login({ username, password })
+  const login = async (username: string, password: string, rememberMe = false) => {
+    const response = await authAPI.login({ username, password, remember_me: rememberMe })
     localStorage.setItem('token', response.token)
     setToken(response.token)
     const userInfo = await authAPI.getUserInfo()

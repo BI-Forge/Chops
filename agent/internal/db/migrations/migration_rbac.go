@@ -36,13 +36,17 @@ func rbacUp(tx *sql.Tx) error {
 	}
 
 	if _, err := tx.Exec(`INSERT INTO roles (name, description) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
-		"admin", "Full access; default role for existing and new users"); err != nil {
+		rbac.RoleNameAdmin, "Full access; default role for existing and new users"); err != nil {
 		return fmt.Errorf("seed admin role: %w", err)
 	}
 
-	for _, code := range rbac.AllPermissionCodes() {
-		if _, err := tx.Exec(`INSERT INTO permissions (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, code); err != nil {
-			return fmt.Errorf("seed permission %q: %w", code, err)
+	for _, seed := range rbac.AllPermissionSeeds() {
+		if _, err := tx.Exec(`
+			INSERT INTO permissions (name, description) VALUES ($1, $2)
+			ON CONFLICT (name) DO UPDATE SET
+				description = EXCLUDED.description,
+				updated_at = CURRENT_TIMESTAMP`, seed.Name, seed.Description); err != nil {
+			return fmt.Errorf("seed permission %q: %w", seed.Name, err)
 		}
 	}
 
@@ -50,8 +54,8 @@ func rbacUp(tx *sql.Tx) error {
 	if _, err := tx.Exec(`
 		INSERT INTO role_permissions (role_id, permission_id)
 		SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
-		WHERE r.name = 'admin'
-		ON CONFLICT DO NOTHING`); err != nil {
+		WHERE r.name = $1
+		ON CONFLICT DO NOTHING`, rbac.RoleNameAdmin); err != nil {
 		return fmt.Errorf("link admin to permissions: %w", err)
 	}
 
@@ -59,7 +63,7 @@ func rbacUp(tx *sql.Tx) error {
 		return fmt.Errorf("add users.role_id: %w", err)
 	}
 
-	if _, err := tx.Exec(`UPDATE users SET role_id = (SELECT id FROM roles WHERE name = 'admin' LIMIT 1) WHERE role_id IS NULL`); err != nil {
+	if _, err := tx.Exec(`UPDATE users SET role_id = (SELECT id FROM roles WHERE name = $1 LIMIT 1) WHERE role_id IS NULL`, rbac.RoleNameAdmin); err != nil {
 		return fmt.Errorf("backfill users.role_id: %w", err)
 	}
 

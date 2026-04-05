@@ -37,6 +37,29 @@ func LoadUserPermissions(rbac *repository.RBACRepository) gin.HandlerFunc {
 			return
 		}
 
+		active, err := rbac.IsApplicationUserActive(userID)
+		if err != nil {
+			if err.Error() == "user not found" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+				c.Abort()
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to resolve user",
+				"message": err.Error(),
+			})
+			c.Abort()
+			return
+		}
+		if !active {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error":   "Unauthorized",
+				"message": "Account is deactivated",
+			})
+			c.Abort()
+			return
+		}
+
 		names, err := rbac.ListPermissionNamesForUser(userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{

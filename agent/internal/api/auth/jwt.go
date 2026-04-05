@@ -34,14 +34,19 @@ func NewJWTManager(secretKey string, tokenDuration time.Duration) *JWTManager {
 	}
 }
 
-// GenerateToken generates a new JWT token for a user
+// GenerateToken generates a new JWT using the manager's default lifetime.
 func (jm *JWTManager) GenerateToken(userID, username string, roles []string) (string, error) {
+	return jm.GenerateTokenWithTTL(userID, username, roles, jm.tokenDuration)
+}
+
+// GenerateTokenWithTTL generates a new JWT with an explicit time-to-live.
+func (jm *JWTManager) GenerateTokenWithTTL(userID, username string, roles []string, ttl time.Duration) (string, error) {
 	claims := JWTClaims{
 		UserID:   userID,
 		Username: username,
 		Roles:    roles,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jm.tokenDuration)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 		},

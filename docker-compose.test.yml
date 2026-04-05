@@ -52,7 +52,7 @@ services:
       - chops_network_test
 
   ch:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.10.6
     container_name: chops_ch_test
     ports:
       - "8131:8123"
@@ -75,7 +75,7 @@ services:
       retries: 10
 
   ch_2:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.10.6
     container_name: chops_ch_test_2
     ports:
       - "8132:8123"

@@ -86,8 +86,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Generate JWT token (no roles)
-	token, err := h.jwtManager.GenerateToken(strconv.Itoa(user.ID), user.Username, []string{})
+	ttl := 24 * time.Hour
+	if req.RememberMe {
+		ttl = 7 * 24 * time.Hour
+	}
+
+	token, err := h.jwtManager.GenerateTokenWithTTL(strconv.Itoa(user.ID), user.Username, []string{}, ttl)
 	if err != nil {
 		h.logger.Errorf("Failed to generate token: %v", err)
 		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
@@ -100,7 +104,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, apiSystemModels.TokenResponse{
 		Token:     token,
 		Type:      "Bearer",
-		ExpiresIn: int64(h.jwtManager.GetTokenDuration().Seconds()),
+		ExpiresIn: int64(ttl.Seconds()),
 	})
 }
 
@@ -169,7 +173,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, apiSystemModels.TokenResponse{
 		Token:     token,
 		Type:      "Bearer",
-		ExpiresIn: int64(24 * time.Hour.Seconds()), // 24 hours default
+		ExpiresIn: int64(h.jwtManager.GetTokenDuration().Seconds()),
 	})
 }
 
@@ -214,5 +218,7 @@ func (h *AuthHandler) GetUserInfo(c *gin.Context) {
 		ID:       strconv.Itoa(user.ID),
 		Username: user.Username,
 		Email:    user.Email,
+		RoleID:   user.RoleID,
+		RoleName: user.Role.Name,
 	})
 }

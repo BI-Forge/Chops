@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { CustomCheckbox } from './CustomCheckbox';
 
 interface LoginFormProps {
-  onLogin: (username: string, password: string) => Promise<void>;
+  onLogin: (username: string, password: string, rememberMe: boolean) => Promise<void>;
 }
 
 export function LoginForm({ onLogin }: LoginFormProps) {
@@ -20,7 +20,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setIsLoading(true);
     
     try {
-      await onLogin(username, password);
+      await onLogin(username, password, rememberMe);
     } catch (err) {
       // Error handling is done in parent component
     } finally {

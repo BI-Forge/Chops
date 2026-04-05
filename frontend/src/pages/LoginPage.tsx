@@ -24,10 +24,10 @@ export function LoginPage() {
     return null;
   }
 
-  const handleLogin = async (username: string, password: string) => {
+  const handleLogin = async (username: string, password: string, rememberMe: boolean) => {
     setError('');
     try {
-      await login(username, password);
+      await login(username, password, rememberMe);
       navigate('/dashboard');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Authentication failed';
@@ -40,7 +40,7 @@ export function LoginPage() {
     setError('');
     try {
       await authAPI.register({ username, email, password });
-      await login(username, password);
+      await login(username, password, false);
       navigate('/dashboard');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Registration failed';

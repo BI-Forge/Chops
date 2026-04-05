@@ -10,6 +10,7 @@ import { BackupsPage } from './pages/BackupsPage'
 import { UsersPage } from './pages/UsersPage'
 import { TablesPage } from './pages/TablesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import AdminSettingsPage from './pages/AdminSettingsPage'
 import { AlertSystem } from './components/AlertSystem'
 
 // Protected Route Component
@@ -81,6 +82,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin-settings"
+        element={
+          <ProtectedRoute>
+            <AdminSettingsPage />
           </ProtectedRoute>
         }
       />

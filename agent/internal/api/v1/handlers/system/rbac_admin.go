@@ -49,6 +49,8 @@ func (h *RBACAdminHandler) CreateRole(c *gin.Context) {
 		ID:          role.ID,
 		Name:        role.Name,
 		Description: role.Description,
+		IsSystem:    role.IsSystem,
+		CreatedAt:   role.CreatedAt,
 	})
 }
 
@@ -114,6 +116,66 @@ func (h *RBACAdminHandler) AssignUserRole(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// DeleteRole handles DELETE /system/roles/:id.
+func (h *RBACAdminHandler) DeleteRole(c *gin.Context) {
+	roleID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || roleID < 1 {
+		c.JSON(http.StatusBadRequest, system.ErrorResponse{Error: "Invalid request", Message: "Invalid role id"})
+		return
+	}
+
+	if err := h.rbac.DeleteRole(roleID); err != nil {
+		switch err.Error() {
+		case "role not found":
+			c.JSON(http.StatusNotFound, system.ErrorResponse{Error: "Not found", Message: err.Error()})
+			return
+		case "cannot delete system role", "cannot delete role assigned to users":
+			c.JSON(http.StatusBadRequest, system.ErrorResponse{Error: "Bad request", Message: err.Error()})
+			return
+		}
+		h.log.Errorf("DeleteRole: %v", err)
+		c.JSON(http.StatusInternalServerError, system.ErrorResponse{Error: "Internal server error", Message: "Failed to delete role"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// SetUserActive handles PUT /system/users/:id/active.
+func (h *RBACAdminHandler) SetUserActive(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userID < 1 {
+		c.JSON(http.StatusBadRequest, system.ErrorResponse{Error: "Invalid request", Message: "Invalid user id"})
+		return
+	}
+
+	var req system.SetUserActiveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, system.ErrorResponse{Error: "Invalid request", Message: err.Error()})
+		return
+	}
+
+	callerIDStr, ok := c.Get("user_id")
+	if ok {
+		if callerID, convErr := strconv.Atoi(callerIDStr.(string)); convErr == nil && callerID == userID && !req.IsActive {
+			c.JSON(http.StatusBadRequest, system.ErrorResponse{Error: "Bad request", Message: "Cannot deactivate your own account"})
+			return
+		}
+	}
+
+	if err := h.rbac.SetApplicationUserActive(userID, req.IsActive); err != nil {
+		if err.Error() == "user not found" {
+			c.JSON(http.StatusNotFound, system.ErrorResponse{Error: "Not found", Message: err.Error()})
+			return
+		}
+		h.log.Errorf("SetUserActive: %v", err)
+		c.JSON(http.StatusInternalServerError, system.ErrorResponse{Error: "Internal server error", Message: "Failed to update user"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 // ListRoles handles GET /system/roles.
 func (h *RBACAdminHandler) ListRoles(c *gin.Context) {
 	roles, err := h.rbac.ListRoles()
@@ -125,9 +187,57 @@ func (h *RBACAdminHandler) ListRoles(c *gin.Context) {
 
 	out := make([]system.RoleResponse, 0, len(roles))
 	for _, r := range roles {
-		out = append(out, system.RoleResponse{ID: r.ID, Name: r.Name, Description: r.Description})
+		out = append(out, system.RoleResponse{
+			ID:               r.ID,
+			Name:             r.Name,
+			Description:      r.Description,
+			IsSystem:         r.IsSystem,
+			UsersCount:       int(r.UsersCount),
+			PermissionsCount: int(r.PermissionsCount),
+			CreatedAt:        r.CreatedAt,
+		})
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// ListSystemUsers handles GET /system/users.
+func (h *RBACAdminHandler) ListSystemUsers(c *gin.Context) {
+	list, err := h.rbac.ListSystemUsers()
+	if err != nil {
+		h.log.Errorf("ListSystemUsers: %v", err)
+		c.JSON(http.StatusInternalServerError, system.ErrorResponse{Error: "Internal server error", Message: "Failed to list users"})
+		return
+	}
+
+	out := make([]system.SystemUserResponse, 0, len(list))
+	for _, u := range list {
+		out = append(out, system.SystemUserResponse{
+			ID:          u.ID,
+			Username:    u.Username,
+			Email:       u.Email,
+			FullName:    formatSystemUserFullName(u.FirstName, u.LastName, u.Username),
+			RoleID:      u.RoleID,
+			RoleName:    u.RoleName,
+			Permissions: u.Permissions,
+			IsActive:    u.IsActive,
+			CreatedAt:   u.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func formatSystemUserFullName(first, last *string, username string) string {
+	var parts []string
+	if first != nil && strings.TrimSpace(*first) != "" {
+		parts = append(parts, strings.TrimSpace(*first))
+	}
+	if last != nil && strings.TrimSpace(*last) != "" {
+		parts = append(parts, strings.TrimSpace(*last))
+	}
+	if len(parts) == 0 {
+		return username
+	}
+	return strings.Join(parts, " ")
 }
 
 // GetRole handles GET /system/roles/:id.
@@ -158,6 +268,7 @@ func (h *RBACAdminHandler) GetRole(c *gin.Context) {
 		ID:          role.ID,
 		Name:        role.Name,
 		Description: role.Description,
+		IsSystem:    role.IsSystem,
 		Permissions: perms,
 	})
 }

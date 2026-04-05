@@ -40,6 +40,40 @@ func TestRBACListRoles(t *testing.T) {
 		}
 	}
 	require.True(t, foundAdmin, "admin role should exist")
+	for _, r := range roles {
+		if r.Name == "admin" {
+			require.GreaterOrEqual(t, r.UsersCount, 1, "at least registering user")
+			require.False(t, r.CreatedAt.IsZero())
+			break
+		}
+	}
+}
+
+func TestRBACListSystemUsers(t *testing.T) {
+	gormDB, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	defer testutil.CleanupTestData(t, gormDB)
+
+	token := testutil.RegisterTestUser(t, router, "test_rbac_list_users")
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/system/users", token, nil)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var users []apiSystemModels.SystemUserResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &users))
+	require.NotEmpty(t, users)
+	var found bool
+	for _, u := range users {
+		if u.Username == "test_rbac_list_users" {
+			found = true
+			require.NotEmpty(t, u.RoleName)
+			require.Contains(t, u.Permissions, rbac.PermAuthMe)
+			break
+		}
+	}
+	require.True(t, found, "registered user should appear in system user list")
 }
 
 func TestRBACCreateRoleAndAssignPermissions(t *testing.T) {
@@ -130,4 +164,145 @@ func TestRBACLimitedUserForbidden(t *testing.T) {
 	mw := httptest.NewRecorder()
 	router.ServeHTTP(mw, metricsReq)
 	require.Equal(t, http.StatusForbidden, mw.Code, mw.Body.String())
+}
+
+func TestRBACDeleteEmptyRole(t *testing.T) {
+	gormDB, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	defer testutil.CleanupTestData(t, gormDB)
+
+	token := testutil.RegisterTestUser(t, router, "test_rbac_delete_role")
+	uniq := time.Now().Format("20060102150405")
+	body, _ := json.Marshal(apiSystemModels.CreateRoleRequest{Name: "del_me_" + uniq, Description: "to delete"})
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/system/roles", token, body)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	var created apiSystemModels.RoleResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+
+	delReq, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/system/roles/"+strconv.Itoa(created.ID), token, nil)
+	require.NoError(t, err)
+	dw := httptest.NewRecorder()
+	router.ServeHTTP(dw, delReq)
+	require.Equal(t, http.StatusNoContent, dw.Code, dw.Body.String())
+}
+
+func TestRBACDeleteAdminForbidden(t *testing.T) {
+	gormDB, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	defer testutil.CleanupTestData(t, gormDB)
+
+	token := testutil.RegisterTestUser(t, router, "test_rbac_del_admin")
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/system/roles", token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var roles []apiSystemModels.RoleResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &roles))
+	var adminID int
+	for _, r := range roles {
+		if r.Name == rbac.RoleNameAdmin {
+			adminID = r.ID
+			break
+		}
+	}
+	require.Positive(t, adminID)
+
+	delReq, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/system/roles/"+strconv.Itoa(adminID), token, nil)
+	require.NoError(t, err)
+	dw := httptest.NewRecorder()
+	router.ServeHTTP(dw, delReq)
+	require.Equal(t, http.StatusBadRequest, dw.Code, dw.Body.String())
+}
+
+func TestRBACDeleteGuestForbidden(t *testing.T) {
+	gormDB, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	defer testutil.CleanupTestData(t, gormDB)
+
+	token := testutil.RegisterTestUser(t, router, "test_rbac_del_guest")
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/system/roles", token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var roles []apiSystemModels.RoleResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &roles))
+	var guestID int
+	for _, r := range roles {
+		if r.Name == rbac.RoleNameGuest {
+			guestID = r.ID
+			require.True(t, r.IsSystem, "guest should be marked system")
+			break
+		}
+	}
+	require.Positive(t, guestID)
+
+	delReq, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/system/roles/"+strconv.Itoa(guestID), token, nil)
+	require.NoError(t, err)
+	dw := httptest.NewRecorder()
+	router.ServeHTTP(dw, delReq)
+	require.Equal(t, http.StatusBadRequest, dw.Code, dw.Body.String())
+}
+
+func TestRBACDeleteRoleWithUsersForbidden(t *testing.T) {
+	gormDB, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	defer testutil.CleanupTestData(t, gormDB)
+
+	adminToken := testutil.RegisterTestUser(t, router, "test_rbac_del_busy")
+
+	uniq := time.Now().Format("20060102150405")
+	body, _ := json.Marshal(apiSystemModels.CreateRoleRequest{Name: "busy_role_" + uniq, Description: "has users"})
+	req, err := testutil.MakeAuthenticatedRequest("POST", "/api/v1/system/roles", adminToken, body)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	var created apiSystemModels.RoleResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+
+	_ = testutil.RegisterGuestTestUser(t, router, "test_rbac_guest_busy")
+	var guestUser models.User
+	require.NoError(t, gormDB.Where("username LIKE ?", "test_rbac_guest_busy%").First(&guestUser).Error)
+
+	assignBody, _ := json.Marshal(apiSystemModels.AssignUserRoleRequest{RoleID: created.ID})
+	assignReq, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/system/users/"+strconv.Itoa(guestUser.ID)+"/role", adminToken, assignBody)
+	require.NoError(t, err)
+	aw := httptest.NewRecorder()
+	router.ServeHTTP(aw, assignReq)
+	require.Equal(t, http.StatusNoContent, aw.Code, aw.Body.String())
+
+	delReq, err := testutil.MakeAuthenticatedRequest("DELETE", "/api/v1/system/roles/"+strconv.Itoa(created.ID), adminToken, nil)
+	require.NoError(t, err)
+	dw := httptest.NewRecorder()
+	router.ServeHTTP(dw, delReq)
+	require.Equal(t, http.StatusBadRequest, dw.Code, dw.Body.String())
+}
+
+func TestRBACDeactivateUserBlocksProtectedRoutes(t *testing.T) {
+	gormDB, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	defer testutil.CleanupTestData(t, gormDB)
+
+	adminToken := testutil.RegisterTestUser(t, router, "test_rbac_deact_admin")
+	guestToken := testutil.RegisterGuestTestUser(t, router, "test_rbac_deact_guest")
+
+	var guestUser models.User
+	require.NoError(t, gormDB.Where("username LIKE ?", "test_rbac_deact_guest%").First(&guestUser).Error)
+
+	activeBody, _ := json.Marshal(apiSystemModels.SetUserActiveRequest{IsActive: false})
+	putReq, err := testutil.MakeAuthenticatedRequest("PUT", "/api/v1/system/users/"+strconv.Itoa(guestUser.ID)+"/active", adminToken, activeBody)
+	require.NoError(t, err)
+	pw := httptest.NewRecorder()
+	router.ServeHTTP(pw, putReq)
+	require.Equal(t, http.StatusNoContent, pw.Code, pw.Body.String())
+
+	meReq, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/auth/me", guestToken, nil)
+	require.NoError(t, err)
+	mw := httptest.NewRecorder()
+	router.ServeHTTP(mw, meReq)
+	require.Equal(t, http.StatusUnauthorized, mw.Code, mw.Body.String())
 }

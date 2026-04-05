@@ -192,7 +192,23 @@ func TestLoginEndpoint(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotEmpty(t, response.Token)
 				assert.Equal(t, "Bearer", response.Type)
-				assert.Greater(t, response.ExpiresIn, int64(0))
+				assert.Equal(t, int64((24*time.Hour)/time.Second), response.ExpiresIn)
+			},
+		},
+		{
+			name: "login remember me seven days",
+			payload: apiSystemModels.LoginRequest{
+				Username:   username,
+				Password:   password,
+				RememberMe: true,
+			},
+			expectedStatus: http.StatusOK,
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				var response apiSystemModels.TokenResponse
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				require.NoError(t, err)
+				assert.NotEmpty(t, response.Token)
+				assert.Equal(t, int64((7*24*time.Hour)/time.Second), response.ExpiresIn)
 			},
 		},
 		{

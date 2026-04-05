@@ -303,7 +303,10 @@ func setupSystemRBACRoutes(protected *gin.RouterGroup, handlers *handlersContain
 		sys.POST("/roles", middleware.RequirePermission(rbac.PermSystemRolesCreate), handlers.RBACAdminHandler.CreateRole)
 		sys.GET("/roles", middleware.RequirePermission(rbac.PermSystemRolesList), handlers.RBACAdminHandler.ListRoles)
 		sys.GET("/roles/:id", middleware.RequirePermission(rbac.PermSystemRolesGet), handlers.RBACAdminHandler.GetRole)
+		sys.DELETE("/roles/:id", middleware.RequirePermission(rbac.PermSystemRolesDelete), handlers.RBACAdminHandler.DeleteRole)
 		sys.PUT("/roles/:id/permissions", middleware.RequirePermission(rbac.PermSystemRolesSetPermissions), handlers.RBACAdminHandler.SetRolePermissions)
+		sys.GET("/users", middleware.RequirePermission(rbac.PermSystemUsersList), handlers.RBACAdminHandler.ListSystemUsers)
+		sys.PUT("/users/:id/active", middleware.RequirePermission(rbac.PermSystemUsersSetActive), handlers.RBACAdminHandler.SetUserActive)
 		sys.PUT("/users/:id/role", middleware.RequirePermission(rbac.PermSystemUsersSetRole), handlers.RBACAdminHandler.AssignUserRole)
 		sys.GET("/permissions", middleware.RequirePermission(rbac.PermSystemPermissionsList), handlers.RBACAdminHandler.ListPermissions)
 	}

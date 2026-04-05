@@ -16,6 +16,9 @@ import (
 	"clickhouse-ops/internal/api"
 	apiSystemModels "clickhouse-ops/internal/api/v1/models/system"
 	"clickhouse-ops/internal/clickhouse"
+	"clickhouse-ops/internal/db"
+	"clickhouse-ops/internal/db/models"
+	"clickhouse-ops/internal/rbac"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
@@ -229,6 +232,45 @@ func getEnvInt(key string, fallback int) int {
 
 // RegisterTestUser registers a new test user and returns the authentication token
 func RegisterTestUser(t TestingT, router *gin.Engine, usernamePrefix string) string {
+	username := usernamePrefix + "_" + time.Now().Format("20060102150405")
+	email := usernamePrefix + "@example.com"
+	password := "securepass123"
+
+	registerPayload, err := json.Marshal(apiSystemModels.RegisterRequest{
+		Username: username,
+		Email:    email,
+		Password: password,
+	})
+	require.NoError(t, err)
+
+	registerReq, err := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(registerPayload))
+	require.NoError(t, err)
+	registerReq.Header.Set("Content-Type", "application/json")
+
+	registerW := httptest.NewRecorder()
+	router.ServeHTTP(registerW, registerReq)
+	require.Equal(t, http.StatusCreated, registerW.Code, "User registration should succeed")
+
+	var registerResponse apiSystemModels.TokenResponse
+	err = json.Unmarshal(registerW.Body.Bytes(), &registerResponse)
+	require.NoError(t, err)
+	require.NotEmpty(t, registerResponse.Token, "Token should not be empty")
+
+	mgr := db.GetInstance()
+	require.NotNil(t, mgr, "database manager required to promote test user to admin")
+	gdb := mgr.GetGormDB()
+	require.NotNil(t, gdb, "gorm db required to promote test user to admin")
+	var adminRole models.Role
+	require.NoError(t, gdb.Where("name = ?", rbac.RoleNameAdmin).First(&adminRole).Error)
+	res := gdb.Model(&models.User{}).Where("username = ?", username).Update("role_id", adminRole.ID)
+	require.NoError(t, res.Error)
+	require.Equal(t, int64(1), res.RowsAffected, "test user should exist for role promotion")
+
+	return registerResponse.Token
+}
+
+// RegisterGuestTestUser registers a user and returns a JWT without promoting to admin (keeps default guest role).
+func RegisterGuestTestUser(t TestingT, router *gin.Engine, usernamePrefix string) string {
 	username := usernamePrefix + "_" + time.Now().Format("20060102150405")
 	email := usernamePrefix + "@example.com"
 	password := "securepass123"

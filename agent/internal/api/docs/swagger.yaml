@@ -270,6 +270,12 @@ definitions:
       id:
         example: 123e4567-e89b-12d3-a456-426614174000
         type: string
+      role_id:
+        example: 1
+        type: integer
+      role_name:
+        example: admin
+        type: string
       username:
         example: admin
         type: string
