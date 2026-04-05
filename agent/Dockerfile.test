@@ -1,0 +1,23 @@
+# Test and local integration image: Go toolchain (matches go.mod) + built agent binary.
+# Used by docker-compose.test.yml so `docker compose exec app go test ./tests/...` works
+# while the same container still runs the HTTP server for Playwright.
+
+FROM golang:1.24
+
+ENV GOOS=linux
+ENV CGO_ENABLED=0
+ENV TZ=UTC
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN go build -o /app/ops_agent ./cmd/main.go
+
+EXPOSE 8080
+
+CMD ["/app/ops_agent"]

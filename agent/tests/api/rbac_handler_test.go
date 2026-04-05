@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +67,8 @@ func TestRBACListSystemUsers(t *testing.T) {
 	require.NotEmpty(t, users)
 	var found bool
 	for _, u := range users {
-		if u.Username == "test_rbac_list_users" {
+		// RegisterTestUser appends a timestamp: test_rbac_list_users_20060102150405
+		if strings.HasPrefix(u.Username, "test_rbac_list_users") {
 			found = true
 			require.NotEmpty(t, u.RoleName)
 			require.Contains(t, u.Permissions, rbac.PermAuthMe)

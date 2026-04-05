@@ -6,7 +6,6 @@ sync.test
 __wsl.localhost_*
 
 # Test binaries
-*.test
 *.exe
 *.exe~
 *.dll

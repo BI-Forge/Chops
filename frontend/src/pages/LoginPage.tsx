@@ -264,7 +264,9 @@ export function LoginPage() {
       {/* Footer */}
       <div className={`absolute bottom-2 sm:bottom-4 left-0 right-0 text-center ${theme === 'light' ? 'text-gray-700' : 'text-gray-500'} text-xs sm:text-sm z-10 px-4`}>
         <p className="flex flex-wrap items-center justify-center gap-1 sm:gap-2">
-          <span>© 2024 Clickhouse OPS</span>
+          <span>© {new Date().getFullYear()} Clickhouse OPS</span>
+          <span className={theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}>•</span>
+          <span>Author: Alex</span>
           <span className={`hidden sm:inline ${theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}`}>•</span>
           <span className="hidden sm:inline">All rights reserved</span>
           <span className={theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}>•</span>
