@@ -1,5 +1,6 @@
 import React from 'react';
-import { Database, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUp, ArrowDown, ArrowUpDown, Trash2, Copy } from 'lucide-react';
+import { Database, Eye, ArrowUp, ArrowDown, ArrowUpDown, Trash2, Copy } from 'lucide-react';
+import { ListPagination } from '../ListPagination';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { TablesListApiItem } from '../../services/tablesAPI';
 
@@ -103,7 +104,6 @@ export function TablesList({
     return sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />;
   };
 
-  const showPagination = total > 0 && totalPages > 1;
   const from = total === 0 ? 0 : (page - 1) * itemsPerPage + 1;
   const to = Math.min(page * itemsPerPage, total);
 
@@ -307,161 +307,15 @@ export function TablesList({
             </table>
           </div>
 
-          {(showPagination || total > 0) && (
-            <div
-              className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-6 pt-6 border-t ${
-                theme === 'light' ? 'border-amber-500/30' : 'border-gray-700/50'
-              }`}
-            >
-              <div className={`text-sm ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}>
-                Showing {from} to {to} of {total} tables
-              </div>
-
-              {showPagination && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => handlePageChange(1)}
-                    disabled={page === 1}
-                    className={`px-3 py-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
-                      theme === 'light'
-                        ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                        : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <ChevronsLeft className="w-4 h-4" />
-                      <span>First</span>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePageChange(Math.max(1, page - 1))}
-                    disabled={page === 1}
-                    className={`p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                      theme === 'light'
-                        ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                        : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                    }`}
-                  >
-                    <ChevronLeft className={`w-4 h-4 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`} />
-                  </button>
-
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {(() => {
-                      const pages: React.ReactNode[] = [];
-                      const maxPagesToShow = 5;
-                      let startPage = Math.max(1, page - 2);
-                      let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-
-                      if (endPage - startPage < maxPagesToShow - 1) {
-                        startPage = Math.max(1, endPage - maxPagesToShow + 1);
-                      }
-
-                      if (startPage > 1) {
-                        pages.push(
-                          <button
-                            type="button"
-                            key={1}
-                            onClick={() => handlePageChange(1)}
-                            className={`w-8 h-8 rounded-lg transition-all duration-200 border ${
-                              theme === 'light'
-                                ? 'bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-700 border-amber-500/40 hover:border-amber-600'
-                                : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-yellow-400 border-gray-700/50 hover:border-yellow-500/30'
-                            }`}
-                          >
-                            1
-                          </button>
-                        );
-                        if (startPage > 2) {
-                          pages.push(
-                            <span key="ellipsis-start" className="px-2 text-gray-500">
-                              ...
-                            </span>
-                          );
-                        }
-                      }
-
-                      for (let i = startPage; i <= endPage; i++) {
-                        pages.push(
-                          <button
-                            type="button"
-                            key={i}
-                            onClick={() => handlePageChange(i)}
-                            className={`w-8 h-8 rounded-lg transition-all duration-200 ${
-                              page === i
-                                ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-gray-900'
-                                : theme === 'light'
-                                  ? 'bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-700 border border-amber-500/40 hover:border-amber-600'
-                                  : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-yellow-400 border border-gray-700/50 hover:border-yellow-500/30'
-                            }`}
-                          >
-                            {i}
-                          </button>
-                        );
-                      }
-
-                      if (endPage < totalPages) {
-                        if (endPage < totalPages - 1) {
-                          pages.push(
-                            <span key="ellipsis-end" className="px-2 text-gray-500">
-                              ...
-                            </span>
-                          );
-                        }
-                        pages.push(
-                          <button
-                            type="button"
-                            key={totalPages}
-                            onClick={() => handlePageChange(totalPages)}
-                            className={`w-8 h-8 rounded-lg transition-all duration-200 border ${
-                              theme === 'light'
-                                ? 'bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-700 border-amber-500/40 hover:border-amber-600'
-                                : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-yellow-400 border-gray-700/50 hover:border-yellow-500/30'
-                            }`}
-                          >
-                            {totalPages}
-                          </button>
-                        );
-                      }
-
-                      return pages;
-                    })()}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
-                    disabled={page === totalPages}
-                    className={`p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                      theme === 'light'
-                        ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                        : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                    }`}
-                  >
-                    <ChevronRight className={`w-4 h-4 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePageChange(totalPages)}
-                    disabled={page === totalPages}
-                    className={`px-3 py-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
-                      theme === 'light'
-                        ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                        : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>Last</span>
-                      <ChevronsRight className="w-4 h-4" />
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <ListPagination
+            currentPage={page}
+            totalPages={totalPages}
+            totalCount={total}
+            rangeStart={from}
+            rangeEnd={to}
+            itemLabel="tables"
+            onPageChange={handlePageChange}
+          />
         </>
       )}
     </div>

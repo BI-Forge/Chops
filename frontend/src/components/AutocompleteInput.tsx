@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -9,6 +10,8 @@ interface AutocompleteInputProps {
   suggestions: string[];
   placeholder: string;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  /** Render suggestions in a body portal with fixed position (avoids overflow clipping in modals). */
+  useBodyPortal?: boolean;
 }
 
 export function AutocompleteInput({
@@ -18,27 +21,60 @@ export function AutocompleteInput({
   suggestions,
   placeholder,
   onKeyDown,
+  useBodyPortal = false,
 }: AutocompleteInputProps) {
   const { theme } = useTheme();
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Reset selected index when value or suggestions change
+  const updateDropdownPosition = useCallback(() => {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  }, []);
+
   useEffect(() => {
     setSelectedIndex(-1);
-    // Don't auto-show suggestions, only show on focus
   }, [value, suggestions.length]);
 
-  // Close suggestions on click outside
+  useEffect(() => {
+    if (suggestions.length === 0) {
+      setShowSuggestions(false);
+      return;
+    }
+    if (inputRef.current && document.activeElement === inputRef.current) {
+      setShowSuggestions(true);
+    }
+  }, [suggestions]);
+
+  useEffect(() => {
+    if (!useBodyPortal || !showSuggestions) return;
+    updateDropdownPosition();
+    const handler = () => updateDropdownPosition();
+    window.addEventListener('scroll', handler, true);
+    window.addEventListener('resize', handler);
+    return () => {
+      window.removeEventListener('scroll', handler, true);
+      window.removeEventListener('resize', handler);
+    };
+  }, [useBodyPortal, showSuggestions, updateDropdownPosition]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const t = event.target as Node;
       if (
         suggestionsRef.current &&
-        !suggestionsRef.current.contains(event.target as Node) &&
+        !suggestionsRef.current.contains(t) &&
         inputRef.current &&
-        !inputRef.current.contains(event.target as Node)
+        !inputRef.current.contains(t)
       ) {
         setShowSuggestions(false);
       }
@@ -47,6 +83,15 @@ export function AutocompleteInput({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const selectSuggestion = (suggestion: string) => {
+    onChange(suggestion);
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+    setTimeout(() => {
+      onAdd(suggestion);
+    }, 10);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (showSuggestions && suggestions.length > 0) {
@@ -68,15 +113,48 @@ export function AutocompleteInput({
     }
   };
 
-  const selectSuggestion = (suggestion: string) => {
-    onChange(suggestion);
-    setShowSuggestions(false);
-    setSelectedIndex(-1);
-    // Trigger add after a short delay to allow state update
-    setTimeout(() => {
-      onAdd(suggestion);
-    }, 10);
-  };
+  const suggestionListClass =
+    theme === 'light'
+      ? 'bg-white border-amber-500/30'
+      : 'bg-gray-800 border-yellow-500/30';
+
+  const suggestionsDropdown = showSuggestions && suggestions.length > 0 && (
+    <div
+      ref={suggestionsRef}
+      className={`rounded-lg border shadow-lg max-h-60 overflow-y-auto custom-scrollbar ${suggestionListClass} ${
+        useBodyPortal ? 'fixed z-[10050]' : 'absolute top-full left-0 right-0 mt-1 z-50'
+      }`}
+      style={
+        useBodyPortal
+          ? {
+              top: `${dropdownPos.top}px`,
+              left: `${dropdownPos.left}px`,
+              width: `${dropdownPos.width}px`,
+            }
+          : undefined
+      }
+    >
+      {suggestions.map((suggestion, index) => (
+        <button
+          key={suggestion}
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => selectSuggestion(suggestion)}
+          className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+            selectedIndex === index
+              ? theme === 'light'
+                ? 'bg-amber-100 text-amber-900'
+                : 'bg-yellow-500/20 text-yellow-300'
+              : theme === 'light'
+                ? 'text-gray-700 hover:bg-amber-50'
+                : 'text-gray-300 hover:bg-gray-700/50'
+          }`}
+        >
+          {suggestion}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="relative">
@@ -89,6 +167,9 @@ export function AutocompleteInput({
         onFocus={() => {
           if (suggestions.length > 0) {
             setShowSuggestions(true);
+            if (useBodyPortal) {
+              updateDropdownPosition();
+            }
           }
         }}
         placeholder={placeholder}
@@ -99,45 +180,21 @@ export function AutocompleteInput({
         } focus:outline-none transition-colors text-sm`}
       />
       <button
+        type="button"
         onClick={() => onAdd(value)}
         className={`absolute right-3 top-1/2 transform -translate-y-1/2 ${
           theme === 'light'
             ? 'text-gray-400 hover:text-amber-500'
             : 'text-gray-500 hover:text-yellow-500'
         }`}
+        aria-label="Add"
       >
         <Plus className="w-4 h-4" />
       </button>
 
-      {/* Suggestions dropdown */}
-      {showSuggestions && suggestions.length > 0 && (
-        <div
-          ref={suggestionsRef}
-          className={`absolute top-full left-0 right-0 mt-1 rounded-lg border shadow-lg z-50 max-h-60 overflow-y-auto ${
-            theme === 'light'
-              ? 'bg-white border-amber-500/30'
-              : 'bg-gray-800 border-yellow-500/30'
-          }`}
-        >
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={suggestion}
-              onClick={() => selectSuggestion(suggestion)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                selectedIndex === index
-                  ? theme === 'light'
-                    ? 'bg-amber-100 text-amber-900'
-                    : 'bg-yellow-500/20 text-yellow-300'
-                  : theme === 'light'
-                    ? 'text-gray-700 hover:bg-amber-50'
-                    : 'text-gray-300 hover:bg-gray-700/50'
-              }`}
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
-      )}
+      {useBodyPortal && suggestionsDropdown
+        ? createPortal(suggestionsDropdown, document.body)
+        : suggestionsDropdown}
     </div>
   );
 }

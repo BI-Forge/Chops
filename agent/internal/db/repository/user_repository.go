@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"clickhouse-ops/internal/db/models"
 	"clickhouse-ops/internal/db"
+	"clickhouse-ops/internal/db/models"
+	"clickhouse-ops/internal/rbac"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -30,7 +31,7 @@ func NewUserRepositoryWithDB(database *gorm.DB) *UserRepository {
 	return &UserRepository{db: database}
 }
 
-// CreateUser creates a new user in the database
+// CreateUser creates a user; the first user in the database gets role admin, all later users get guest.
 func (r *UserRepository) CreateUser(username, email, password string) (*models.User, error) {
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -38,11 +39,30 @@ func (r *UserRepository) CreateUser(username, email, password string) (*models.U
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	var userCount int64
+	if err := r.db.Model(&models.User{}).Count(&userCount).Error; err != nil {
+		return nil, fmt.Errorf("count users: %w", err)
+	}
+
+	roleName := rbac.RoleNameGuest
+	if userCount == 0 {
+		roleName = rbac.RoleNameAdmin
+	}
+
+	var role models.Role
+	if err := r.db.Where("name = ?", roleName).First(&role).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("role %q not found: %w", roleName, err)
+		}
+		return nil, fmt.Errorf("resolve role %q: %w", roleName, err)
+	}
+
 	user := &models.User{
 		Username:     username,
 		Email:        email,
 		PasswordHash: string(hashedPassword),
 		IsActive:     true,
+		RoleID:       role.ID,
 	}
 
 	if err := r.db.Create(user).Error; err != nil {
@@ -64,10 +84,10 @@ func (r *UserRepository) GetUserByUsername(username string) (*models.User, error
 	return &user, nil
 }
 
-// GetUserByID retrieves a user by ID
+// GetUserByID retrieves a user by ID and their assigned system role.
 func (r *UserRepository) GetUserByID(id int) (*models.User, error) {
 	var user models.User
-	if err := r.db.First(&user, id).Error; err != nil {
+	if err := r.db.Preload("Role").First(&user, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
 		}

@@ -11,6 +11,8 @@ type User struct {
 	FirstName    *string   `gorm:"size:50" json:"first_name,omitempty"`
 	LastName     *string   `gorm:"size:50" json:"last_name,omitempty"`
 	IsActive     bool      `gorm:"default:true" json:"is_active"`
+	RoleID       int       `gorm:"not null;index" json:"role_id"`
+	Role         Role      `gorm:"foreignKey:RoleID" json:"-"`
 	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt    time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }

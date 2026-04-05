@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -27,6 +28,14 @@ type QueryLogFilter struct {
 	Limit       int
 	Offset      int
 	RangePreset string
+}
+
+// sanitizeJSONFloat replaces NaN/Inf with 0 so encoding/json can serialize API payloads.
+func sanitizeJSONFloat(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
 }
 
 // QueryLogRepository executes filtered reads against ClickHouse system.query_log.
@@ -232,7 +241,7 @@ OFFSET ?`, whereClause)
 			DurationMs:            durationMs,
 			ExceptionCode:         exceptionCode,
 			Exception:             exceptionText,
-			CPULoad:               cpuLoad,
+			CPULoad:               sanitizeJSONFloat(cpuLoad),
 			ClientHostname:        clientHostname,
 			Databases:             databases,
 			Tables:                tables,
@@ -581,7 +590,7 @@ ORDER BY event_time DESC`, whereClause)
 			WaitUs:         waitUs,
 			NumCores:       numCores,
 			RealUs:         realUs,
-			CPULoad:        cpuLoad,
+			CPULoad:        sanitizeJSONFloat(cpuLoad),
 		}
 
 		entries = append(entries, entry)

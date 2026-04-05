@@ -13,6 +13,36 @@ func GetMigrations() []Migration {
 			Up:      createUserTable,
 			Down:    dropUserTable,
 		},
+		{
+			Version: 2,
+			Name:    "rbac_roles_permissions",
+			Up:      rbacUp,
+			Down:    rbacDown,
+		},
+		{
+			Version: 3,
+			Name:    "seed_system_users_list_permission",
+			Up:      seedSystemUsersListPermission,
+			Down:    func(*sql.Tx) error { return nil },
+		},
+		{
+			Version: 4,
+			Name:    "backfill_permission_descriptions",
+			Up:      backfillPermissionDescriptions,
+			Down:    func(*sql.Tx) error { return nil },
+		},
+		{
+			Version: 5,
+			Name:    "guest_role_and_rbac_extensions",
+			Up:      guestRoleAndRBACExtensions,
+			Down:    func(*sql.Tx) error { return nil },
+		},
+		{
+			Version: 6,
+			Name:    "roles_is_system_flag",
+			Up:      roleIsSystemFlag,
+			Down:    func(*sql.Tx) error { return nil },
+		},
 	}
 }
 

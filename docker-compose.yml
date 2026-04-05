@@ -50,7 +50,7 @@ services:
     networks:
       - ch_ops
   ch:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.10.6
     container_name: chops_ch
     ports:
       - "8121:8123"
@@ -67,7 +67,7 @@ services:
     networks:
       - ch_ops
   ch_2:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.10.6
     container_name: chops_ch_2
     ports:
       - "8120:8123"

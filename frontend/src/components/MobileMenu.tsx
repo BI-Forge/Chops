@@ -44,6 +44,7 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
   const activeItem = getActiveItem();
   
   const userName = user?.username || 'Admin User';
+  const systemRoleLabel = user?.role_name?.trim() || 'User';
   const userInitial = userName.charAt(0).toUpperCase();
   
   const getColorForLetter = (letter: string) => {
@@ -147,7 +148,7 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
                   <p className={`${
                     theme === 'light' ? 'text-gray-600' : 'text-gray-400'
                   } text-xs truncate`}>
-                    Administrator
+                    {systemRoleLabel}
                   </p>
                 </div>
               </div>

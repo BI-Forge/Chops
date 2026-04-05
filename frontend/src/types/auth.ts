@@ -1,6 +1,8 @@
 export interface LoginRequest {
   username: string
   password: string
+  /** When true, server issues a token valid for 7 days; otherwise 1 day. */
+  remember_me?: boolean
 }
 
 export interface RegisterRequest {
@@ -24,5 +26,9 @@ export interface UserInfo {
   id: string
   username: string
   email: string
+  /** System RBAC role id; omitted on older API responses until refresh. */
+  role_id?: number
+  /** System role name (e.g. admin, guest). */
+  role_name?: string
 }
 

@@ -8,9 +8,11 @@ import (
 	"clickhouse-ops/internal/api/middleware"
 	clickhouseHandlers "clickhouse-ops/internal/api/v1/handlers/clickhouse"
 	systemHandlers "clickhouse-ops/internal/api/v1/handlers/system"
-	"clickhouse-ops/internal/clickhouse/repository"
+	chrepo "clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/config"
+	"clickhouse-ops/internal/db/repository"
 	"clickhouse-ops/internal/logger"
+	"clickhouse-ops/internal/rbac"
 
 	"github.com/gin-gonic/gin"
 )
@@ -115,8 +117,10 @@ type handlersContainer struct {
 	BackupHandler      *clickhouseHandlers.BackupHandler
 	SchemasHandler     *clickhouseHandlers.SchemasHandler
 	TablesHandler      *clickhouseHandlers.TablesHandler
-	ColumnsHandler  *clickhouseHandlers.ColumnsHandler
-	SettingsHandler *clickhouseHandlers.SettingsHandler
+	ColumnsHandler     *clickhouseHandlers.ColumnsHandler
+	SettingsHandler    *clickhouseHandlers.SettingsHandler
+	RBACRepo           *repository.RBACRepository
+	RBACAdminHandler   *systemHandlers.RBACAdminHandler
 }
 
 // initializeHandlers creates and initializes all handlers
@@ -129,6 +133,14 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 		cfg.Logger.Errorf("Failed to initialize auth handler: %v", err)
 	}
 	container.AuthHandler = authHandler
+
+	rbacRepo, err := repository.NewRBACRepository()
+	if err != nil {
+		cfg.Logger.Errorf("Failed to initialize RBAC repository: %v", err)
+	} else {
+		container.RBACRepo = rbacRepo
+	}
+	container.RBACAdminHandler = systemHandlers.NewRBACAdminHandler(rbacRepo, cfg.Logger)
 
 	// Initialize health handler
 	container.HealthHandler = systemHandlers.NewHealthHandler()
@@ -211,7 +223,7 @@ func initializeHandlers(cfg RouterConfig) *handlersContainer {
 	container.ColumnsHandler = columnsHandler
 
 	// Initialize settings repository and handlers (shared repository)
-	settingsRepo, err := repository.NewSettingsRepository(cfg.Config, cfg.Logger)
+	settingsRepo, err := chrepo.NewSettingsRepository(cfg.Config, cfg.Logger)
 	if err != nil {
 		cfg.Logger.Errorf("Failed to initialize settings repository: %v", err)
 	} else {
@@ -246,7 +258,13 @@ func setupAuthRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, handlers 
 	{
 		auth.POST("/login", handlers.AuthHandler.Login)
 		auth.POST("/register", handlers.AuthHandler.Register)
-		auth.GET("/me", middleware.AuthMiddleware(jwtManager), handlers.AuthHandler.GetUserInfo)
+
+		meHandlers := []gin.HandlerFunc{middleware.AuthMiddleware(jwtManager)}
+		if handlers.RBACRepo != nil {
+			meHandlers = append(meHandlers, middleware.LoadUserPermissions(handlers.RBACRepo), middleware.RequirePermission(rbac.PermAuthMe))
+		}
+		meHandlers = append(meHandlers, handlers.AuthHandler.GetUserInfo)
+		auth.GET("/me", meHandlers...)
 	}
 }
 
@@ -254,7 +272,11 @@ func setupAuthRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, handlers 
 func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, handlers *handlersContainer) {
 	protected := v1.Group("/")
 	protected.Use(middleware.AuthMiddleware(jwtManager))
+	if handlers.RBACRepo != nil {
+		protected.Use(middleware.LoadUserPermissions(handlers.RBACRepo))
+	}
 	{
+		setupSystemRBACRoutes(protected, handlers)
 		setupMetricsRoutes(protected, handlers)
 		setupQueryLogRoutes(protected, handlers)
 		setupProcessRoutes(protected, handlers)
@@ -270,6 +292,26 @@ func setupProtectedRoutes(v1 *gin.RouterGroup, jwtManager *auth.JWTManager, hand
 	}
 }
 
+// setupSystemRBACRoutes registers system role and permission management APIs.
+func setupSystemRBACRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
+	if handlers.RBACAdminHandler == nil {
+		return
+	}
+
+	sys := protected.Group("/system")
+	{
+		sys.POST("/roles", middleware.RequirePermission(rbac.PermSystemRolesCreate), handlers.RBACAdminHandler.CreateRole)
+		sys.GET("/roles", middleware.RequirePermission(rbac.PermSystemRolesList), handlers.RBACAdminHandler.ListRoles)
+		sys.GET("/roles/:id", middleware.RequirePermission(rbac.PermSystemRolesGet), handlers.RBACAdminHandler.GetRole)
+		sys.DELETE("/roles/:id", middleware.RequirePermission(rbac.PermSystemRolesDelete), handlers.RBACAdminHandler.DeleteRole)
+		sys.PUT("/roles/:id/permissions", middleware.RequirePermission(rbac.PermSystemRolesSetPermissions), handlers.RBACAdminHandler.SetRolePermissions)
+		sys.GET("/users", middleware.RequirePermission(rbac.PermSystemUsersList), handlers.RBACAdminHandler.ListSystemUsers)
+		sys.PUT("/users/:id/active", middleware.RequirePermission(rbac.PermSystemUsersSetActive), handlers.RBACAdminHandler.SetUserActive)
+		sys.PUT("/users/:id/role", middleware.RequirePermission(rbac.PermSystemUsersSetRole), handlers.RBACAdminHandler.AssignUserRole)
+		sys.GET("/permissions", middleware.RequirePermission(rbac.PermSystemPermissionsList), handlers.RBACAdminHandler.ListPermissions)
+	}
+}
+
 // setupMetricsRoutes configures metrics endpoints
 func setupMetricsRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 	if handlers.MetricsHandler == nil {
@@ -278,11 +320,11 @@ func setupMetricsRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 
 	metrics := protected.Group("/clickhouse/metrics")
 	{
-		metrics.GET("/nodes", handlers.MetricsHandler.GetAvailableNodes)
-		metrics.GET("/current", handlers.MetricsHandler.GetCurrentMetrics)
-		metrics.GET("/stream", handlers.MetricsHandler.StreamMetrics)
-		metrics.GET("/series", handlers.MetricsHandler.GetMetricSeries)
-		metrics.GET("/server-info", handlers.MetricsHandler.GetServerInfo)
+		metrics.GET("/nodes", middleware.RequirePermission(rbac.PermClickhouseMetricsNodes), handlers.MetricsHandler.GetAvailableNodes)
+		metrics.GET("/current", middleware.RequirePermission(rbac.PermClickhouseMetricsCurrent), handlers.MetricsHandler.GetCurrentMetrics)
+		metrics.GET("/stream", middleware.RequirePermission(rbac.PermClickhouseMetricsStream), handlers.MetricsHandler.StreamMetrics)
+		metrics.GET("/series", middleware.RequirePermission(rbac.PermClickhouseMetricsSeries), handlers.MetricsHandler.GetMetricSeries)
+		metrics.GET("/server-info", middleware.RequirePermission(rbac.PermClickhouseMetricsServerInfo), handlers.MetricsHandler.GetServerInfo)
 	}
 }
 
@@ -294,9 +336,9 @@ func setupQueryLogRoutes(protected *gin.RouterGroup, handlers *handlersContainer
 
 	queryLog := protected.Group("/clickhouse/query-log")
 	{
-		queryLog.GET("", handlers.QueryLogHandler.ListQueryLog)
-		queryLog.GET("/stats", handlers.QueryLogHandler.GetQueryLogStats)
-		queryLog.GET("/stats/stream", handlers.QueryLogHandler.StreamQueryLogStats)
+		queryLog.GET("", middleware.RequirePermission(rbac.PermClickhouseQueryLogList), handlers.QueryLogHandler.ListQueryLog)
+		queryLog.GET("/stats", middleware.RequirePermission(rbac.PermClickhouseQueryLogStats), handlers.QueryLogHandler.GetQueryLogStats)
+		queryLog.GET("/stats/stream", middleware.RequirePermission(rbac.PermClickhouseQueryLogStatsStream), handlers.QueryLogHandler.StreamQueryLogStats)
 	}
 }
 
@@ -308,9 +350,9 @@ func setupProcessRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 
 	processes := protected.Group("/clickhouse/processes")
 	{
-		processes.GET("", handlers.ProcessHandler.GetCurrentProcesses)
-		processes.GET("/stream", handlers.ProcessHandler.StreamProcesses)
-		processes.POST("/kill", handlers.ProcessHandler.KillProcess)
+		processes.GET("", middleware.RequirePermission(rbac.PermClickhouseProcessesList), handlers.ProcessHandler.GetCurrentProcesses)
+		processes.GET("/stream", middleware.RequirePermission(rbac.PermClickhouseProcessesStream), handlers.ProcessHandler.StreamProcesses)
+		processes.POST("/kill", middleware.RequirePermission(rbac.PermClickhouseProcessesKill), handlers.ProcessHandler.KillProcess)
 	}
 }
 
@@ -323,15 +365,15 @@ func setupUsersRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 	users := protected.Group("/clickhouse/users")
 	{
 		// Register more specific routes first to avoid route conflicts
-		users.GET("/details", handlers.UsersHandler.UserDetails)
-		users.GET("/list", handlers.UsersHandler.GetUsersList)
-		users.PUT("/rename", handlers.UsersHandler.UpdateUserLogin)
-		users.PUT("/password", handlers.UsersHandler.UpdatePassword)
-		users.PUT("/profile", handlers.UsersHandler.UpdateProfile)
-		users.PUT("/role", handlers.UsersHandler.UpdateRole)
-		users.POST("", handlers.UsersHandler.CreateUser)
-		users.DELETE("", handlers.UsersHandler.DeleteUser)
-		users.GET("", handlers.UsersHandler.GetUsers)
+		users.GET("/details", middleware.RequirePermission(rbac.PermClickhouseUsersDetails), handlers.UsersHandler.UserDetails)
+		users.GET("/list", middleware.RequirePermission(rbac.PermClickhouseUsersList), handlers.UsersHandler.GetUsersList)
+		users.PUT("/rename", middleware.RequirePermission(rbac.PermClickhouseUsersRename), handlers.UsersHandler.UpdateUserLogin)
+		users.PUT("/password", middleware.RequirePermission(rbac.PermClickhouseUsersPassword), handlers.UsersHandler.UpdatePassword)
+		users.PUT("/profile", middleware.RequirePermission(rbac.PermClickhouseUsersProfile), handlers.UsersHandler.UpdateProfile)
+		users.PUT("/role", middleware.RequirePermission(rbac.PermClickhouseUsersCHRole), handlers.UsersHandler.UpdateRole)
+		users.POST("", middleware.RequirePermission(rbac.PermClickhouseUsersCreate), handlers.UsersHandler.CreateUser)
+		users.DELETE("", middleware.RequirePermission(rbac.PermClickhouseUsersDelete), handlers.UsersHandler.DeleteUser)
+		users.GET("", middleware.RequirePermission(rbac.PermClickhouseUsersGet), handlers.UsersHandler.GetUsers)
 	}
 }
 
@@ -343,7 +385,7 @@ func setupProfilesRoutes(protected *gin.RouterGroup, handlers *handlersContainer
 
 	profiles := protected.Group("/clickhouse/profiles")
 	{
-		profiles.GET("/list", handlers.ProfilesHandler.GetProfilesList)
+		profiles.GET("/list", middleware.RequirePermission(rbac.PermClickhouseProfilesList), handlers.ProfilesHandler.GetProfilesList)
 	}
 }
 
@@ -355,7 +397,7 @@ func setupRolesRoutes(protected *gin.RouterGroup, handlers *handlersContainer) {
 
 	roles := protected.Group("/clickhouse/roles")
 	{
-		roles.GET("/list", handlers.RolesHandler.GetRolesList)
+		roles.GET("/list", middleware.RequirePermission(rbac.PermClickhouseCHRolesList), handlers.RolesHandler.GetRolesList)
 	}
 }
 
@@ -367,9 +409,9 @@ func setupAccessScopeRoutes(protected *gin.RouterGroup, handlers *handlersContai
 
 	accessScope := protected.Group("/clickhouse/access-scope")
 	{
-		accessScope.GET("", handlers.AccessScopeHandler.GetUserAccessScopes)
+		accessScope.GET("", middleware.RequirePermission(rbac.PermClickhouseAccessScopeGet), handlers.AccessScopeHandler.GetUserAccessScopes)
 		if handlers.UsersHandler != nil {
-			accessScope.PUT("", handlers.UsersHandler.UpdateUserAccessScopes)
+			accessScope.PUT("", middleware.RequirePermission(rbac.PermClickhouseAccessScopePut), handlers.UsersHandler.UpdateUserAccessScopes)
 		}
 	}
 }
@@ -382,10 +424,10 @@ func setupBackupRoutes(protected *gin.RouterGroup, handlers *handlersContainer) 
 
 	backups := protected.Group("/clickhouse/backups")
 	{
-		backups.GET("/stats", handlers.BackupHandler.GetStats)
-		backups.GET("/in-progress", handlers.BackupHandler.GetInProgress)
-		backups.GET("/completed", handlers.BackupHandler.GetCompleted)
-		backups.GET("/:id", handlers.BackupHandler.GetByID)
+		backups.GET("/stats", middleware.RequirePermission(rbac.PermClickhouseBackupsStats), handlers.BackupHandler.GetStats)
+		backups.GET("/in-progress", middleware.RequirePermission(rbac.PermClickhouseBackupsInProgress), handlers.BackupHandler.GetInProgress)
+		backups.GET("/completed", middleware.RequirePermission(rbac.PermClickhouseBackupsCompleted), handlers.BackupHandler.GetCompleted)
+		backups.GET("/:id", middleware.RequirePermission(rbac.PermClickhouseBackupsGetByID), handlers.BackupHandler.GetByID)
 	}
 }
 
@@ -397,7 +439,7 @@ func setupSchemasRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 
 	schemas := protected.Group("/clickhouse/schemas")
 	{
-		schemas.GET("/list", handlers.SchemasHandler.GetSchemasList)
+		schemas.GET("/list", middleware.RequirePermission(rbac.PermClickhouseSchemasList), handlers.SchemasHandler.GetSchemasList)
 	}
 }
 
@@ -409,11 +451,11 @@ func setupTablesRoutes(protected *gin.RouterGroup, handlers *handlersContainer) 
 
 	tables := protected.Group("/clickhouse/tables")
 	{
-		tables.GET("/list", handlers.TablesHandler.GetTablesList)
-		tables.GET("/stats", handlers.TablesHandler.GetTablesStats)
-		tables.GET("/details/:uuid", handlers.TablesHandler.GetTableDetails)
-		tables.POST("/:uuid/copy", handlers.TablesHandler.CopyTableByUUID)
-		tables.DELETE("/:uuid", handlers.TablesHandler.DeleteTableByUUID)
+		tables.GET("/list", middleware.RequirePermission(rbac.PermClickhouseTablesList), handlers.TablesHandler.GetTablesList)
+		tables.GET("/stats", middleware.RequirePermission(rbac.PermClickhouseTablesStats), handlers.TablesHandler.GetTablesStats)
+		tables.GET("/details/:uuid", middleware.RequirePermission(rbac.PermClickhouseTablesDetails), handlers.TablesHandler.GetTableDetails)
+		tables.POST("/:uuid/copy", middleware.RequirePermission(rbac.PermClickhouseTablesCopy), handlers.TablesHandler.CopyTableByUUID)
+		tables.DELETE("/:uuid", middleware.RequirePermission(rbac.PermClickhouseTablesDelete), handlers.TablesHandler.DeleteTableByUUID)
 	}
 }
 
@@ -425,7 +467,7 @@ func setupColumnsRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 
 	columns := protected.Group("/clickhouse/columns")
 	{
-		columns.GET("/list", handlers.ColumnsHandler.GetColumnsList)
+		columns.GET("/list", middleware.RequirePermission(rbac.PermClickhouseColumnsList), handlers.ColumnsHandler.GetColumnsList)
 	}
 }
 
@@ -438,11 +480,11 @@ func setupSettingsRoutes(protected *gin.RouterGroup, handlers *handlersContainer
 	settings := protected.Group("/clickhouse/settings")
 	{
 		if handlers.UsersHandler != nil {
-			settings.GET("", handlers.UsersHandler.GetUserSettings)
-			settings.PUT("", handlers.UsersHandler.UpdateUserSettings)
+			settings.GET("", middleware.RequirePermission(rbac.PermClickhouseSettingsUserGet), handlers.UsersHandler.GetUserSettings)
+			settings.PUT("", middleware.RequirePermission(rbac.PermClickhouseSettingsUserPut), handlers.UsersHandler.UpdateUserSettings)
 		}
-		settings.GET("/all", handlers.SettingsHandler.GetAllSettings)
-		settings.GET("/one", handlers.SettingsHandler.GetSettingByName)
-		settings.GET("/available", handlers.SettingsHandler.GetAvailableSettings)
+		settings.GET("/all", middleware.RequirePermission(rbac.PermClickhouseSettingsAll), handlers.SettingsHandler.GetAllSettings)
+		settings.GET("/one", middleware.RequirePermission(rbac.PermClickhouseSettingsOne), handlers.SettingsHandler.GetSettingByName)
+		settings.GET("/available", middleware.RequirePermission(rbac.PermClickhouseSettingsAvailable), handlers.SettingsHandler.GetAvailableSettings)
 	}
 }

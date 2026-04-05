@@ -2,8 +2,9 @@ package system
 
 // LoginRequest represents login request
 type LoginRequest struct {
-	Username string `json:"username" binding:"required" example:"admin"`
-	Password string `json:"password" binding:"required" example:"password123"`
+	Username   string `json:"username" binding:"required" example:"admin"`
+	Password   string `json:"password" binding:"required" example:"password123"`
+	RememberMe bool   `json:"remember_me" example:"false"`
 }
 
 // RegisterRequest represents registration request
@@ -22,7 +23,9 @@ type TokenResponse struct {
 
 // UserInfo represents user information
 type UserInfo struct {
-	ID       string `json:"id" example:"123e4567-e89b-12d3-a456-426614174000"`
-	Username string `json:"username" example:"admin"`
-	Email    string `json:"email" example:"admin@example.com"`
+	ID        string `json:"id" example:"123e4567-e89b-12d3-a456-426614174000"`
+	Username  string `json:"username" example:"admin"`
+	Email     string `json:"email" example:"admin@example.com"`
+	RoleID    int    `json:"role_id" example:"1"`
+	RoleName  string `json:"role_name" example:"admin"`
 }

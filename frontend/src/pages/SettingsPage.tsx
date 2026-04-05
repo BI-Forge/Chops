@@ -1,18 +1,11 @@
-import { useState, useEffect, useCallback, type FormEvent, type ReactNode } from 'react';
-import {
-  Search,
-  Filter,
-  Settings as SettingsIcon,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-} from 'lucide-react';
+import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { Search, Filter, Settings as SettingsIcon } from 'lucide-react';
 import { BackgroundPattern } from '../components/BackgroundPattern';
 import { Sidebar } from '../components/Sidebar';
 import { MobileMenu } from '../components/MobileMenu';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { SettingDetailsModal } from '../components/SettingDetailsModal';
+import { ListPagination } from '../components/ListPagination';
 import { SettingsTable, type Setting } from '../components/SettingsTable';
 import { CustomSelect } from '../components/CustomSelect';
 import { useTheme } from '../contexts/ThemeContext';
@@ -467,167 +460,15 @@ export function SettingsPage() {
                   />
                 )}
 
-                {listTotal > 0 && (
-                  <div
-                    className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-6 pt-6 border-t ${
-                      theme === 'light' ? 'border-amber-500/30' : 'border-gray-700/50'
-                    }`}
-                  >
-                    <div className={`text-sm ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}>
-                      Showing {startIndex + 1} to {endIndex} of {listTotal} settings
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end">
-                      <button
-                        type="button"
-                        onClick={() => handlePageChange(1)}
-                        disabled={currentPage === 1}
-                        className={`px-3 py-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
-                          theme === 'light'
-                            ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                            : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1">
-                          <ChevronsLeft className="w-4 h-4" />
-                          <span>First</span>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-                        disabled={currentPage === 1}
-                        className={`p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                          theme === 'light'
-                            ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                            : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                        }`}
-                      >
-                        <ChevronLeft
-                          className={`w-4 h-4 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}
-                        />
-                      </button>
-
-                      <div className="flex items-center gap-1">
-                        {(() => {
-                          const pages: ReactNode[] = [];
-                          const maxPagesToShow = 5;
-                          let startPage = Math.max(1, currentPage - 2);
-                          let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-
-                          if (endPage - startPage < maxPagesToShow - 1) {
-                            startPage = Math.max(1, endPage - maxPagesToShow + 1);
-                          }
-
-                          if (startPage > 1) {
-                            pages.push(
-                              <button
-                                key={1}
-                                type="button"
-                                onClick={() => handlePageChange(1)}
-                                className={`w-8 h-8 rounded-lg transition-all duration-200 border ${
-                                  theme === 'light'
-                                    ? 'bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-700 border-amber-500/40 hover:border-amber-600'
-                                    : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-yellow-400 border-gray-700/50 hover:border-yellow-500/30'
-                                }`}
-                              >
-                                1
-                              </button>
-                            );
-
-                            if (startPage > 2) {
-                              pages.push(
-                                <span key="ellipsis-start" className="px-2 text-gray-500">
-                                  ...
-                                </span>
-                              );
-                            }
-                          }
-
-                          for (let i = startPage; i <= endPage; i++) {
-                            pages.push(
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => handlePageChange(i)}
-                                className={`w-8 h-8 rounded-lg transition-all duration-200 border ${
-                                  currentPage === i
-                                    ? theme === 'light'
-                                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
-                                      : 'bg-yellow-500 hover:bg-yellow-600 text-gray-900 border-yellow-600'
-                                    : theme === 'light'
-                                      ? 'bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-700 border-amber-500/40 hover:border-amber-600'
-                                      : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-yellow-400 border-gray-700/50 hover:border-yellow-500/30'
-                                }`}
-                              >
-                                {i}
-                              </button>
-                            );
-                          }
-
-                          if (endPage < totalPages) {
-                            if (endPage < totalPages - 1) {
-                              pages.push(
-                                <span key="ellipsis-end" className="px-2 text-gray-500">
-                                  ...
-                                </span>
-                              );
-                            }
-
-                            pages.push(
-                              <button
-                                key={totalPages}
-                                type="button"
-                                onClick={() => handlePageChange(totalPages)}
-                                className={`w-8 h-8 rounded-lg transition-all duration-200 border ${
-                                  theme === 'light'
-                                    ? 'bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-700 border-amber-500/40 hover:border-amber-600'
-                                    : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-yellow-400 border-gray-700/50 hover:border-yellow-500/30'
-                                }`}
-                              >
-                                {totalPages}
-                              </button>
-                            );
-                          }
-
-                          return pages;
-                        })()}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-                        disabled={currentPage === totalPages}
-                        className={`p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                          theme === 'light'
-                            ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                            : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                        }`}
-                      >
-                        <ChevronRight
-                          className={`w-4 h-4 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'}`}
-                        />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePageChange(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className={`px-3 py-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
-                          theme === 'light'
-                            ? 'bg-white hover:bg-amber-50 border-amber-500/40 hover:border-amber-600'
-                            : 'bg-gray-800/50 hover:bg-gray-700/50 border-gray-700/50 hover:border-yellow-500/30'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span>Last</span>
-                          <ChevronsRight className="w-4 h-4" />
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <ListPagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalCount={listTotal}
+                  rangeStart={startIndex + 1}
+                  rangeEnd={endIndex}
+                  itemLabel="settings"
+                  onPageChange={handlePageChange}
+                />
               </div>
             </div>
           </div>

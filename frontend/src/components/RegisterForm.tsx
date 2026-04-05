@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Lock, Mail, User, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { CustomCheckbox } from './CustomCheckbox';
+import { LegalDocumentModal } from './LegalDocumentModal';
+import { PRIVACY_SECTIONS, TERMS_SECTIONS } from '../content/legalCopy';
 
 interface RegisterFormProps {
   onRegister: (username: string, email: string, password: string) => Promise<void>;
@@ -16,6 +18,8 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [termsError, setTermsError] = useState(false);
+  const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { theme } = useTheme();
   const [errors, setErrors] = useState<{
@@ -56,9 +60,10 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
     }
 
     if (!agreeToTerms) {
-      // Show error but don't block - just highlight the checkbox
+      setTermsError(true);
       return;
     }
+    setTermsError(false);
 
     setIsLoading(true);
     
@@ -265,29 +270,57 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
         </div>
 
         {/* Terms Agreement */}
-        <div className="flex items-start gap-2">
-          <div className="mt-0.5">
-            <CustomCheckbox
-              checked={agreeToTerms}
-              onChange={() => setAgreeToTerms(!agreeToTerms)}
-              id="register-terms-checkbox"
-              testId="register-terms-checkbox"
-            />
+        <div className="space-y-1">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5">
+              <CustomCheckbox
+                checked={agreeToTerms}
+                onChange={() => {
+                  setAgreeToTerms(!agreeToTerms);
+                  setTermsError(false);
+                }}
+                id="register-terms-checkbox"
+                testId="register-terms-checkbox"
+              />
+            </div>
+            <div
+              className={`${theme === 'light' ? 'text-gray-900' : 'text-gray-400'} text-sm`}
+              data-testid="register-terms-checkbox-label"
+            >
+              <label htmlFor="register-terms-checkbox" className="cursor-pointer">
+                I agree to the{' '}
+              </label>
+              <button
+                type="button"
+                className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors underline-offset-2 hover:underline`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setLegalModal('terms');
+                }}
+              >
+                Terms and Conditions
+              </button>
+              <label htmlFor="register-terms-checkbox" className="cursor-pointer">
+                {' '}
+                and{' '}
+              </label>
+              <button
+                type="button"
+                className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors underline-offset-2 hover:underline`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setLegalModal('privacy');
+                }}
+              >
+                Privacy Policy
+              </button>
+            </div>
           </div>
-          <label
-            htmlFor="register-terms-checkbox"
-            className={`${theme === 'light' ? 'text-gray-900' : 'text-gray-400'} text-sm cursor-pointer`}
-            data-testid="register-terms-checkbox-label"
-          >
-            I agree to the{' '}
-            <button type="button" className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors`}>
-              Terms and Conditions
-            </button>
-            {' '}and{' '}
-            <button type="button" className={`${theme === 'light' ? 'text-amber-700 hover:text-amber-800 font-medium' : 'text-yellow-400 hover:text-yellow-300'} transition-colors`}>
-              Privacy Policy
-            </button>
-          </label>
+          {termsError && (
+            <p className="text-red-400 text-xs pl-8">Please accept the Terms and Conditions and Privacy Policy to continue.</p>
+          )}
         </div>
 
         {/* Submit Button */}
@@ -315,6 +348,19 @@ export function RegisterForm({ onRegister }: RegisterFormProps) {
           </div>
         </button>
       </form>
+
+      <LegalDocumentModal
+        isOpen={legalModal === 'terms'}
+        title="Terms and Conditions"
+        sections={TERMS_SECTIONS}
+        onClose={() => setLegalModal(null)}
+      />
+      <LegalDocumentModal
+        isOpen={legalModal === 'privacy'}
+        title="Privacy Policy"
+        sections={PRIVACY_SECTIONS}
+        onClose={() => setLegalModal(null)}
+      />
     </div>
   );
 }

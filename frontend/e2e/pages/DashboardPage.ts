@@ -22,7 +22,8 @@ export class DashboardPage {
     this.charts = page.locator('[data-testid="chart"]').or(page.locator('canvas, svg'));
     this.sidebar = page.locator('[data-testid="sidebar"]').or(page.locator('nav, aside'));
     this.userMenuToggle = this.sidebar.locator('[data-testid="user-menu-toggle"]:visible');
-    this.logoutButton = this.sidebar.locator('[data-testid="user-menu-logout"]:visible');
+    // Logout lives in a portal attached to document.body, not under the sidebar DOM subtree.
+    this.logoutButton = page.locator('[data-testid="user-menu-logout"]:visible');
     this.mobileMenuButton = page.locator('[data-testid="mobile-menu-button"]');
     this.mobileMenuPanel = page.locator('[data-testid="mobile-menu"]');
     this.mobileLogoutButton = this.mobileMenuPanel.locator('[data-testid="mobile-menu-logout"]');
