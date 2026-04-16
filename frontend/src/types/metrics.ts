@@ -43,8 +43,9 @@ export interface ServerInfo {
   uptime: number
   version_integer: number
   total_memory: number
-  total_storage: number
-  available_storage: number
+  total_storage: string
+  unreserved_storage: string
+  available_storage: string
   host: string
   cluster: string
 }

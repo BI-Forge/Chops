@@ -3,11 +3,13 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
 	"clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
+	"clickhouse-ops/internal/pkg/bytesfmt"
 )
 
 // MetricsRepository mediates metrics reads from ClickHouse metrics_snapshot table.
@@ -391,14 +393,27 @@ func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) 
 		return nil, fmt.Errorf("failed to scan server info: %w", err)
 	}
 
+	diskTotal := getMetricValue(profile, "DiskTotalSpace")
+	diskFree := getMetricValue(profile, "DiskFreeSpace")
+	diskUnreserved := getMetricValue(profile, "DiskUnreservedSpace")
+
 	info := &models.ServerInfo{
-		NodeName:         nodeName,
-		Uptime:           int64(getMetricValue(profile, "Uptime")),
-		VersionInteger:   int64(getMetricValue(profile, "VersionInteger")),
-		TotalMemory:      int64(getMetricValue(profile, "OSMemoryTotal")),
-		TotalStorage:     int64(getMetricValue(profile, "DiskTotalSpace")),
-		AvailableStorage: int64(getMetricValue(profile, "DiskFreeSpace")),
+		NodeName:          nodeName,
+		Uptime:            int64(getMetricValue(profile, "Uptime")),
+		VersionInteger:    int64(getMetricValue(profile, "VersionInteger")),
+		TotalMemory:       int64(getMetricValue(profile, "OSMemoryTotal")),
+		TotalStorage:      bytesfmt.HumanReadable(metricBytesU64(diskTotal)),
+		UnreservedStorage: bytesfmt.HumanReadable(metricBytesU64(diskUnreserved)),
+		AvailableStorage:  bytesfmt.HumanReadable(metricBytesU64(diskFree)),
 	}
 
 	return info, nil
+}
+
+// metricBytesU64 converts a non-negative metric value from the profile map to a byte count for display.
+func metricBytesU64(v float64) uint64 {
+	if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return uint64(v)
 }

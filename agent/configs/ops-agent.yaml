@@ -19,15 +19,15 @@ database:
     dsn: "postgres://ops:12345@chops_db:5432/public?sslmode=disable"
   clickhouse:
     # Cluster name for operations
-    cluster_name: "test_cluster"
+    cluster_name: "cluster"
     
     # Cluster configuration with individual node settings
     nodes:
-      - name: "pr1"
+      - name: "192"
         host: "localhost"
         port: 9000
         username: "ops"
-        password: "pass"
+        password: "test"
         database: "ops"
         weight: 3
         priority: 1

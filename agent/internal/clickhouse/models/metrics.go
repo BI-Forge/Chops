@@ -20,9 +20,10 @@ type ServerInfo struct {
 	NodeName         string `json:"node_name" gorm:"column:node_name;->"`
 	Uptime           int64  `json:"uptime" gorm:"column:uptime;->"`                   // Server uptime in seconds
 	VersionInteger   int64  `json:"version_integer" gorm:"column:version_integer;->"` // ClickHouse version as integer
-	TotalMemory      int64  `json:"total_memory"`                                     // Total memory in bytes
-	TotalStorage     int64  `json:"total_storage"`                                    // Total storage in bytes
-	AvailableStorage int64  `json:"available_storage"`                                // Available storage in bytes
+	TotalMemory       int64  `json:"total_memory"`                                      // Total memory in bytes
+	TotalStorage      string `json:"total_storage"`                                     // Total disk space (DiskTotalSpace), human-readable
+	UnreservedStorage string `json:"unreserved_storage"`                                // Unreserved disk space (DiskUnreservedSpace), human-readable
+	AvailableStorage  string `json:"available_storage"`                                 // Free disk space (DiskFreeSpace), human-readable
 	Host             string `json:"host"`                                             // Host from config
 	Cluster          string `json:"cluster"`                                          // Cluster name from config
 }

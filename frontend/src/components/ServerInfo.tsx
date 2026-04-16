@@ -285,17 +285,24 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
                       icon={<Database className="w-4 h-4" />}
                     />
                   )}
-                  {serverInfo.total_storage > 0 && (
+                  {serverInfo.total_storage && serverInfo.total_storage !== '0 B' && (
                     <InfoCard
                       label="Total Storage"
-                      value={formatBytes(serverInfo.total_storage)}
+                      value={serverInfo.total_storage}
                       icon={<HardDrive className="w-4 h-4" />}
                     />
                   )}
-                  {serverInfo.available_storage > 0 && (
+                  {serverInfo.unreserved_storage && serverInfo.unreserved_storage !== '0 B' && (
+                    <InfoCard
+                      label="Unreserved Storage"
+                      value={serverInfo.unreserved_storage}
+                      icon={<HardDrive className="w-4 h-4" />}
+                    />
+                  )}
+                  {serverInfo.available_storage && serverInfo.available_storage !== '0 B' && (
                     <InfoCard
                       label="Available Storage"
-                      value={formatBytes(serverInfo.available_storage)}
+                      value={serverInfo.available_storage}
                       icon={<HardDrive className="w-4 h-4" />}
                       status="success"
                     />

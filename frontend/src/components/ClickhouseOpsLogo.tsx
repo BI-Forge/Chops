@@ -118,11 +118,12 @@ export function ClickhouseOpsLogo({
 
       {/* Text */}
       {!iconOnly && (
-        <div className="flex flex-col">
-          <div className={`${currentSize.text} ${currentColors.text} tracking-tight`}>
-            <span className="font-light">Chops</span>
+          <div className="flex flex-col">
+              <div className={`${currentSize.text} ${currentColors.text} tracking-tight`}>
+                  <span className="font-light">CH</span>
+                  <span>ops</span>
+              </div>
           </div>
-        </div>
       )}
     </div>
   );

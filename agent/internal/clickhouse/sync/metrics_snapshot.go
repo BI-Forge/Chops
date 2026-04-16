@@ -215,19 +215,19 @@ func (ms *MetricsSnapshot) buildInsertSelectQuery(schema, table string) string {
 				)
 
 				UNION ALL
-				SELECT 'DiskFreeSpace', sum(toFloat64(free_space))
+				SELECT 'DiskFreeSpace', toFloat64(sum(free_space))
 				FROM system.disks
 
 				UNION ALL
-				SELECT 'DiskTotalSpace', sum(toFloat64(total_space))
+				SELECT 'DiskTotalSpace', toFloat64(sum(total_space))
 				FROM system.disks
 
 				UNION ALL
-				SELECT 'DiskUnreservedSpace', sum(toFloat64(unreserved_space))
+				SELECT 'DiskUnreservedSpace', toFloat64(sum(unreserved_space))
 				FROM system.disks
 
 				UNION ALL
-				SELECT 'DiskKeepFreeSpace', sum(toFloat64(keep_free_space))
+				SELECT 'DiskKeepFreeSpace', toFloat64(sum(keep_free_space))
 				FROM system.disks
 			)
 	`, schema, table)
