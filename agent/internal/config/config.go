@@ -142,7 +142,7 @@ type SyncConfig struct {
 	ProcessesPollInterval string `yaml:"processes_poll_interval"` // e.g., "2s", "5s" - interval for polling system.processes
 }
 
-// Load loads configuration from YAML file
+// Load reads a YAML config file and unmarshals it after os.ExpandEnv (so values may use ${VAR} or $VAR).
 func Load(configPath string) (*Config, error) {
 	// Use parameter if provided, otherwise check environment variable
 	if configPath == "" {
@@ -168,9 +168,12 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// Replace ${VAR} or $VAR in the YAML with environment values (12-factor secrets).
+	expanded := []byte(os.ExpandEnv(string(data)))
+
 	// Parse YAML
 	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	if err := yaml.Unmarshal(expanded, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
