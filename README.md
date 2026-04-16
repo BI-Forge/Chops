@@ -56,7 +56,7 @@ Backend and E2E-style flows are intended to run **via Docker** and the root **Ma
 - `build/` — Dockerfiles referenced by compose (e.g. frontend image under `frontend/build/docker/`).
 - `docker-compose.yml` / `docker-compose.test.yml` — local and test stacks.
 
-  <img width="1934" height="1169" alt="Screenshot 2026-04-06 185524" src="https://github.com/user-attachments/assets/57adb080-711e-4bec-9cfc-ec2bcf991e88" />
+<img width="1934" height="1169" alt="Screenshot 2026-04-06 185524" src="https://github.com/user-attachments/assets/57adb080-711e-4bec-9cfc-ec2bcf991e88" />
 <img width="2548" height="1298" alt="Screenshot 2026-04-06 185544" src="https://github.com/user-attachments/assets/ea29d972-c62a-49f7-9255-3f1c8b2e5bf0" />
 <img width="2546" height="1296" alt="Screenshot 2026-04-06 185553" src="https://github.com/user-attachments/assets/c892543f-3e05-48f9-9443-ea6f97c55799" />
 <img width="1369" height="875" alt="Screenshot 2026-04-06 185609" src="https://github.com/user-attachments/assets/c110d6c4-b314-4f30-a916-704dae1fe3a3" />

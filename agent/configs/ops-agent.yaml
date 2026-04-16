@@ -19,32 +19,32 @@ database:
     dsn: "postgres://ops:12345@chops_db:5432/public?sslmode=disable"
   clickhouse:
     # Cluster name for operations
-    cluster_name: "ops_cluster"
+    cluster_name: "test_cluster"
     
     # Cluster configuration with individual node settings
     nodes:
-      - name: "primary"
-        host: "chops_ch"
+      - name: "pr1"
+        host: "localhost"
         port: 9000
         username: "ops"
-        password: "12345"
-        database: "system"
+        password: "pass"
+        database: "ops"
         weight: 3
         priority: 1
         metrics_schema: "ops"
         metrics_table: "metrics_snapshot"
         backups_table: "system.backups"
-      - name: "primary2"
-        host: "chops_ch_2"
-        port: 9000
-        username: "ops"
-        password: "12345"
-        database: "system"
-        weight: 3
-        priority: 2
-        metrics_schema: "ops"
-        metrics_table: "metrics_snapshot"
-        backups_table: "system.backups"
+#      - name: "primary2"
+#        host: "chops_ch_2"
+#        port: 9000
+#        username: "ops"
+#        password: "12345"
+#        database: "system"
+#        weight: 3
+#        priority: 2
+#        metrics_schema: "ops"
+#        metrics_table: "metrics_snapshot"
+#        backups_table: "system.backups"
       # Example of additional nodes with different credentials:
       # - name: "replica-1"
       #   host: "ch-replica-1.example.com"

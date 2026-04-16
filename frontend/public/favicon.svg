@@ -1,0 +1,54 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="dbGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#fbbf24" />
+            <stop offset="50%" stop-color="#f59e0b" />
+            <stop offset="100%" stop-color="#d97706" />
+        </linearGradient>
+        <filter id="glow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+            <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    </defs>
+
+    <!-- Dark background circle -->
+    <circle cx="32" cy="32" r="32" fill="#1f2937"/>
+
+    <!-- Database cylinder - top -->
+    <ellipse cx="32" cy="18" rx="18" ry="7" fill="url(#dbGradient)" opacity="0.9" filter="url(#glow)"/>
+
+    <!-- Database cylinder - body -->
+    <rect x="14" y="18" width="36" height="28" fill="url(#dbGradient)" opacity="0.8"/>
+
+    <!-- Database layers -->
+    <ellipse cx="32" cy="27" rx="18" ry="7" fill="none" stroke="#fbbf24" stroke-width="1.5" opacity="0.6"/>
+    <ellipse cx="32" cy="36" rx="18" ry="7" fill="none" stroke="#fbbf24" stroke-width="1.5" opacity="0.6"/>
+
+    <!-- Database cylinder - bottom -->
+    <ellipse cx="32" cy="46" rx="18" ry="7" fill="url(#dbGradient)" opacity="0.9"/>
+
+    <!-- Lightning bolt for OPS -->
+    <path
+            d="M 42 10 L 35 26 L 41 26 L 35 42 L 48 23 L 42 23 Z"
+            fill="#fbbf24"
+            stroke="#d97706"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+            opacity="0.95"
+            filter="url(#glow)"
+    />
+
+    <!-- Click cursor element -->
+    <g transform="translate(10, 40)">
+        <path
+                d="M 0 0 L 0 12 L 4 9 L 6 13 L 8 12 L 6 8 L 10 8 Z"
+                fill="#fbbf24"
+                stroke="#d97706"
+                stroke-width="0.8"
+                opacity="0.9"
+        />
+    </g>
+</svg>

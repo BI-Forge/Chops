@@ -13,7 +13,7 @@ export function LoginHeader() {
       </div>
       
       <h1 className="text-yellow-400 relative inline-block">
-        <span className="relative z-10">Welcome to Clickhouse OPS</span>
+        <span className="relative z-10">Welcome to Chops</span>
         <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 blur-lg -z-10" />
       </h1>
       
