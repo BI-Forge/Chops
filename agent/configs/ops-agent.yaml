@@ -1,4 +1,13 @@
 # ClickHouse Operations Agent Configuration
+#
+# Secrets and connection targets are taken from the environment (see docker-compose or your orchestrator).
+# Required variables (first ClickHouse node only in this file):
+#   OPS_JWT_SECRET_KEY
+#   OPS_POSTGRES_DSN
+#   OPS_CLICKHOUSE_NAME, OPS_CLICKHOUSE_HOST, OPS_CLICKHOUSE_PORT
+#   OPS_CLICKHOUSE_USERNAME, OPS_CLICKHOUSE_PASSWORD, OPS_CLICKHOUSE_DATABASE
+#   OPS_CLICKHOUSE_METRICS_SCHEMA, OPS_CLICKHOUSE_METRICS_TABLE
+# Syntax follows os.ExpandEnv: ${VAR_NAME}
 
 # Application Information
 app:
@@ -8,7 +17,7 @@ app:
 # HTTP Server Configuration
 server:
   port: 8080
-  jwt_secret_key: "your-secret-key-change-in-production"
+  jwt_secret_key: "${OPS_JWT_SECRET_KEY}"
   jwt_token_duration: "24h"  # Token expiration time (e.g., "24h", "1h", "30m")
   rate_limit_rps: 100        # Requests per second (0 to disable)
   rate_limit_burst: 200      # Burst size for rate limiting
@@ -16,34 +25,34 @@ server:
 # Database Configuration
 database:
   postgres:
-    dsn: "postgres://ops:12345@chops_db:5432/public?sslmode=disable"
+    dsn: "${OPS_POSTGRES_DSN}"
   clickhouse:
     # Cluster name for operations
     cluster_name: "test_cluster"
     
     # Cluster configuration with individual node settings
     nodes:
-      - name: "192"
-        host: "localhost"
-        port: 9000
-        username: "ops"
-        password: "pass"
-        database: "ops"
+      - name: "${OPS_CLICKHOUSE_NAME}"
+        host: "${OPS_CLICKHOUSE_HOST}"
+        port: ${OPS_CLICKHOUSE_PORT}
+        username: "${OPS_CLICKHOUSE_USERNAME}"
+        password: "${OPS_CLICKHOUSE_PASSWORD}"
+        database: "${OPS_CLICKHOUSE_DATABASE}"
         weight: 3
         priority: 1
-        metrics_schema: "ops"
-        metrics_table: "metrics_snapshot"
+        metrics_schema: "${OPS_CLICKHOUSE_METRICS_SCHEMA}"
+        metrics_table: "${OPS_CLICKHOUSE_METRICS_TABLE}"
         backups_table: "system.backups"
-#      - name: "primary2"
-#        host: "chops_ch_2"
-#        port: 9000
-#        username: "ops"
-#        password: "12345"
-#        database: "system"
+#      - name: "${OPS_CLICKHOUSE_NAME_2}"
+#        host: "${OPS_CLICKHOUSE_HOST_2}"
+#        port: ${OPS_CLICKHOUSE_PORT}
+#        username: "${OPS_CLICKHOUSE_USERNAME_2}"
+#        password: "${OPS_CLICKHOUSE_PASSWORD_2}"
+#        database: "${OPS_CLICKHOUSE_DATABASE_2}"
 #        weight: 3
 #        priority: 2
-#        metrics_schema: "ops"
-#        metrics_table: "metrics_snapshot"
+#        metrics_schema: "${OPS_CLICKHOUSE_METRICS_SCHEMA_2}"
+#        metrics_table: "${OPS_CLICKHOUSE_METRICS_TABLE_2}"
 #        backups_table: "system.backups"
       # Example of additional nodes with different credentials:
       # - name: "replica-1"

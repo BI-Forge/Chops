@@ -36,6 +36,26 @@ var (
 	testConfigPath = getEnv("OPS_AGENT_CONFIG_PATH", "configs/ops-agent.test.yaml")
 )
 
+func init() {
+	// Defaults for env-backed placeholders in ops-agent.test.yaml when not set (e.g. local go test).
+	setTestEnvDefault("OPS_JWT_SECRET_KEY", "test-secret-key-for-testing-only")
+	setTestEnvDefault("OPS_POSTGRES_DSN", "postgres://test_ops:test12345@db:5432/test_public?sslmode=disable")
+	setTestEnvDefault("OPS_CLICKHOUSE_NAME", "test_node")
+	setTestEnvDefault("OPS_CLICKHOUSE_HOST", "ch")
+	setTestEnvDefault("OPS_CLICKHOUSE_PORT", "9000")
+	setTestEnvDefault("OPS_CLICKHOUSE_USERNAME", "ops")
+	setTestEnvDefault("OPS_CLICKHOUSE_PASSWORD", "12345")
+	setTestEnvDefault("OPS_CLICKHOUSE_DATABASE", "default")
+	setTestEnvDefault("OPS_CLICKHOUSE_METRICS_SCHEMA", "ops")
+	setTestEnvDefault("OPS_CLICKHOUSE_METRICS_TABLE", "metrics_snapshot")
+}
+
+func setTestEnvDefault(key, value string) {
+	if os.Getenv(key) == "" {
+		_ = os.Setenv(key, value)
+	}
+}
+
 // GetTestConfigPath returns the test configuration file path
 func GetTestConfigPath() string {
 	return testConfigPath

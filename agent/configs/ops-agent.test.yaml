@@ -1,4 +1,6 @@
 # ClickHouse Operations Agent Test Configuration
+#
+# Same environment variables as ops-agent.yaml (see header there). docker-compose.test.yml sets them for CI/local Docker tests.
 
 # Application Information
 app:
@@ -8,7 +10,7 @@ app:
 # HTTP Server Configuration
 server:
   port: 8080
-  jwt_secret_key: "test-secret-key-for-testing-only"
+  jwt_secret_key: "${OPS_JWT_SECRET_KEY}"
   jwt_token_duration: "24h"
   rate_limit_rps: 0        # Disable rate limiting for tests
   rate_limit_burst: 0
@@ -16,23 +18,23 @@ server:
 # Database Configuration
 database:
   postgres:
-    dsn: "postgres://test_ops:test12345@chops_db_test:5432/test_public?sslmode=disable"
+    dsn: "${OPS_POSTGRES_DSN}"
   clickhouse:
     # Cluster name for operations
     cluster_name: "test_cluster"
     
     # Cluster configuration with individual node settings
     nodes:
-      - name: "test_node"
-        host: "chops_ch_test"
-        port: 9000
-        username: "ops"
-        password: "12345"
-        database: "default"
+      - name: "${OPS_CLICKHOUSE_NAME}"
+        host: "${OPS_CLICKHOUSE_HOST}"
+        port: ${OPS_CLICKHOUSE_PORT}
+        username: "${OPS_CLICKHOUSE_USERNAME}"
+        password: "${OPS_CLICKHOUSE_PASSWORD}"
+        database: "${OPS_CLICKHOUSE_DATABASE}"
         weight: 1
         priority: 1
-        metrics_schema: "ops"
-        metrics_table: "metrics_snapshot"
+        metrics_schema: "${OPS_CLICKHOUSE_METRICS_SCHEMA}"
+        metrics_table: "${OPS_CLICKHOUSE_METRICS_TABLE}"
         backups_table: "ops.backups"
     
     # Global settings (applied to all nodes unless overridden)

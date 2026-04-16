@@ -6,8 +6,7 @@ services:
       dockerfile: ./Dockerfile.test
     ports:
       - "8080:8080"
-    environment:
-      - OPS_AGENT_CONFIG_PATH=/app/configs/ops-agent.test.yaml
+    env_file: ./.env.test
     depends_on:
       db:
         condition: service_healthy
