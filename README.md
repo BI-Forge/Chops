@@ -31,6 +31,23 @@ Chops is **created and maintained by BI Forge LLC**.
 
 OpenAPI/Swagger is served from the agent (see `agent/internal/api/docs`).
 
+## ClickHouse database and `ops` user
+
+Chops connects to ClickHouse using credentials from the agent configuration (username, password, hosts). On the ClickHouse server, create a dedicated database and user for the ops agent, then align the password with your config.
+
+Run the following as a sufficiently privileged account (for example `default`). Replace `<password>` with a strong secret and use the same value in the agent config.
+
+```sql
+CREATE DATABASE ops;
+CREATE USER 'ops' IDENTIFIED WITH plaintext_password BY '<password>';
+GRANT SELECT, CREATE, dictGet, SHOW, KILL QUERY ON *.* TO ops;
+GRANT INSERT ON ops.* TO ops;
+GRANT ALTER USER, CREATE USER, CREATE ROLE, CREATE PROFILE ON *.* TO ops;
+GRANT SELECT, INSERT, dictGet, CREATE, DROP, ROLE ADMIN ON *.* TO ops WITH GRANT OPTION;
+```
+
+These grants allow the app to read system data, manage ops-side objects, ingest metrics into `ops`, and perform user/role administration features exposed in Chops where permitted.
+
 ## Run (Docker Compose)
 
 From the repository root:
