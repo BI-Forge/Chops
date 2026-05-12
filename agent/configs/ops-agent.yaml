@@ -28,7 +28,7 @@ database:
     dsn: "${OPS_POSTGRES_DSN}"
   clickhouse:
     # Cluster name for operations
-    cluster_name: "test_cluster"
+    cluster_name: "${OPS_CLUSTER_NAME}"
     
     # Cluster configuration with individual node settings
     nodes:
@@ -43,17 +43,17 @@ database:
         metrics_schema: "${OPS_CLICKHOUSE_METRICS_SCHEMA}"
         metrics_table: "${OPS_CLICKHOUSE_METRICS_TABLE}"
         backups_table: "system.backups"
-#      - name: "${OPS_CLICKHOUSE_NAME_2}"
-#        host: "${OPS_CLICKHOUSE_HOST_2}"
-#        port: ${OPS_CLICKHOUSE_PORT}
-#        username: "${OPS_CLICKHOUSE_USERNAME_2}"
-#        password: "${OPS_CLICKHOUSE_PASSWORD_2}"
-#        database: "${OPS_CLICKHOUSE_DATABASE_2}"
-#        weight: 3
-#        priority: 2
-#        metrics_schema: "${OPS_CLICKHOUSE_METRICS_SCHEMA_2}"
-#        metrics_table: "${OPS_CLICKHOUSE_METRICS_TABLE_2}"
-#        backups_table: "system.backups"
+      - name: "${OPS_CLICKHOUSE_NAME_2}"
+        host: "${OPS_CLICKHOUSE_HOST_2}"
+        port: ${OPS_CLICKHOUSE_PORT_2}
+        username: "${OPS_CLICKHOUSE_USERNAME_2}"
+        password: "${OPS_CLICKHOUSE_PASSWORD_2}"
+        database: "${OPS_CLICKHOUSE_DATABASE_2}"
+        weight: 3
+        priority: 2
+        metrics_schema: "${OPS_CLICKHOUSE_METRICS_SCHEMA_2}"
+        metrics_table: "${OPS_CLICKHOUSE_METRICS_TABLE_2}"
+        backups_table: "system.backups"
       # Example of additional nodes with different credentials:
       # - name: "replica-1"
       #   host: "ch-replica-1.example.com"

@@ -45,3 +45,16 @@ type QueryLoadEntry struct {
 type QueryLoadResponse struct {
 	Entries []QueryLoadEntry `json:"entries"`
 }
+
+// QueryLogChartSeriesPoint is one 10s-aligned bucket with peak CPU and memory for the Queries charts.
+type QueryLogChartSeriesPoint struct {
+	BucketMs    int64   `json:"bucket_ms"`
+	MaxCPU      float64 `json:"max_cpu"`
+	MaxMemoryMB float64 `json:"max_memory_mb"`
+}
+
+// QueryLogChartSeriesResponse returns server-aggregated chart series (no raw query text).
+type QueryLogChartSeriesResponse struct {
+	Points []QueryLogChartSeriesPoint `json:"points"`
+	Range  QueryLogRange              `json:"range"`
+}

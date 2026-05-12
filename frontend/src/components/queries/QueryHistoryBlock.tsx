@@ -1,6 +1,5 @@
 import React from 'react';
-import { Database, CheckCircle, Activity, XCircle, AlertCircle, User, Clock, TrendingUp, Eye, Copy, Check, Cpu, HardDrive, X } from 'lucide-react';
-import { CustomCheckbox } from '../CustomCheckbox';
+import { Database, CheckCircle, Activity, XCircle, AlertCircle, User, Clock, TrendingUp, Eye, Copy, Check, Cpu, HardDrive } from 'lucide-react';
 import { ListPagination } from '../ListPagination';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -26,10 +25,6 @@ interface Query {
 
 interface QueryHistoryBlockProps {
     queries: Query[];
-    selectedQueries: Set<string>;
-    onSelectQuery: (queryId: string) => void;
-    onAcceptSelected: () => void;
-    onClearSelection?: () => void;
     onQueryClick: (query: Query) => void;
     onCopyQuery: (query: string, queryId: string, e: React.MouseEvent) => void;
     copiedQueryId: string | null;
@@ -42,10 +37,6 @@ interface QueryHistoryBlockProps {
 
 export function QueryHistoryBlock({
                                       queries,
-                                      selectedQueries,
-                                      onSelectQuery,
-                                      onAcceptSelected,
-                                      onClearSelection,
                                       onQueryClick,
                                       onCopyQuery,
                                       copiedQueryId,
@@ -81,39 +72,12 @@ export function QueryHistoryBlock({
                     <Database className={`w-5 h-5 ${theme === 'light' ? 'text-amber-600' : 'text-yellow-400'}`} />
                     <h2 className={theme === 'light' ? 'text-amber-700' : 'text-yellow-400'}>Query History</h2>
                 </div>
-
-                {selectedQueries.size > 0 && (
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={onAcceptSelected}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-gray-900 transition-all duration-200 shadow-lg shadow-yellow-500/20"
-                        >
-                            <CheckCircle className="w-4 h-4" />
-                            <span className="font-medium">Accept selected ({selectedQueries.size})</span>
-                        </button>
-                        {onClearSelection && (
-                            <button
-                                onClick={onClearSelection}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${
-                                    theme === 'light'
-                                        ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                                        : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
-                                }`}
-                                title="Clear selection"
-                            >
-                                <X className="w-4 h-4" />
-                                <span className="text-sm">Clear</span>
-                            </button>
-                        )}
-                    </div>
-                )}
             </div>
 
             <div className="space-y-2">
                 {queries.map((query) => {
                     const statusConfig = getStatusConfig(query.status);
                     const StatusIcon = statusConfig.icon;
-                    const isSelected = selectedQueries.has(query.id);
 
                     return (
                         <div
@@ -123,23 +87,12 @@ export function QueryHistoryBlock({
                                     ? 'bg-white/60'
                                     : 'bg-gray-800/40'
                             } border ${
-                                isSelected
-                                    ? (theme === 'light' ? 'border-amber-500/50 bg-amber-50/30' : 'border-yellow-500/30 bg-yellow-500/5')
-                                    : (theme === 'light' ? 'border-gray-300/50' : 'border-gray-700/50')
+                                theme === 'light' ? 'border-gray-300/50' : 'border-gray-700/50'
                             } rounded-lg p-4 ${
                                 theme === 'light' ? 'hover:border-amber-500/50' : 'hover:border-yellow-500/30'
                             } transition-all duration-200 group`}
                         >
                             <div className="flex items-start gap-4">
-                                {/* Checkbox */}
-                                <div className="pt-1">
-                                    <CustomCheckbox
-                                        checked={isSelected}
-                                        onChange={() => onSelectQuery(query.id)}
-                                        onClick={(e) => e.stopPropagation()}
-                                    />
-                                </div>
-
                                 {/* Query Content */}
                                 <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onQueryClick(query)}>
                                     <div className="flex items-center gap-3 mb-2">

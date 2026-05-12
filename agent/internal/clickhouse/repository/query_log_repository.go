@@ -28,7 +28,12 @@ type QueryLogFilter struct {
 	Limit       int
 	Offset      int
 	RangePreset string
+	// QueryIDs restricts rows to these query_id values (chart filter); empty means no restriction.
+	QueryIDs []string
 }
+
+// chartSeriesMaxBucketsPerQuery caps per-row bucket expansion to avoid excessive memory in ClickHouse.
+const chartSeriesMaxBucketsPerQuery = 4000
 
 // sanitizeJSONFloat replaces NaN/Inf with 0 so encoding/json can serialize API payloads.
 func sanitizeJSONFloat(v float64) float64 {
@@ -419,7 +424,106 @@ func (r *QueryLogRepository) buildWhereClause(filter QueryLogFilter) (string, []
 		conditions = append(conditions, "type = 'QueryFinish'")
 	}
 
+	if len(filter.QueryIDs) > 0 {
+		ph := strings.Repeat("?,", len(filter.QueryIDs))
+		ph = strings.TrimSuffix(ph, ",")
+		conditions = append(conditions, fmt.Sprintf("query_id IN (%s)", ph))
+		for _, id := range filter.QueryIDs {
+			args = append(args, id)
+		}
+	}
+
 	return strings.Join(conditions, " AND "), args
+}
+
+// ChartSeriesPoint is one aggregated time bucket for CPU/memory charts (10s alignment, max load per bucket).
+type ChartSeriesPoint struct {
+	BucketMs int64
+	MaxCPU   float64
+	MaxMemMB float64
+}
+
+// ListChartSeries returns pre-aggregated max CPU % and max memory (MB) per 10s bucket for the Queries charts.
+func (r *QueryLogRepository) ListChartSeries(ctx context.Context, filter QueryLogFilter) ([]ChartSeriesPoint, error) {
+	conn, err := getConnection(filter.Node)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := checkTableExists(ctx, conn, "system.query_log"); err != nil {
+		return nil, err
+	}
+
+	whereClause, args := r.buildWhereClause(filter)
+
+	dataQuery := fmt.Sprintf(`
+SELECT
+	bucket_ts_ms,
+	max(cpu_pct) AS max_cpu,
+	max(mem_mb) AS max_mem
+FROM (
+	SELECT
+		arrayJoin(
+			arraySlice(
+				arrayMap(
+					x -> toInt64(x) * 10000,
+					range(
+						toUInt64(intDiv(toUnixTimestamp64Milli(query_start_time), 10000)),
+						toUInt64(intDiv(toUnixTimestamp64Milli(query_start_time) + toInt64(query_duration_ms), 10000) + 1)
+					)
+				),
+				1,
+				%d
+			)
+		) AS bucket_ts_ms,
+		if(cpu_load > 1, cpu_load, cpu_load * 100) AS cpu_pct,
+		memory_usage / 1048576. AS mem_mb
+	FROM (
+		SELECT
+			query_start_time,
+			query_duration_ms,
+			memory_usage,
+			ProfileEvents['UserTimeMicroseconds'] AS user_us,
+			ProfileEvents['SystemTimeMicroseconds'] AS system_us,
+			ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS virt_us,
+			ProfileEvents['OSCPUWaitMicroseconds'] AS wait_us,
+			peak_threads_usage AS num_cores,
+			query_duration_ms * 1000 AS real_us,
+			(((user_us + system_us + virt_us) / (real_us * num_cores))
+				+ (wait_us / (real_us * num_cores))) * 100 AS cpu_load
+		FROM system.query_log
+		WHERE %s
+			AND query_duration_ms > 0
+		) AS ql_inner
+) AS ql_buckets
+GROUP BY bucket_ts_ms
+ORDER BY bucket_ts_ms`, chartSeriesMaxBucketsPerQuery, whereClause)
+
+	rows, err := conn.Query(ctx, dataQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query chart series: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ChartSeriesPoint, 0, 256)
+	for rows.Next() {
+		var bucketMs int64
+		var maxCPU, maxMem float64
+		if err := rows.Scan(&bucketMs, &maxCPU, &maxMem); err != nil {
+			return nil, fmt.Errorf("failed to scan chart series row: %w", err)
+		}
+		out = append(out, ChartSeriesPoint{
+			BucketMs: bucketMs,
+			MaxCPU:   sanitizeJSONFloat(maxCPU),
+			MaxMemMB: sanitizeJSONFloat(maxMem),
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("chart series iteration failed: %w", err)
+	}
+
+	return out, nil
 }
 
 // buildStatsWhereClause builds WHERE clause for stats queries (without type and status filters).

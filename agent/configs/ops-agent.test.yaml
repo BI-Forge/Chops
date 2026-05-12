@@ -21,7 +21,7 @@ database:
     dsn: "${OPS_POSTGRES_DSN}"
   clickhouse:
     # Cluster name for operations
-    cluster_name: "test_cluster"
+    cluster_name: "${OPS_CLUSTER_NAME}"
     
     # Cluster configuration with individual node settings
     nodes:
