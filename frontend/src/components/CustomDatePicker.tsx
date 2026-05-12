@@ -138,8 +138,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
   const handleDateSelect = (day: number) => {
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
-    const date = new Date(year, month, day);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     
     if (showTime) {
       onChange(`${dateStr}T${time}`);
@@ -175,7 +174,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
 
   const handleToday = () => {
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
     
     if (showTime) {
