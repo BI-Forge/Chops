@@ -337,6 +337,7 @@ func setupQueryLogRoutes(protected *gin.RouterGroup, handlers *handlersContainer
 	queryLog := protected.Group("/clickhouse/query-log")
 	{
 		queryLog.GET("", middleware.RequirePermission(rbac.PermClickhouseQueryLogList), handlers.QueryLogHandler.ListQueryLog)
+		queryLog.GET("/chart-series", middleware.RequirePermission(rbac.PermClickhouseQueryLogList), handlers.QueryLogHandler.GetQueryLogChartSeries)
 		queryLog.GET("/stats", middleware.RequirePermission(rbac.PermClickhouseQueryLogStats), handlers.QueryLogHandler.GetQueryLogStats)
 		queryLog.GET("/stats/stream", middleware.RequirePermission(rbac.PermClickhouseQueryLogStatsStream), handlers.QueryLogHandler.StreamQueryLogStats)
 	}

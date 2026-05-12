@@ -58,6 +58,7 @@ var acceptedTimeFormats = []string{
 type QueryLogRepository interface {
 	List(ctx context.Context, filter repository.QueryLogFilter) ([]chmodels.QueryLogEntry, int64, error)
 	GetStats(ctx context.Context, filter repository.QueryLogFilter) (models.QueryLogStatsResponse, error)
+	ListChartSeries(ctx context.Context, filter repository.QueryLogFilter) ([]repository.ChartSeriesPoint, error)
 }
 
 // QueryLogHandler handles ClickHouse query log endpoints.
@@ -217,6 +218,76 @@ func (h *QueryLogHandler) GetQueryLogStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// GetQueryLogChartSeries returns aggregated CPU/memory series for Queries page charts (no full query text).
+func (h *QueryLogHandler) GetQueryLogChartSeries(c *gin.Context) {
+	filter, err := h.parseFilter(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, apiSystemModels.ErrorResponse{
+			Error:   "Invalid filter",
+			Message: err.Error(),
+		})
+		return
+	}
+	filter.QueryIDs = parseQueryIDsParam(c.Query("query_ids"))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), queryLogTimeout)
+	defer cancel()
+
+	points, err := h.repo.ListChartSeries(ctx, filter)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Errorf("Failed to list query log chart series: %v", err)
+		}
+		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
+			Error:   "Failed to load chart series",
+			Message: "ClickHouse query failed",
+		})
+		return
+	}
+
+	apiPoints := make([]models.QueryLogChartSeriesPoint, len(points))
+	for i, p := range points {
+		apiPoints[i] = models.QueryLogChartSeriesPoint{
+			BucketMs:    p.BucketMs,
+			MaxCPU:      p.MaxCPU,
+			MaxMemoryMB: p.MaxMemMB,
+		}
+	}
+
+	c.JSON(http.StatusOK, models.QueryLogChartSeriesResponse{
+		Points: apiPoints,
+		Range: models.QueryLogRange{
+			From:   filter.From.Format(time.RFC3339),
+			To:     filter.To.Format(time.RFC3339),
+			Preset: filter.RangePreset,
+		},
+	})
+}
+
+func parseQueryIDsParam(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	const maxQueryIDs = 500
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+		if len(out) >= maxQueryIDs {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // StreamQueryLogStats streams query log statistics via Server-Sent Events (SSE)

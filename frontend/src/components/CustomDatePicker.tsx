@@ -95,6 +95,19 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
     }
   }, [isOpen]);
 
+  // Close the picker on Enter (acts as Apply)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
   const formatDateTime = (dateStr: string, timeStr: string) => {
     if (!dateStr) return '';
     const date = new Date(dateStr + 'T00:00:00');
@@ -400,16 +413,29 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
             <div className={`flex items-center gap-2 p-3 border-t ${
               theme === 'light' ? 'border-amber-500/20' : 'border-yellow-500/20'
             }`}>
-              <button
-                onClick={handleToday}
-                className={`flex-1 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
-                  theme === 'light'
-                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-500/30'
-                    : 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                }`}
-              >
-                {showTime ? 'Now' : 'Today'}
-              </button>
+              {showTime ? (
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                    theme === 'light'
+                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-500/30'
+                      : 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                  }`}
+                >
+                  Apply
+                </button>
+              ) : (
+                <button
+                  onClick={handleToday}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                    theme === 'light'
+                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-500/30'
+                      : 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                  }`}
+                >
+                  Today
+                </button>
+              )}
               {value && (
                 <button
                   onClick={() => {

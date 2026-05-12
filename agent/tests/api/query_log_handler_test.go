@@ -194,6 +194,19 @@ func TestQueryLogHandlerRequiresAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestQueryLogChartSeriesRequiresAuth(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/query-log/chart-series?last=10s", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestQueryLogHandlerWithDifferentPresets(t *testing.T) {
 	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
 	if router == nil {

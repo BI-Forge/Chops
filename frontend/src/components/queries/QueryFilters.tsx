@@ -82,6 +82,12 @@ export function QueryFilters({
                             type="text"
                             value={searchQuery}
                             onChange={(e) => onSearchQueryChange(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !isApplying) {
+                                    e.preventDefault();
+                                    onApplyFilters();
+                                }
+                            }}
                             placeholder="Search by query text..."
                             className={`w-full ${
                                 theme === 'light'

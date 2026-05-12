@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { XCircle, User, Database, Activity, CheckCircle, AlertCircle, HardDrive, Cpu, Copy, Check, Settings, AlertTriangle, Code } from 'lucide-react';
+import { XCircle, User, Database, Activity, CheckCircle, AlertCircle, HardDrive, Cpu, Copy, Check, Settings, AlertTriangle, Code, Clock, TrendingUp } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { format } from 'sql-formatter';
@@ -323,6 +323,30 @@ export function QueryModal({ isOpen, onClose, query }: QueryModalProps) {
                 </div>
                 
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
+                      <Clock className="w-4 h-4" />
+                      Start
+                    </div>
+                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{formatValue(query.startTime)}</span>
+                  </div>
+                  <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />
+                  <div className="flex items-center justify-between">
+                    <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
+                      <Clock className="w-4 h-4" />
+                      End
+                    </div>
+                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{formatValue(query.endTime)}</span>
+                  </div>
+                  <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />
+                  <div className="flex items-center justify-between">
+                    <div className={`flex items-center gap-2 ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
+                      <TrendingUp className="w-4 h-4" />
+                      Duration
+                    </div>
+                    <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{formatValue(query.duration)}</span>
+                  </div>
+                  <div className={`h-px ${theme === 'light' ? 'bg-gray-300/50' : 'bg-gray-700/50'}`} />
                   <div className="flex items-center justify-between">
                     <span className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>Rows Read</span>
                     <span className={`${theme === 'light' ? 'text-gray-800' : 'text-white'} font-mono`}>{formatValue(query.rowsRead)}</span>

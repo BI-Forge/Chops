@@ -7,7 +7,6 @@ import { DashboardHeader } from '../components/DashboardHeader';
 import { StatsCards } from '../components/queries/StatsCards';
 import { RunningQueriesBlock } from '../components/queries/RunningQueriesBlock';
 import { QueryFilters } from '../components/queries/QueryFilters';
-import { PerformanceCharts } from '../components/queries/PerformanceCharts';
 import { QueryHistoryBlock } from '../components/queries/QueryHistoryBlock';
 import { useAlert } from '../contexts/AlertContext';
 import { useSidebar } from '../contexts/SidebarContext';
@@ -72,8 +71,6 @@ export function QueriesPage() {
   const [dateTo, setDateTo] = useState(() => {
     return sessionStorage.getItem('queriesDateTo') || '';
   });
-  const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
-  const [acceptedQueryIds, setAcceptedQueryIds] = useState<Set<string>>(new Set());
   const [isApplyingFilters, setIsApplyingFilters] = useState(false);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<string>('');
@@ -85,8 +82,6 @@ export function QueriesPage() {
   const [loadingQueryLog, setLoadingQueryLog] = useState(false);
   const [queryLogPagination, setQueryLogPagination] = useState<{ total: number; limit: number; offset: number }>({ total: 0, limit: 10, offset: 0 });
   const [users, setUsers] = useState<string[]>([]);
-  const [memoryData, setMemoryData] = useState<{ time: string; usage: number }[]>([]);
-  const [cpuData, setCpuData] = useState<{ time: string; usage: number }[]>([]);
   const statsEventSourceRef = useRef<EventSource | null>(null);
   const processesEventSourceRef = useRef<EventSource | null>(null);
   const { success, error: showError } = useAlert();
@@ -305,63 +300,6 @@ export function QueriesPage() {
       }
     };
   }, [selectedNode]);
-
-  // Reset accepted query IDs when filters change
-  useEffect(() => {
-    setAcceptedQueryIds(new Set());
-  }, [selectedNode, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
-
-  // Load chart data when filters change (not on page change or per page change)
-  const loadChartData = async () => {
-    if (!selectedNode) {
-      setMemoryData([]);
-      setCpuData([]);
-      return;
-    }
-
-    try {
-      const periodDates = getPeriodDates(selectedPeriod);
-      const chartFilter: any = {
-        node: selectedNode,
-        limit: 10000,
-        offset: 0,
-      };
-      
-      if (periodDates.last) {
-        chartFilter.last = periodDates.last;
-      } else if (periodDates.from || periodDates.to) {
-        if (periodDates.from) chartFilter.from = periodDates.from;
-        if (periodDates.to) chartFilter.to = periodDates.to;
-      }
-
-      if (selectedUser && selectedUser !== 'All Users') {
-        chartFilter.user = selectedUser;
-      }
-
-      if (selectedStatus && selectedStatus !== 'All Statuses' && selectedStatus.toLowerCase() !== 'running') {
-        chartFilter.status = selectedStatus.toLowerCase();
-      }
-      if (searchQuery) chartFilter.search = searchQuery;
-
-      const chartResponse = await queryAPI.getQueryLog(chartFilter);
-      
-      // Process chart data with filter if acceptedQueryIds are set
-      if (acceptedQueryIds.size > 0) {
-        processChartData(chartResponse.items || [], acceptedQueryIds);
-      } else {
-        processChartData(chartResponse.items || []);
-      }
-    } catch (err) {
-      console.error('Failed to load chart data:', err);
-      showError('Failed to load charts', 'Unable to fetch chart data', 5000);
-    }
-  };
-
-  // Load chart data when filters change (not on page or per page change)
-  useEffect(() => {
-    loadChartData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery, acceptedQueryIds]);
 
   // Load query log when filters or page changes
   useEffect(() => {
@@ -596,110 +534,7 @@ export function QueriesPage() {
   // Convert query log entries to queries for display
   const allQueries: Query[] = queryLog.map(convertQueryLogEntryToQuery);
 
-  // Helper function to process query log entries and generate chart data
-  const processChartData = (entries: QueryLogEntry[], filterQueryIds?: Set<string>) => {
-    // Filter entries by query IDs if filter is provided
-    let filteredEntries = entries;
-    if (filterQueryIds && filterQueryIds.size > 0) {
-      filteredEntries = entries.filter(entry => filterQueryIds.has(entry.query_id));
-    }
-    // Map to store data by 10-second intervals: timestamp_ms -> { cpu: [], memory: [] }
-    const intervalMap = new Map<number, { cpu: number[]; memory: number[] }>();
-
-    // Helper function to get interval start timestamp (rounded down to 10 seconds)
-    const getIntervalStart = (timestamp: number): number => {
-      return Math.floor(timestamp / 10000) * 10000; // Round down to nearest 10 seconds (10000 ms)
-    };
-
-    // Helper function to format timestamp for display (HH:mm:ss)
-    const formatTime = (timestamp: number): string => {
-      const date = new Date(timestamp);
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      const seconds = String(date.getSeconds()).padStart(2, '0');
-      return `${hours}:${minutes}:${seconds}`;
-    };
-
-    filteredEntries.forEach(entry => {
-      if (!entry.query_start_time || !entry.duration_ms || entry.duration_ms === 0) {
-        return; // Skip entries without valid start time or duration
-      }
-
-      const startTime = new Date(entry.query_start_time).getTime();
-      const durationMs = entry.duration_ms;
-      const endTime = startTime + durationMs;
-
-      // CPU load in percentage (already in percentage from API)
-      const cpuPercent = entry.cpu_load > 1 ? entry.cpu_load : entry.cpu_load * 100;
-      
-      // Memory in MB
-      const memoryMB = entry.memory_usage / (1024 * 1024);
-
-      // Distribute data across 10-second intervals
-      let currentIntervalStart = getIntervalStart(startTime);
-      const finalIntervalStart = getIntervalStart(endTime);
-
-      // Process each 10-second interval the query spans
-      while (currentIntervalStart <= finalIntervalStart) {
-        const intervalEnd = currentIntervalStart + 10000; // 10 seconds
-        
-        // Calculate overlap between query execution and this interval
-        const overlapStart = Math.max(startTime, currentIntervalStart);
-        const overlapEnd = Math.min(endTime, intervalEnd);
-        const overlapMs = Math.max(0, overlapEnd - overlapStart);
-
-        if (overlapMs > 0) {
-          // Initialize interval if needed
-          if (!intervalMap.has(currentIntervalStart)) {
-            intervalMap.set(currentIntervalStart, { cpu: [], memory: [] });
-          }
-
-          const interval = intervalMap.get(currentIntervalStart)!;
-          
-          // For CPU, add the load value (use maximum for overlapping queries)
-          interval.cpu.push(cpuPercent);
-          
-          // For memory, add the usage value (use maximum for overlapping queries)
-          interval.memory.push(memoryMB);
-        }
-
-        currentIntervalStart = intervalEnd;
-      }
-    });
-
-    // Convert map to arrays and calculate values for each interval
-    const intervals = Array.from(intervalMap.entries())
-      .map(([timestamp, data]) => ({
-        timestamp,
-        time: formatTime(timestamp),
-        // Use maximum CPU load in the interval (for overlapping queries)
-        cpu: data.cpu.length > 0 ? Math.max(...data.cpu) : 0,
-        // Use maximum memory in the interval (for overlapping queries)
-        memory: data.memory.length > 0 ? Math.max(...data.memory) : 0,
-      }))
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    // Convert to chart format
-    const cpuArray: { time: string; usage: number }[] = intervals.map(interval => ({
-      time: interval.time,
-      usage: Math.round(interval.cpu * 100) / 100, // Round to 2 decimal places
-    }));
-
-    const memoryArray: { time: string; usage: number }[] = intervals.map(interval => ({
-      time: interval.time,
-      usage: Math.round(interval.memory * 100) / 100, // Round to 2 decimal places
-    }));
-
-    setMemoryData(memoryArray);
-    setCpuData(cpuArray);
-  };
-
   const [copiedQueryId, setCopiedQueryId] = useState<string | null>(null);
-
-  // Clear selection when page changes
-  useEffect(() => {
-    setSelectedQueries(new Set());
-  }, [currentPage]);
 
   const handleCopyQuery = (query: string, queryId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -765,41 +600,6 @@ export function QueriesPage() {
       console.error('Failed to stop query:', err);
       showError('Stop Failed', `Failed to stop query ${queryId}`, 3000);
     }
-  };
-
-  const handleSelectQuery = (queryId: string) => {
-    setSelectedQueries(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(queryId)) {
-        newSet.delete(queryId);
-      } else {
-        newSet.add(queryId);
-      }
-      return newSet;
-    });
-  };
-
-  const handleAcceptSelected = () => {
-    if (selectedQueries.size === 0) return;
-    
-    // Save accepted query IDs - loadChartData will be triggered by useEffect
-    setAcceptedQueryIds(new Set(selectedQueries));
-    success('Filters Applied', `Charts will update to show ${selectedQueries.size} selected queries`, 3000);
-    
-    // Keep selection after accepting - user can clear it manually
-  };
-
-  const handleResetChartFilter = () => {
-    setAcceptedQueryIds(new Set());
-    setSelectedQueries(new Set()); // Clear selection when resetting chart filter
-    // loadChartData will be triggered by useEffect
-    success('Filter Reset', 'Charts will update to show all queries', 3000);
-  };
-
-  const handleClearSelection = () => {
-    setSelectedQueries(new Set());
-    setAcceptedQueryIds(new Set());
-    // loadChartData will be triggered by useEffect
   };
 
   const totalPages = Math.ceil(queryLogPagination.total / parseInt(recordsPerPage));
@@ -892,22 +692,9 @@ export function QueriesPage() {
                 isApplying={isApplyingFilters || loadingQueryLog}
               />
 
-              {/* Charts */}
-              <PerformanceCharts
-                memoryData={memoryData}
-                cpuData={cpuData}
-                loading={loadingQueryLog}
-                onResetFilter={handleResetChartFilter}
-                isFiltered={acceptedQueryIds.size > 0}
-              />
-
               {/* Query History */}
               <QueryHistoryBlock
                 queries={currentQueries}
-                selectedQueries={selectedQueries}
-                onSelectQuery={handleSelectQuery}
-                onAcceptSelected={handleAcceptSelected}
-                onClearSelection={handleClearSelection}
                 onQueryClick={handleQueryClick}
                 onCopyQuery={handleCopyQuery}
                 copiedQueryId={copiedQueryId}
