@@ -50,13 +50,101 @@ These grants allow the app to read system data, manage ops-side objects, ingest 
 
 ## Run (Docker Compose)
 
-From the repository root:
+From the repository root (builds images locally):
 
 ```bash
 docker compose up -d --build
 ```
 
 Typical ports (see `docker-compose.yml`): **frontend 80**, **API 8080**, **PostgreSQL 5436**, ClickHouse instances **8121** / **8120** (HTTP). Adjust configuration under `.config/clickhouse/` and agent config as needed for your environment.
+
+## Run from Docker Hub
+
+Published images (linux/amd64), tagged `latest` and `vX.Y.Z` when a GitHub tag is created:
+
+| Image | Role | Port |
+|-------|------|------|
+| [`alexindacomp/chops-app`](https://hub.docker.com/r/alexindacomp/chops-app) | Go API (`/api/v1`, `/swagger`, `/healthz`) | 8080 |
+| [`alexindacomp/chops-front`](https://hub.docker.com/r/alexindacomp/chops-front) | React UI (nginx). Proxies `/api` to `http://app:8080` | 80 |
+
+You still need **PostgreSQL** (app users/RBAC) and an existing **ClickHouse** cluster (native protocol, port 9000). Create the ClickHouse `ops` user as in the section above.
+
+The frontend image resolves the API by Docker DNS name `app`. In Compose the API service **must** be named `app`.
+
+Example `docker-compose.yml`:
+
+```yaml
+services:
+  front:
+    image: alexindacomp/chops-front:latest
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  app:
+    image: alexindacomp/chops-app:latest
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:13.11
+    environment:
+      POSTGRES_USER: chops
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: chops
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chops -d chops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - chops_pg:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  chops_pg:
+```
+
+Example `.env` (built-in agent config expects **two** ClickHouse nodes):
+
+```env
+OPS_JWT_SECRET_KEY=generate-a-long-random-secret
+OPS_POSTGRES_DSN=postgres://chops:change-me@db:5432/chops?sslmode=disable
+OPS_CLUSTER_NAME=my_cluster
+
+OPS_CLICKHOUSE_NAME=replica-1
+OPS_CLICKHOUSE_HOST=10.0.0.1
+OPS_CLICKHOUSE_PORT=9000
+OPS_CLICKHOUSE_USERNAME=ops
+OPS_CLICKHOUSE_PASSWORD=change-me
+OPS_CLICKHOUSE_DATABASE=ops
+OPS_CLICKHOUSE_METRICS_SCHEMA=ops
+OPS_CLICKHOUSE_METRICS_TABLE=metrics_snapshot
+
+OPS_CLICKHOUSE_NAME_2=replica-2
+OPS_CLICKHOUSE_HOST_2=10.0.0.2
+OPS_CLICKHOUSE_PORT_2=9000
+OPS_CLICKHOUSE_USERNAME_2=ops
+OPS_CLICKHOUSE_PASSWORD_2=change-me
+OPS_CLICKHOUSE_DATABASE_2=ops
+OPS_CLICKHOUSE_METRICS_SCHEMA_2=ops
+OPS_CLICKHOUSE_METRICS_TABLE_2=metrics_snapshot
+```
+
+```bash
+docker compose up -d
+```
+
+UI: `http://localhost`. API/Swagger: `http://localhost:8080/swagger/index.html`. Pin a release with the same tag on both images, for example `alexindacomp/chops-app:v1.0.0` and `alexindacomp/chops-front:v1.0.0`.
+
+Empty `OPS_CLICKHOUSE_*_2` values will fail startup. For a single node, mount your own YAML onto `/app/configs/ops-agent.yaml`. Optional `OPS_AGENT_CONFIG_PATH` overrides the default path. PostgreSQL migrations run on API startup.
 
 ## Tests
 
