@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"clickhouse-ops/internal/api/v1/models"
+	chmodels "clickhouse-ops/internal/clickhouse/models"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/tests/api/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -404,4 +406,241 @@ func TestQueryLogHandlerStatsWithFilters(t *testing.T) {
 
 	// Should return 200
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func fetchQueryLogOK(t *testing.T, router http.Handler, token, query string) models.QueryLogResponse {
+	t.Helper()
+	req, err := testutil.MakeAuthenticatedRequest("GET", "/api/v1/clickhouse/query-log?"+query, token, nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+
+	var resp models.QueryLogResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Items)
+	return resp
+}
+
+func queryLogWindowQuery() string {
+	now := time.Now().UTC()
+	from := now.Add(-12 * time.Hour).Format(time.RFC3339)
+	to := now.Format(time.RFC3339)
+	return "from=" + from + "&to=" + to
+}
+
+func queryLogRowKey(item chmodels.QueryLogEntry) string {
+	return item.QueryID + "\t" + item.Type + "\t" + item.EventTimeMicroseconds
+}
+
+func queryLogItemIDs(items []chmodels.QueryLogEntry) []string {
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = queryLogRowKey(item)
+	}
+	return ids
+}
+
+func hasDistinctUint64(vals []uint64) bool {
+	if len(vals) < 2 {
+		return false
+	}
+	first := vals[0]
+	for _, v := range vals[1:] {
+		if v != first {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDistinctFloat64(vals []float64) bool {
+	if len(vals) < 2 {
+		return false
+	}
+	first := vals[0]
+	for _, v := range vals[1:] {
+		if v != first {
+			return true
+		}
+	}
+	return false
+}
+
+func TestParseQueryLogSort(t *testing.T) {
+	tests := []struct {
+		sort     string
+		order    string
+		wantSort string
+		wantDesc bool
+	}{
+		{"", "", repository.QueryLogSortTime, true},
+		{"memory", "desc", repository.QueryLogSortMemory, true},
+		{"duration", "asc", repository.QueryLogSortDuration, false},
+		{"cpu", "ASC", repository.QueryLogSortCPU, false},
+		{"bogus", "desc", repository.QueryLogSortTime, true},
+		{"memory", "nope", repository.QueryLogSortMemory, true},
+		{" TIME ", " DESC ", repository.QueryLogSortTime, true},
+	}
+	for _, tt := range tests {
+		gotSort, gotDesc := repository.ParseQueryLogSort(tt.sort, tt.order)
+		assert.Equal(t, tt.wantSort, gotSort, "sort=%q order=%q", tt.sort, tt.order)
+		assert.Equal(t, tt.wantDesc, gotDesc, "sort=%q order=%q", tt.sort, tt.order)
+	}
+}
+
+func TestQueryLogHandlerDefaultSortWithoutParams(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_default")
+	window := queryLogWindowQuery()
+
+	resp := fetchQueryLogOK(t, router, token, window+"&limit=20")
+	assert.Equal(t, 20, resp.Pagination.Limit)
+	assert.Equal(t, 0, resp.Pagination.Offset)
+	if len(resp.Items) < 2 {
+		t.Skip("need at least 2 query log rows for default time sort")
+	}
+	for i := 1; i < len(resp.Items); i++ {
+		assert.GreaterOrEqual(t, resp.Items[i-1].EventTime, resp.Items[i].EventTime)
+	}
+}
+
+func TestQueryLogHandlerSortUnknownFallsBackToTimeDesc(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_unknown")
+	window := queryLogWindowQuery()
+
+	def := fetchQueryLogOK(t, router, token, window+"&limit=10")
+	unknown := fetchQueryLogOK(t, router, token, window+"&sort=bogus&order=sideways&limit=10")
+	if len(def.Items) < 1 {
+		t.Skip("need query log rows to compare unknown sort fallback")
+	}
+	assert.Equal(t, queryLogItemIDs(def.Items), queryLogItemIDs(unknown.Items))
+}
+
+func TestQueryLogHandlerSortKeysDoNotError(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_keys")
+	window := queryLogWindowQuery()
+
+	keys := []string{"time", "memory", "duration", "cpu"}
+	for _, key := range keys {
+		t.Run(key, func(t *testing.T) {
+			fetchQueryLogOK(t, router, token, window+"&sort="+key+"&order=desc&limit=10")
+		})
+	}
+}
+
+func TestQueryLogHandlerSortByMemoryDesc(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_memory")
+
+	resp := fetchQueryLogOK(t, router, token, queryLogWindowQuery()+"&sort=memory&order=desc&limit=50")
+	if len(resp.Items) < 2 {
+		t.Skip("need at least 2 query log rows for memory sort")
+	}
+	vals := make([]uint64, len(resp.Items))
+	for i, item := range resp.Items {
+		vals[i] = item.MemoryUsage
+	}
+	if !hasDistinctUint64(vals) {
+		t.Skip("need distinct memory_usage values to assert sort")
+	}
+	for i := 1; i < len(resp.Items); i++ {
+		assert.GreaterOrEqual(t, resp.Items[i-1].MemoryUsage, resp.Items[i].MemoryUsage)
+	}
+}
+
+func TestQueryLogHandlerSortByDurationAsc(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_duration")
+
+	resp := fetchQueryLogOK(t, router, token, queryLogWindowQuery()+"&sort=duration&order=asc&limit=50")
+	if len(resp.Items) < 2 {
+		t.Skip("need at least 2 query log rows for duration sort")
+	}
+	vals := make([]uint64, len(resp.Items))
+	for i, item := range resp.Items {
+		vals[i] = item.DurationMs
+	}
+	if !hasDistinctUint64(vals) {
+		t.Skip("need distinct duration_ms values to assert sort")
+	}
+	for i := 1; i < len(resp.Items); i++ {
+		assert.LessOrEqual(t, resp.Items[i-1].DurationMs, resp.Items[i].DurationMs)
+	}
+}
+
+func TestQueryLogHandlerSortByCPUDesc(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_cpu")
+
+	resp := fetchQueryLogOK(t, router, token, queryLogWindowQuery()+"&sort=cpu&order=desc&limit=50")
+	if len(resp.Items) < 2 {
+		t.Skip("need at least 2 query log rows for cpu sort")
+	}
+	vals := make([]float64, len(resp.Items))
+	for i, item := range resp.Items {
+		vals[i] = item.CPULoad
+	}
+	if !hasDistinctFloat64(vals) {
+		t.Skip("need distinct cpu_load values to assert sort")
+	}
+	for i := 1; i < len(resp.Items); i++ {
+		assert.GreaterOrEqual(t, resp.Items[i-1].CPULoad, resp.Items[i].CPULoad)
+	}
+}
+
+func TestQueryLogHandlerSortWithPagination(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+	token := testutil.RegisterTestUser(t, router, "test_querylog_sort_page")
+	window := queryLogWindowQuery()
+
+	base := fetchQueryLogOK(t, router, token, window+"&sort=memory&order=desc&limit=50")
+	if base.Pagination.Total < 4 {
+		t.Skip("need at least 4 query log rows for pagination")
+	}
+
+	page1 := fetchQueryLogOK(t, router, token, window+"&sort=memory&order=desc&limit=2&offset=0")
+	page2 := fetchQueryLogOK(t, router, token, window+"&sort=memory&order=desc&limit=2&offset=2")
+
+	assert.Equal(t, base.Pagination.Total, page1.Pagination.Total)
+	assert.Equal(t, base.Pagination.Total, page2.Pagination.Total)
+	assert.Len(t, page1.Items, 2)
+	assert.Len(t, page2.Items, 2)
+	assert.Equal(t, 2, page1.Pagination.Limit)
+	assert.Equal(t, 0, page1.Pagination.Offset)
+	assert.Equal(t, 2, page2.Pagination.Offset)
+
+	seen := make(map[string]struct{})
+	for _, item := range page1.Items {
+		seen[queryLogRowKey(item)] = struct{}{}
+	}
+	for _, item := range page2.Items {
+		key := queryLogRowKey(item)
+		_, dup := seen[key]
+		assert.False(t, dup, "page2 must not repeat row from page1: %s", key)
+	}
+	assert.GreaterOrEqual(t, page1.Items[1].MemoryUsage, page2.Items[0].MemoryUsage)
 }

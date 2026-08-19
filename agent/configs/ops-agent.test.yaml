@@ -76,6 +76,7 @@ logging:
 # Sync Configuration
 sync:
   metrics_frequency: "1s"
+  metrics_snapshot_enabled: true
   retention_days: 10
   processes_poll_interval: "2s"
 

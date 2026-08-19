@@ -1,145 +1,137 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
-import { Cpu, Database, HardDrive, FileText, RefreshCw, Clock, Calendar } from 'lucide-react';
-import { CustomSelect } from './CustomSelect';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAlert } from '../contexts/AlertContext';
-import { metricsAPI } from '../services/metricsAPI';
-import type { MetricSeriesPoint } from '../types/metrics';
+  BarChart3,
+  Calendar,
+  Clock,
+  Cpu,
+  Database,
+  FileText,
+  HardDrive,
+  LineChart,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  RotateCcw,
+  ScanSearch,
+} from 'lucide-react'
+import { CustomSelect } from './CustomSelect'
+import { TimeSeriesChart } from './charts/TimeSeriesChart'
+import type { ChartRenderType, TimeSeriesChartHandle } from './charts/TimeSeriesChart'
+import { useTheme } from '../contexts/ThemeContext'
+import { useAlert } from '../contexts/AlertContext'
+import { metricsAPI } from '../services/metricsAPI'
+import { isCanceledError } from '../services/api'
+import { lastPointValue, seriesToPoints } from '../utils/chartSeries'
+import type { TimeSeriesPoint } from '../utils/chartSeries'
 
-// Format timestamp for display
-const formatTime = (timestamp: string, interval: string): string => {
-  const date = new Date(timestamp);
-  switch (interval) {
-    case '1s':
-    case '5s':
-    case '10s':
-    case '30s':
-    case '1m':
-    case '5m':
-    case '30m':
-      return date.getHours() + ':' + String(date.getMinutes()).padStart(2, '0');
-    case '1h':
-      return date.getHours() + ':00';
-    default:
-      return date.getHours() + ':00';
-  }
-};
+const CHART_COLORS = {
+  cpu: '#fbbf24',
+  memory: '#f59e0b',
+  storage: '#d97706',
+  queries: '#f59e0b',
+} as const
 
-// Convert API data to chart format
-const convertToChartData = (
-  cpuData: MetricSeriesPoint[],
-  memoryPercentData: MetricSeriesPoint[],
-  memoryGBData: MetricSeriesPoint[],
-  diskData: MetricSeriesPoint[],
-  queriesData: MetricSeriesPoint[],
-  interval: string
-) => {
-  const maxLength = Math.max(cpuData.length, memoryPercentData.length, memoryGBData.length, diskData.length, queriesData.length);
-  const data = [];
-  
-  for (let i = 0; i < maxLength; i++) {
-    const cpuPoint = cpuData[i];
-    const memoryPercentPoint = memoryPercentData[i];
-    const memoryGBPoint = memoryGBData[i];
-    const diskPoint = diskData[i];
-    const queriesPoint = queriesData[i];
-    
-    // Use the timestamp from the first available point
-    const timestamp = cpuPoint?.timestamp || memoryPercentPoint?.timestamp || memoryGBPoint?.timestamp || diskPoint?.timestamp || queriesPoint?.timestamp;
-    
-    // Storage value is already in GB (not percentage)
-    const storageGB = diskPoint ? diskPoint.value : 0;
-    
-    data.push({
-      time: formatTime(timestamp || new Date().toISOString(), interval),
-      cpu: cpuPoint ? Math.round(cpuPoint.value) : 0,
-      memory: memoryPercentPoint ? Math.round(memoryPercentPoint.value) : 0,
-      memoryGB: memoryGBPoint ? Math.round(memoryGBPoint.value * 10) / 10 : 0, // Round to 1 decimal place
-      storage: Math.round(storageGB * 10) / 10, // Round to 1 decimal place
-      queries: queriesPoint ? Math.round(queriesPoint.value) : 0,
-    });
-  }
-  
-  return data;
-};
-
-// Component for custom tooltip
-const CustomTooltip = ({ active, payload, label, theme, unit }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className={`${
-        theme === 'light' 
-          ? 'bg-white/95 border-amber-500/40 shadow-lg' 
-          : 'bg-gray-900/95 border-yellow-500/30 shadow-xl'
-      } backdrop-blur-md border rounded-lg p-3`}>
-        <p className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-sm mb-2`}>{label}</p>
-        {payload.map((entry: any, index: number) => (
-          <p key={index} className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-300'} text-xs`} style={{ color: entry.color }}>
-            {entry.name}: {entry.value}{unit || entry.unit || '%'}
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return null;
-};
-
-interface ChartCardProps {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  currentValue: number;
-  unit: string;
-  absoluteValue?: number;
-  absoluteUnit?: string;
-  swapDisplay?: boolean; // New prop to swap primary and secondary display
+const PERIOD_CONFIGURATIONS: Record<string, { apiPeriod: string; step: string; displayStep: string; label: string }> = {
+  '10m': { apiPeriod: '10m', step: '1s', displayStep: '1s', label: 'Last 10 Minutes' },
+  '30m': { apiPeriod: '30m', step: '10s', displayStep: '10s', label: 'Last 30 Minutes' },
+  '1h': { apiPeriod: '1h', step: '1m', displayStep: '1m', label: 'Last 1 Hour' },
+  '6h': { apiPeriod: '6h', step: '5m', displayStep: '5m', label: 'Last 6 Hours' },
+  '12h': { apiPeriod: '12h', step: '5m', displayStep: '5m', label: 'Last 12 Hours' },
+  '1d': { apiPeriod: '1d', step: '30m', displayStep: '30m', label: 'Last 24 Hours' },
+  '3d': { apiPeriod: '3d', step: '1h', displayStep: '1h', label: 'Last 3 Days' },
+  '7d': { apiPeriod: '7d', step: '1h', displayStep: '1h', label: 'Last 7 Days' },
 }
 
-function ChartCard({ title, icon, children, currentValue, unit, absoluteValue, absoluteUnit, swapDisplay }: ChartCardProps) {
-  const { theme } = useTheme();
+interface ChartCardProps {
+  title: string
+  icon: React.ReactNode
+  currentValue: number
+  unit: string
+  points: TimeSeriesPoint[]
+  color: string
+  seriesName: string
+  yMax?: number
+  absoluteValue?: number
+  absoluteUnit?: string
+  swapDisplay?: boolean
+}
+
+function ChartCard({
+  title,
+  icon,
+  currentValue,
+  unit,
+  points,
+  color,
+  seriesName,
+  yMax,
+  absoluteValue,
+  absoluteUnit,
+  swapDisplay,
+}: ChartCardProps) {
+  const { theme } = useTheme()
+  const chartRef = useRef<TimeSeriesChartHandle>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [chartType, setChartType] = useState<ChartRenderType>('area')
+  const [zoomSelect, setZoomSelect] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === cardRef.current)
+      chartRef.current?.resize()
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
+  const toggleZoomSelect = () => {
+    const next = !zoomSelect
+    setZoomSelect(next)
+    chartRef.current?.setZoomSelect(next)
+  }
+
+  const toggleFullscreen = async () => {
+    if (!cardRef.current) return
+    try {
+      if (document.fullscreenElement === cardRef.current) {
+        await document.exitFullscreen()
+        return
+      }
+      await cardRef.current.requestFullscreen()
+    } catch {
+      // Browser may deny fullscreen without a user gesture or permissions.
+    }
+  }
+
+  const isLight = theme === 'light'
+
   return (
-    <div className={`${
-      theme === 'light' ? 'bg-white/90 border-amber-500/30' : 'bg-gray-900/40 border-yellow-500/20'
-    } backdrop-blur-md rounded-xl p-6 border transition-all duration-300`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`${
-            theme === 'light' ? 'bg-amber-500/20 text-amber-700' : 'bg-yellow-500/20 text-yellow-400'
-          } rounded-lg p-2`}>
-            {icon}
-          </div>
+    <div
+      ref={cardRef}
+      className={`system-chart-card ${isLight ? 'system-chart-card--light' : ''}`}
+    >
+      <div className="system-chart-header">
+        <div className="system-chart-title-wrapper">
+          <div className="system-chart-icon">{icon}</div>
           <div>
-            <h3 className={theme === 'light' ? 'text-gray-700' : 'text-gray-300'}>{title}</h3>
+            <h3 className="system-chart-title">{title}</h3>
             {swapDisplay && absoluteValue !== undefined && absoluteUnit ? (
-              // Display currentValue (GB) as primary, absoluteValue (%) as secondary
-              <>
-                <div className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} font-mono flex items-baseline gap-1.5`}>
-                  <span className="text-2xl">{currentValue}</span>
-                  <span className="text-lg">{unit}</span>
-                  <span className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
-                    ({absoluteValue}{absoluteUnit})
-                  </span>
-                </div>
-              </>
+              <div className="system-chart-metric">
+                <span className="system-chart-metric-value">{currentValue}</span>
+                <span className="system-chart-metric-unit">{unit}</span>
+                <span className="system-chart-metric-secondary">
+                  ({absoluteValue}{absoluteUnit})
+                </span>
+              </div>
             ) : (
-              // Display percentage as primary, absolute value as secondary (default)
               <>
-                <div className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-2xl font-mono`}>
-                  {currentValue}{unit}
+                <div className="system-chart-metric">
+                  <span className="system-chart-metric-value">{currentValue}{unit}</span>
                 </div>
                 {absoluteValue !== undefined && absoluteUnit && (
-                  <div className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} mt-0.5`}>
+                  <div className="system-chart-metric-secondary">
                     {absoluteValue} {absoluteUnit}
                   </div>
                 )}
@@ -147,113 +139,195 @@ function ChartCard({ title, icon, children, currentValue, unit, absoluteValue, a
             )}
           </div>
         </div>
+
+        <div className="system-chart-controls" role="toolbar" aria-label={`${title} chart tools`}>
+          <button
+            type="button"
+            className={`system-chart-control-btn ${zoomSelect ? 'is-active' : ''}`}
+            title="Zoom range (Ctrl+wheel to zoom, drag to pan)"
+            aria-label="Zoom range"
+            aria-pressed={zoomSelect}
+            onClick={toggleZoomSelect}
+          >
+            <ScanSearch className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            className="system-chart-control-btn"
+            title="Reset zoom"
+            aria-label="Reset zoom"
+            onClick={() => {
+              setZoomSelect(false)
+              chartRef.current?.setZoomSelect(false)
+              chartRef.current?.resetZoom()
+            }}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <span className="system-chart-controls-sep" />
+          <div role="radiogroup" aria-label="Chart type" className="system-chart-type-group">
+            <button
+              type="button"
+              role="radio"
+              className={`system-chart-control-btn ${chartType === 'area' ? 'is-active' : ''}`}
+              title="Area"
+              aria-label="Area chart"
+              aria-checked={chartType === 'area'}
+              onClick={() => setChartType('area')}
+            >
+              <AreaChart className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              role="radio"
+              className={`system-chart-control-btn ${chartType === 'line' ? 'is-active' : ''}`}
+              title="Line"
+              aria-label="Line chart"
+              aria-checked={chartType === 'line'}
+              onClick={() => setChartType('line')}
+            >
+              <LineChart className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              role="radio"
+              className={`system-chart-control-btn ${chartType === 'bar' ? 'is-active' : ''}`}
+              title="Bar"
+              aria-label="Bar chart"
+              aria-checked={chartType === 'bar'}
+              onClick={() => setChartType('bar')}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <span className="system-chart-controls-sep" />
+          <button
+            type="button"
+            className={`system-chart-control-btn ${isFullscreen ? 'is-active' : ''}`}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            aria-pressed={isFullscreen}
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
       </div>
-      <div className="h-64 min-h-[256px] w-full">{children}</div>
+      <div className="system-chart-wrapper">
+        <TimeSeriesChart
+          ref={chartRef}
+          points={points}
+          color={color}
+          unit={unit}
+          seriesName={seriesName}
+          theme={theme}
+          chartType={chartType}
+          yMax={yMax}
+          zoomSelect={zoomSelect}
+          onZoomSelectEnd={() => setZoomSelect(false)}
+        />
+      </div>
     </div>
-  );
+  )
 }
 
 interface SystemChartsProps {
-  selectedNode?: string;
+  selectedNode?: string
 }
 
+interface ChartSeriesState {
+  cpu: TimeSeriesPoint[]
+  memory: TimeSeriesPoint[]
+  memoryGB: TimeSeriesPoint[]
+  storage: TimeSeriesPoint[]
+  queries: TimeSeriesPoint[]
+}
+
+const emptySeries = (): ChartSeriesState => ({
+  cpu: [],
+  memory: [],
+  memoryGB: [],
+  storage: [],
+  queries: [],
+})
+
 export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
-  // Load period from sessionStorage or use default
-  const [period, setPeriod] = useState(() => {
-    return sessionStorage.getItem('dashboardPeriod') || '1d';
-  });
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [data, setData] = useState<any[]>([]);
-  const [memoryTotalGB, setMemoryTotalGB] = useState<number>(0);
-  const [diskTotalGB, setDiskTotalGB] = useState<number>(1000);
-  const { theme } = useTheme();
-  const { error: showError } = useAlert();
+  const [period, setPeriod] = useState(() => sessionStorage.getItem('dashboardPeriod') || '1d')
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [series, setSeries] = useState<ChartSeriesState>(emptySeries)
+  const [memoryTotalGB, setMemoryTotalGB] = useState(0)
+  const [diskTotalGB, setDiskTotalGB] = useState(1000)
+  const { theme } = useTheme()
+  const { error: showError } = useAlert()
+  const loadGen = useRef(0)
 
-  // Save period to sessionStorage when it changes
   const handlePeriodChange = (newPeriod: string) => {
-    setPeriod(newPeriod);
-    sessionStorage.setItem('dashboardPeriod', newPeriod);
-  };
+    setPeriod(newPeriod)
+    sessionStorage.setItem('dashboardPeriod', newPeriod)
+  }
 
-  // Period configurations matching backend periodConfigurations
-  // Maps UI period to API period and default step
-  const periodConfigurations: Record<string, { apiPeriod: string; step: string; displayStep: string; label: string }> = {
-    '10m': { apiPeriod: '10m', step: '1s', displayStep: '1s', label: 'Last 10 Minutes' },
-    '30m': { apiPeriod: '30m', step: '10s', displayStep: '10s', label: 'Last 30 Minutes' },
-    '1h': { apiPeriod: '1h', step: '1m', displayStep: '1m', label: 'Last 1 Hour' },
-    '6h': { apiPeriod: '6h', step: '5m', displayStep: '5m', label: 'Last 6 Hours' },
-    '12h': { apiPeriod: '12h', step: '5m', displayStep: '5m', label: 'Last 12 Hours' },
-    '1d': { apiPeriod: '1d', step: '30m', displayStep: '30m', label: 'Last 24 Hours' },
-    '3d': { apiPeriod: '3d', step: '1h', displayStep: '1h', label: 'Last 3 Days' },
-    '7d': { apiPeriod: '7d', step: '1h', displayStep: '1h', label: 'Last 7 Days' },
-  };
+  const periodConfig = PERIOD_CONFIGURATIONS[period] || PERIOD_CONFIGURATIONS['1d']
+  const interval = periodConfig.displayStep
 
-  // Get period config
-  const getPeriodConfig = () => {
-    return periodConfigurations[period] || periodConfigurations['1d'];
-  };
-
-  // Get current period config
-  const periodConfig = getPeriodConfig();
-  const interval = periodConfig.displayStep;
-
-  // Load chart data from API
-  const loadChartData = async () => {
+  const loadChartData = useCallback(async () => {
+    const expected = ++loadGen.current
     if (!selectedNode) {
-      setData([]);
-      return;
+      setSeries(emptySeries())
+      setIsRefreshing(false)
+      return
     }
 
     try {
-      const { apiPeriod, step } = getPeriodConfig();
+      const { apiPeriod, step } = PERIOD_CONFIGURATIONS[period] || PERIOD_CONFIGURATIONS['1d']
+      const currentMetrics = await metricsAPI.getCurrentMetrics(selectedNode)
+      if (loadGen.current !== expected) return
+      setMemoryTotalGB(Math.round(currentMetrics.memory_total_gb))
+      setDiskTotalGB(Math.round(currentMetrics.disk_total_gb) || 1000)
 
-      // Load current metrics to get memory_total_gb and disk_total_gb for YAxis
-      const currentMetrics = await metricsAPI.getCurrentMetrics(selectedNode);
-      setMemoryTotalGB(Math.round(currentMetrics.memory_total_gb));
-      setDiskTotalGB(Math.round(currentMetrics.disk_total_gb) || 1000);
-
-      // Load all metrics in parallel
       const [cpuData, memoryPercentData, memoryGBData, diskData, queriesData] = await Promise.all([
         metricsAPI.getMetricSeries(selectedNode, 'cpu_load', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'memory_load', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'memory_used_gb', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'storage_used', apiPeriod, step),
         metricsAPI.getMetricSeries(selectedNode, 'active_queries', apiPeriod, step),
-      ]);
+      ])
 
-      const chartData = convertToChartData(
-        cpuData.points,
-        memoryPercentData.points,
-        memoryGBData.points,
-        diskData.points,
-        queriesData.points,
-        periodConfig.step
-      );
+      if (loadGen.current !== expected) return
 
-      setData(chartData);
+      setSeries({
+        cpu: seriesToPoints(cpuData.points, (v) => Math.round(v)),
+        memory: seriesToPoints(memoryPercentData.points, (v) => Math.round(v)),
+        memoryGB: seriesToPoints(memoryGBData.points, (v) => Math.round(v * 10) / 10),
+        storage: seriesToPoints(diskData.points, (v) => Math.round(v * 10) / 10),
+        queries: seriesToPoints(queriesData.points, (v) => Math.round(v)),
+      })
     } catch (error) {
-      console.error('Failed to load chart data:', error);
-      showError('Failed to load charts', 'Unable to fetch chart data from the server', 5000);
-      setData([]);
+      if (loadGen.current !== expected) return
+      if (isCanceledError(error)) return
+      console.error('Failed to load chart data:', error)
+      showError('Failed to load charts', 'Unable to fetch chart data from the server', 5000)
+      setSeries(emptySeries())
     } finally {
-      setIsRefreshing(false);
+      if (loadGen.current === expected) {
+        setIsRefreshing(false)
+      }
     }
-  };
+  }, [selectedNode, period, showError])
 
-  // Load data when node or period changes
   useEffect(() => {
-    loadChartData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode, period]);
+    loadChartData()
+    return () => {
+      loadGen.current += 1
+    }
+  }, [loadChartData])
 
   const handleRefresh = () => {
-    setIsRefreshing(true);
-    loadChartData();
-  };
-  
+    setIsRefreshing(true)
+    loadChartData()
+  }
+
   return (
     <div className="space-y-6">
-      {/* Filters Panel */}
       <div
         className={`${
           theme === 'light'
@@ -262,19 +336,17 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         } backdrop-blur-md rounded-xl p-4 border transition-all duration-300`}
       >
         <div className="flex flex-wrap items-center gap-4">
-          {/* Period Filter */}
           <CustomSelect
             value={period}
             onChange={handlePeriodChange}
-            options={Object.entries(periodConfigurations).map(([value, config]) => ({
+            options={Object.entries(PERIOD_CONFIGURATIONS).map(([value, config]) => ({
               value,
-              label: config.label
+              label: config.label,
             }))}
             icon={Calendar}
             label="Period:"
           />
-          
-          {/* Interval Display (read-only, based on period) */}
+
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
             theme === 'light' ? 'bg-gray-100 border border-gray-300' : 'bg-gray-800/60 border border-gray-700/50'
           }`}>
@@ -283,8 +355,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
               Interval: <span className="font-medium">{interval}</span>
             </span>
           </div>
-          
-          {/* Refresh Button */}
+
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -299,173 +370,51 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
           </button>
         </div>
       </div>
-      
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
-      {/* CPU Load - Area Chart */}
-      <ChartCard
-        title="CPU Load"
-        icon={<Cpu className="w-5 h-5" />}
-        currentValue={data.length > 0 ? data[data.length - 1].cpu : 0}
-        unit="%"
-      >
-        <ResponsiveContainer width="100%" height={256} minHeight={256}>
-          <AreaChart data={data.length > 0 ? data : []}>
-            <defs>
-              <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#fbbf24" stopOpacity={0.1} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-            <XAxis 
-              dataKey="time" 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-            />
-            <YAxis 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-              domain={[0, 100]}
-            />
-            <Tooltip content={<CustomTooltip theme={theme} />} />
-            <Area
-              type="monotone"
-              dataKey="cpu"
-              stroke="#fbbf24"
-              strokeWidth={2}
-              fill="url(#cpuGradient)"
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </ChartCard>
 
-      {/* Memory Load - Area Chart */}
-      <ChartCard
-        title="Memory Load"
-        icon={<Database className="w-5 h-5" />}
-        currentValue={data.length > 0 ? data[data.length - 1].memoryGB : 0}
-        unit=" GB"
-        absoluteValue={data.length > 0 ? data[data.length - 1].memory : 0}
-        absoluteUnit="%"
-        swapDisplay={true}
-      >
-        <ResponsiveContainer width="100%" height={256} minHeight={256}>
-          <AreaChart data={data.length > 0 ? data : []}>
-            <defs>
-              <linearGradient id="memoryGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-            <XAxis 
-              dataKey="time" 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-            />
-            <YAxis 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-              domain={[0, memoryTotalGB || 700]}
-            />
-            <Tooltip content={<CustomTooltip theme={theme} />} />
-            <Area
-              type="monotone"
-              dataKey="memoryGB"
-              stroke="#f59e0b"
-              strokeWidth={2}
-              fill="url(#memoryGradient)"
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </ChartCard>
-
-      {/* Storage Used - Bar Chart */}
-      <ChartCard
-        title="Storage Used"
-        icon={<HardDrive className="w-5 h-5" />}
-        currentValue={data.length > 0 ? data[data.length - 1].storage : 0}
-        unit=" GB"
-      >
-        <ResponsiveContainer width="100%" height={256} minHeight={256}>
-          <BarChart data={data.length > 0 ? data : []}>
-            <defs>
-              <linearGradient id="storageGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.9} />
-                <stop offset="95%" stopColor="#d97706" stopOpacity={0.9} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-            <XAxis 
-              dataKey="time" 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-            />
-            <YAxis 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-              domain={[0, diskTotalGB || 1000]}
-            />
-            <Tooltip content={<CustomTooltip theme={theme} unit=" GB" />} />
-            <Bar
-              dataKey="storage"
-              fill="url(#storageGradient)"
-              radius={[4, 4, 0, 0]}
-              isAnimationActive={false}
-            />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartCard>
-
-      {/* Active Queries - Area Chart with gradient */}
-      <ChartCard
-        title="Active Queries"
-        icon={<FileText className="w-5 h-5" />}
-        currentValue={data.length > 0 ? data[data.length - 1].queries : 0}
-        unit=""
-      >
-        <ResponsiveContainer width="100%" height={256} minHeight={256}>
-          <AreaChart data={data.length > 0 ? data : []}>
-            <defs>
-              <linearGradient id="queriesGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#d97706" stopOpacity={0.1} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-            <XAxis 
-              dataKey="time" 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-            />
-            <YAxis 
-              stroke="#9ca3af" 
-              style={{ fontSize: '12px' }}
-              tick={{ fill: '#9ca3af' }}
-            />
-            <Tooltip content={<CustomTooltip theme={theme} />} />
-            <Area
-              type="monotone"
-              dataKey="queries"
-              stroke="#f59e0b"
-              strokeWidth={2}
-              fill="url(#queriesGradient)"
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </ChartCard>
+      <div className="system-charts-container">
+        <ChartCard
+          title="CPU Load"
+          icon={<Cpu className="w-5 h-5" />}
+          currentValue={lastPointValue(series.cpu)}
+          unit="%"
+          points={series.cpu}
+          color={CHART_COLORS.cpu}
+          seriesName="CPU"
+          yMax={100}
+        />
+        <ChartCard
+          title="Memory Load"
+          icon={<Database className="w-5 h-5" />}
+          currentValue={lastPointValue(series.memoryGB)}
+          unit=" GB"
+          absoluteValue={lastPointValue(series.memory)}
+          absoluteUnit="%"
+          swapDisplay
+          points={series.memoryGB}
+          color={CHART_COLORS.memory}
+          seriesName="Memory"
+          yMax={memoryTotalGB || undefined}
+        />
+        <ChartCard
+          title="Storage Used"
+          icon={<HardDrive className="w-5 h-5" />}
+          currentValue={lastPointValue(series.storage)}
+          unit=" GB"
+          points={series.storage}
+          color={CHART_COLORS.storage}
+          seriesName="Storage"
+          yMax={diskTotalGB || undefined}
+        />
+        <ChartCard
+          title="Active Queries"
+          icon={<FileText className="w-5 h-5" />}
+          currentValue={lastPointValue(series.queries)}
+          unit=""
+          points={series.queries}
+          color={CHART_COLORS.queries}
+          seriesName="Queries"
+        />
       </div>
     </div>
-  );
+  )
 }

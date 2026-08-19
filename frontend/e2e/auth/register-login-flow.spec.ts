@@ -12,7 +12,8 @@ test.describe('Register and Login Flow', () => {
     password: 'securepass123',
   };
 
-  test('should complete full registration and login flow', async ({ page }: { page: Page }) => {
+  test('should complete full registration and login flow', async ({ page }: { page: Page }, testInfo) => {
+    const isDesktop = !testInfo.project.name.toLowerCase().includes('mobile');
     // Mock API responses for registration
     await page.route('**/api/v1/auth/register', async (route: Route) => {
       await route.fulfill({
@@ -47,6 +48,10 @@ test.describe('Register and Login Flow', () => {
     // Step 1: Fill registration form
     const registerPage = new RegisterPage(page);
     await registerPage.goto();
+    if (isDesktop) {
+      await expect(page.getByTestId('login-branding')).toBeVisible();
+      await expect(page.getByTestId('login-branding').getByText('Real-time Monitoring')).toBeVisible();
+    }
 
     await registerPage.fillUsername(testUser.username);
     await registerPage.fillEmail(testUser.email);
@@ -63,6 +68,10 @@ test.describe('Register and Login Flow', () => {
 
     // Wait for registration to complete and redirect to dashboard
     await page.waitForURL('**/dashboard', { timeout: 15000, waitUntil: 'commit' });
+    if (isDesktop) {
+      await expect(page.getByTestId('sidebar')).toBeVisible();
+      await expect(page.getByTestId('sidebar').getByText('Dashboard')).toBeVisible();
+    }
 
     // Step 4: Logout
     const dashboardPage = new DashboardPage(page);
@@ -74,6 +83,9 @@ test.describe('Register and Login Flow', () => {
     // Step 5: Fill login form with the same credentials
     const loginPage = new LoginPage(page);
     await loginPage.waitForForm();
+    if (isDesktop) {
+      await expect(page.getByTestId('login-branding')).toBeVisible();
+    }
     await loginPage.fillUsername(testUser.username);
     await loginPage.fillPassword(testUser.password);
 

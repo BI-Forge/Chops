@@ -11,6 +11,7 @@ import { QueryHistoryBlock } from '../components/queries/QueryHistoryBlock';
 import { useAlert } from '../contexts/AlertContext';
 import { useSidebar } from '../contexts/SidebarContext';
 import { queryAPI } from '../services/queryAPI';
+import { isCanceledError } from '../services/api';
 import type { QueryLogStatsResponse, Process, QueryLogEntry } from '../services/queryAPI';
 import { metricsAPI } from '../services/metricsAPI';
 import type { NodeInfo } from '../types/metrics';
@@ -45,13 +46,18 @@ export function QueriesPage() {
   const [selectedQuery, setSelectedQuery] = useState<Query | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // Load filters from sessionStorage or use defaults
   const [currentPage, setCurrentPage] = useState(() => {
     const saved = sessionStorage.getItem('queriesPage');
     return saved ? parseInt(saved) : 1;
   });
   const [recordsPerPage, setRecordsPerPage] = useState(() => {
     return sessionStorage.getItem('queriesRecordsPerPage') || '10';
+  });
+  const [sortBy, setSortBy] = useState(() => {
+    return sessionStorage.getItem('queriesSortBy') || 'time';
+  });
+  const [sortOrder, setSortOrder] = useState(() => {
+    return sessionStorage.getItem('queriesSortOrder') || 'desc';
   });
   const [searchQuery, setSearchQuery] = useState(() => {
     return sessionStorage.getItem('queriesSearchQuery') || '';
@@ -86,38 +92,18 @@ export function QueriesPage() {
   const processesEventSourceRef = useRef<EventSource | null>(null);
   const { success, error: showError } = useAlert();
 
-  // Save filters to sessionStorage when they change
   useEffect(() => {
     sessionStorage.setItem('queriesPage', currentPage.toString());
-  }, [currentPage]);
-
-  useEffect(() => {
     sessionStorage.setItem('queriesRecordsPerPage', recordsPerPage);
-  }, [recordsPerPage]);
-
-  useEffect(() => {
+    sessionStorage.setItem('queriesSortBy', sortBy);
+    sessionStorage.setItem('queriesSortOrder', sortOrder);
     sessionStorage.setItem('queriesSearchQuery', searchQuery);
-  }, [searchQuery]);
-
-  useEffect(() => {
     sessionStorage.setItem('queriesSelectedUser', selectedUser);
-  }, [selectedUser]);
-
-  useEffect(() => {
     sessionStorage.setItem('queriesSelectedStatus', selectedStatus);
-  }, [selectedStatus]);
-
-  useEffect(() => {
     sessionStorage.setItem('queriesSelectedPeriod', selectedPeriod);
-  }, [selectedPeriod]);
-
-  useEffect(() => {
     sessionStorage.setItem('queriesDateFrom', dateFrom);
-  }, [dateFrom]);
-
-  useEffect(() => {
     sessionStorage.setItem('queriesDateTo', dateTo);
-  }, [dateTo]);
+  }, [currentPage, recordsPerPage, sortBy, sortOrder, searchQuery, selectedUser, selectedStatus, selectedPeriod, dateFrom, dateTo]);
 
   // Load nodes from API
   useEffect(() => {
@@ -138,7 +124,9 @@ export function QueriesPage() {
         }
       } catch (err) {
         console.error('Failed to load nodes:', err);
-        showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
+        if (!isCanceledError(err)) {
+          showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
+        }
       } finally {
         setLoadingNodes(false);
       }
@@ -160,7 +148,9 @@ export function QueriesPage() {
         setUsers(response.users || []);
       } catch (err) {
         console.error('Failed to load users:', err);
-        showError('Failed to load users', 'Unable to fetch users list', 5000);
+        if (!isCanceledError(err)) {
+          showError('Failed to load users', 'Unable to fetch users list', 5000);
+        }
         setUsers([]);
       }
     };
@@ -173,6 +163,8 @@ export function QueriesPage() {
     if (!selectedNode) {
       return;
     }
+
+    let cancelled = false;
 
     const loadStats = async () => {
       try {
@@ -199,6 +191,7 @@ export function QueriesPage() {
 
         // Load initial stats
         const initialStats = await queryAPI.getQueryLogStats(filter);
+        if (cancelled) return;
         setQueryStats(initialStats);
 
         // Setup SSE stream for real-time updates
@@ -213,10 +206,10 @@ export function QueriesPage() {
           },
           (err) => {
             console.error('SSE error for query stats:', err);
+            if (cancelled) return;
             showError('Connection Error', 'Lost connection to query stats stream. Reconnecting...', 5000);
-            // Try to reconnect after delay
             setTimeout(() => {
-              if (selectedNode) {
+              if (!cancelled && selectedNode) {
                 loadStats();
               }
             }, 5000);
@@ -224,6 +217,7 @@ export function QueriesPage() {
         );
       } catch (err) {
         console.error('Failed to load query stats:', err);
+        if (cancelled || isCanceledError(err)) return;
         showError('Failed to load stats', 'Unable to fetch query statistics', 5000);
       }
     };
@@ -232,6 +226,7 @@ export function QueriesPage() {
 
     // Cleanup on unmount or node/filter change
     return () => {
+      cancelled = true;
       if (statsEventSourceRef.current) {
         statsEventSourceRef.current.close();
         statsEventSourceRef.current = null;
@@ -253,11 +248,14 @@ export function QueriesPage() {
       return;
     }
 
+    let cancelled = false;
+
     const loadProcesses = async () => {
       try {
         setLoadingProcesses(true);
         // Load initial processes
         const initialProcesses = await queryAPI.getCurrentProcesses(selectedNode);
+        if (cancelled) return;
         setRunningProcesses(initialProcesses.processes || []);
         setLoadingProcesses(false);
 
@@ -273,10 +271,10 @@ export function QueriesPage() {
           },
           (err) => {
             console.error('SSE error for processes:', err);
+            if (cancelled) return;
             showError('Connection Error', 'Lost connection to processes stream. Reconnecting...', 5000);
-            // Try to reconnect after delay
             setTimeout(() => {
-              if (selectedNode) {
+              if (!cancelled && selectedNode) {
                 loadProcesses();
               }
             }, 5000);
@@ -284,6 +282,7 @@ export function QueriesPage() {
         );
       } catch (err) {
         console.error('Failed to load processes:', err);
+        if (cancelled || isCanceledError(err)) return;
         showError('Failed to load processes', 'Unable to fetch running processes', 5000);
         setLoadingProcesses(false);
         setRunningProcesses([]);
@@ -294,6 +293,7 @@ export function QueriesPage() {
 
     // Cleanup on unmount or node change
     return () => {
+      cancelled = true;
       if (processesEventSourceRef.current) {
         processesEventSourceRef.current.close();
         processesEventSourceRef.current = null;
@@ -305,7 +305,7 @@ export function QueriesPage() {
   useEffect(() => {
     loadQueryLog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode, currentPage, recordsPerPage, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
+  }, [selectedNode, currentPage, recordsPerPage, sortBy, sortOrder, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
 
   // Convert date string to RFC3339 format (API expects RFC3339 or 2006-01-02 15:04:05)
   const formatDateForAPI = (dateStr: string): string => {
@@ -385,6 +385,8 @@ export function QueriesPage() {
         node: selectedNode,
         limit: parseInt(recordsPerPage),
         offset: (currentPage - 1) * parseInt(recordsPerPage),
+        sort: sortBy,
+        order: sortOrder,
       };
 
       if (periodDates.last) {
@@ -415,6 +417,7 @@ export function QueriesPage() {
         offset: response.pagination?.offset || 0,
       });
     } catch (err) {
+      if (isCanceledError(err)) return;
       console.error('Failed to load query log:', err);
       setQueryLog([]);
       setQueryLogPagination({ total: 0, limit: parseInt(recordsPerPage), offset: 0 });
@@ -613,7 +616,7 @@ export function QueriesPage() {
       {/* Content */}
       <div className="relative z-10 flex h-full">
         {/* Desktop Sidebar - Hidden on mobile */}
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar 
             collapsed={sidebarCollapsed} 
             onCollapse={setSidebarCollapsed}
@@ -681,6 +684,16 @@ export function QueriesPage() {
                 recordsPerPage={recordsPerPage}
                 onRecordsPerPageChange={(value) => {
                   setRecordsPerPage(value);
+                  setCurrentPage(1);
+                }}
+                sortBy={sortBy}
+                onSortByChange={(value) => {
+                  setSortBy(value);
+                  setCurrentPage(1);
+                }}
+                sortOrder={sortOrder}
+                onSortOrderChange={(value) => {
+                  setSortOrder(value);
                   setCurrentPage(1);
                 }}
                 onApplyFilters={async () => {

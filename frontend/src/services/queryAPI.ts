@@ -1,4 +1,4 @@
-import api from './api'
+import api, { retryRequest } from './api'
 
 // Types for query log (snake_case to match API)
 export interface QueryLogEntry {
@@ -53,6 +53,8 @@ export interface QueryLogFilter {
   node?: string
   search?: string
   status?: string // 'completed' | 'failed' | 'all'
+  sort?: 'time' | 'memory' | 'duration' | 'cpu'
+  order?: 'asc' | 'desc'
   limit?: number
   offset?: number
 }
@@ -107,29 +109,6 @@ export interface KillProcessResponse {
   message?: string
 }
 
-// Retry helper function
-const retryRequest = async <T>(
-  requestFn: () => Promise<T>,
-  maxRetries: number = 3,
-  delay: number = 500
-): Promise<T> => {
-  let lastError: Error | null = null
-  
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await requestFn()
-    } catch (error) {
-      lastError = error as Error
-      if (attempt < maxRetries - 1) {
-        const waitTime = delay * Math.pow(2, attempt)
-        await new Promise((resolve) => setTimeout(resolve, waitTime))
-      }
-    }
-  }
-  
-  throw lastError || new Error('Request failed after retries')
-}
-
 export const queryAPI = {
   getQueryLog: async (filter: QueryLogFilter): Promise<QueryLogResponse> => {
     return retryRequest(async () => {
@@ -141,6 +120,8 @@ export const queryAPI = {
       if (filter.node) params.append('node', filter.node)
       if (filter.search) params.append('search', filter.search)
       if (filter.status && filter.status !== 'all') params.append('status', filter.status)
+      if (filter.sort) params.append('sort', filter.sort)
+      if (filter.order) params.append('order', filter.order)
       // Only send limit if it's a valid positive number
       if (filter.limit !== undefined && filter.limit !== null && filter.limit > 0) {
         params.append('limit', filter.limit.toString())

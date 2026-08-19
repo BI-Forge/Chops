@@ -32,18 +32,19 @@ export function DashboardHeader({
         {/* Mobile Menu Button */}
         <button
           onClick={onMenuOpen}
-          className={`md:hidden p-2 rounded-lg transition-colors ${
+          className={`mobile-only p-2 rounded-lg transition-colors ${
             theme === 'light'
               ? 'hover:bg-amber-100 text-gray-700'
               : 'hover:bg-gray-800 text-gray-400 hover:text-yellow-400'
           }`}
+          aria-label="Open menu"
           data-testid="mobile-menu-button"
         >
           <Menu className="w-6 h-6" />
         </button>
 
         {/* Title and Description - Hidden on mobile */}
-        <div className="hidden md:flex items-center gap-4">
+        <div className="desktop-only-flex items-center gap-4">
           <div>
             <h1 className={`${theme === 'light' ? 'text-amber-700' : 'text-yellow-400'} text-xl`}>{title}</h1>
             <p className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-xs mt-0.5`}>{description}</p>
@@ -51,7 +52,7 @@ export function DashboardHeader({
         </div>
 
         {/* Right Section - Hidden on mobile */}
-        <div className="hidden md:flex items-center gap-4">
+        <div className="desktop-only-flex items-center gap-4">
           <NodeSelector 
             nodes={nodes}
             selectedNode={selectedNode}

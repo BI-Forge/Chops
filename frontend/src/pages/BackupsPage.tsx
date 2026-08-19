@@ -12,6 +12,7 @@ import { useSidebar } from '../contexts/SidebarContext';
 import { useAlert } from '../contexts/AlertContext';
 import { backupAPI } from '../services/backupAPI';
 import { metricsAPI } from '../services/metricsAPI';
+import { isCanceledError } from '../services/api';
 import type { Backup } from '../types/backup';
 import type { NodeInfo } from '../types/metrics';
 
@@ -64,6 +65,7 @@ export function BackupsPage() {
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
       } finally {
         setLoadingNodes(false);
@@ -94,6 +96,7 @@ export function BackupsPage() {
         });
       } catch (error) {
         console.error('Failed to load backup stats:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load backup stats', 'Unable to fetch backup statistics', 5000);
       }
     };
@@ -111,6 +114,7 @@ export function BackupsPage() {
         setInProgressBackups(backups);
       } catch (error) {
         console.error('Failed to load in-progress backups:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load backups', 'Unable to fetch in-progress backups', 5000);
       }
     };
@@ -148,6 +152,7 @@ export function BackupsPage() {
         }));
       } catch (error) {
         console.error('Failed to load completed backups:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load backups', 'Unable to fetch completed backups', 5000);
       } finally {
         setLoadingCompleted(false);
@@ -167,6 +172,7 @@ export function BackupsPage() {
         setSelectedBackup(backup);
       } catch (error) {
         console.error('Failed to load backup details:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load backup details', 'Unable to fetch backup information', 5000);
       }
     };
@@ -247,7 +253,7 @@ export function BackupsPage() {
       {/* Content */}
       <div className="relative z-10 flex h-full">
         {/* Desktop Sidebar - Hidden on mobile */}
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar 
             collapsed={sidebarCollapsed} 
             onCollapse={setSidebarCollapsed}

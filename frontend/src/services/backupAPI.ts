@@ -1,29 +1,5 @@
-import api from './api'
+import api, { retryRequest } from './api'
 import type { Backup, BackupStatsResponse, BackupListResponse } from '../types/backup'
-
-// Retry helper function
-const retryRequest = async <T>(
-  requestFn: () => Promise<T>,
-  maxRetries: number = 3,
-  delay: number = 500
-): Promise<T> => {
-  let lastError: Error | null = null
-  
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await requestFn()
-    } catch (error) {
-      lastError = error as Error
-      if (attempt < maxRetries - 1) {
-        // Exponential backoff
-        const waitTime = delay * Math.pow(2, attempt)
-        await new Promise((resolve) => setTimeout(resolve, waitTime))
-      }
-    }
-  }
-  
-  throw lastError || new Error('Request failed after retries')
-}
 
 export const backupAPI = {
   getStats: async (node?: string): Promise<BackupStatsResponse> => {

@@ -15,7 +15,24 @@ import (
 	"clickhouse-ops/internal/logger"
 )
 
-const microsecondLayout = "2006-01-02T15:04:05.000000Z07:00"
+const (
+	microsecondLayout = "2006-01-02T15:04:05.000000Z07:00"
+
+	QueryLogSortTime     = "time"
+	QueryLogSortMemory   = "memory"
+	QueryLogSortDuration = "duration"
+	QueryLogSortCPU      = "cpu"
+	QueryLogOrderAsc     = "asc"
+	QueryLogOrderDesc    = "desc"
+)
+
+// queryLogSortColumns maps API sort keys to ClickHouse columns (whitelist for ORDER BY).
+var queryLogSortColumns = map[string]string{
+	QueryLogSortTime:     "event_time",
+	QueryLogSortMemory:   "memory_usage",
+	QueryLogSortDuration: "query_duration_ms",
+	QueryLogSortCPU:      "cpu_load",
+}
 
 // QueryLogFilter describes filters applied to system.query_log reads.
 type QueryLogFilter struct {
@@ -28,8 +45,37 @@ type QueryLogFilter struct {
 	Limit       int
 	Offset      int
 	RangePreset string
+	Sort        string
+	OrderDesc   bool
 	// QueryIDs restricts rows to these query_id values (chart filter); empty means no restriction.
 	QueryIDs []string
+}
+
+// ParseQueryLogSort maps API sort/order query params to a whitelist key and direction.
+// Unknown sort falls back to time; any order other than asc is desc. Empty values are time DESC.
+func ParseQueryLogSort(sort, order string) (string, bool) {
+	sort = strings.ToLower(strings.TrimSpace(sort))
+	if _, ok := queryLogSortColumns[sort]; !ok {
+		sort = QueryLogSortTime
+	}
+	order = strings.ToLower(strings.TrimSpace(order))
+	return sort, order != QueryLogOrderAsc
+}
+
+func queryLogOrderByClause(sort string, orderDesc bool) string {
+	col, ok := queryLogSortColumns[sort]
+	if !ok {
+		sort = QueryLogSortTime
+		col = queryLogSortColumns[QueryLogSortTime]
+	}
+	dir := "DESC"
+	if !orderDesc {
+		dir = "ASC"
+	}
+	if sort == QueryLogSortTime {
+		return col + " " + dir + ", query_id"
+	}
+	return col + " " + dir + ", event_time DESC, query_id"
 }
 
 // chartSeriesMaxBucketsPerQuery caps per-row bucket expansion to avoid excessive memory in ClickHouse.
@@ -92,6 +138,13 @@ func (r *QueryLogRepository) List(ctx context.Context, filter QueryLogFilter) ([
 	}
 
 	whereClause, args := r.buildWhereClause(filter)
+	sort := filter.Sort
+	orderDesc := filter.OrderDesc
+	if sort == "" {
+		sort = QueryLogSortTime
+		orderDesc = true
+	}
+	orderBy := queryLogOrderByClause(sort, orderDesc)
 
 	dataQuery := fmt.Sprintf(`
 SELECT
@@ -124,16 +177,18 @@ SELECT
 	ProfileEvents['OSCPUWaitMicroseconds'] AS wait_us,
 	peak_threads_usage AS num_cores,
 	query_duration_ms * 1000 AS real_us,
-	(((user_us + system_us + virt_us) / (real_us * num_cores))
-        +
-    (wait_us / (real_us * num_cores))) * 100
-     AS cpu_load,
+	ifNotFinite(
+		(((user_us + system_us + virt_us) / (real_us * num_cores))
+			+
+		(wait_us / (real_us * num_cores))) * 100,
+		0
+	) AS cpu_load,
 	hostName() AS node
 FROM system.query_log
 WHERE %s
-ORDER BY event_time DESC
+ORDER BY %s
 LIMIT ?
-OFFSET ?`, whereClause)
+OFFSET ?`, whereClause, orderBy)
 
 	argsWithPagination := append(append([]any{}, args...), filter.Limit, filter.Offset)
 

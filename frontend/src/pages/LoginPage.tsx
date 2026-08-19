@@ -85,7 +85,7 @@ export function LoginPage() {
       
       {/* Content */}
       <div className="relative z-10 h-full flex items-center justify-center p-4 sm:p-6 lg:p-8 animate-page-enter overflow-auto">
-        <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-16 items-center my-auto">
+        <div className="login-page-grid w-full max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-16 items-center my-auto">
           
           {/* Left Side - Login/Register Form */}
           <div 
@@ -172,7 +172,7 @@ export function LoginPage() {
           </div>
 
           {/* Right Side - Logo and Features */}
-          <div className="hidden lg:block space-y-6">
+          <div className="login-branding-section hidden-mobile" data-testid="login-branding">
             {/* Logo Card */}
             <div 
               className={`bg-gradient-to-br ${
@@ -267,8 +267,8 @@ export function LoginPage() {
           <span>© {new Date().getFullYear()} Clickhouse OPS</span>
           <span className={theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}>•</span>
           <span>Author: Alex</span>
-          <span className={`hidden sm:inline ${theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}`}>•</span>
-          <span className="hidden sm:inline">All rights reserved</span>
+          <span className={`login-footer-wide ${theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}`}>•</span>
+          <span className="login-footer-wide">All rights reserved</span>
           <span className={theme === 'light' ? 'text-amber-500/50' : 'text-yellow-500/50'}>•</span>
           <span className="flex items-center gap-1">
             Powered by BI Forge LLC

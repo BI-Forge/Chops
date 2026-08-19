@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { authAPI } from './api'
+import { authAPI, isCanceledError } from './api'
 import type { UserInfo } from '../types/auth'
 
 interface AuthContextType {
@@ -28,6 +28,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }: { 
           setUser(userInfo)
           setToken(storedToken)
         } catch (error) {
+          if (isCanceledError(error)) {
+            setLoading(false)
+            return
+          }
           // Silently fail if token is invalid or API is unavailable
           // Don't block page load - just remove invalid token
           localStorage.removeItem('token')

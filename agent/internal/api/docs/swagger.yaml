@@ -538,6 +538,14 @@ paths:
         in: query
         name: node
         type: string
+      - description: 'Sort by: time, memory, duration, cpu (default time)'
+        in: query
+        name: sort
+        type: string
+      - description: asc or desc (default desc)
+        in: query
+        name: order
+        type: string
       - description: Items per page (max 500)
         in: query
         name: limit

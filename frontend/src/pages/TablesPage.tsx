@@ -12,6 +12,7 @@ import { TablesList, type Table, type TableListRow, type TablesSortField } from 
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
 import { useSidebar } from '../contexts/SidebarContext';
+import { isCanceledError } from '../services/api';
 import { metricsAPI } from '../services/metricsAPI';
 import { tablesAPI } from '../services/tablesAPI';
 import { usersAPI } from '../services/usersAPI';
@@ -74,7 +75,8 @@ export function TablesPage() {
           setSelectedNode(available[0].name);
           sessionStorage.setItem('selectedNode', available[0].name);
         }
-      } catch {
+      } catch (err) {
+        if (isCanceledError(err)) return;
         showError('Failed to load nodes', 'Unable to fetch available nodes', 5000);
       } finally {
         setLoadingNodes(false);
@@ -148,7 +150,8 @@ export function TablesPage() {
         }
         return Array.from(next).sort();
       });
-    } catch {
+    } catch (err) {
+      if (isCanceledError(err)) return;
       showError('Failed to load tables', 'Could not fetch table list from ClickHouse', 5000);
       setTables([]);
       setListTotal(0);
@@ -203,7 +206,8 @@ export function TablesPage() {
     try {
       const d = await tablesAPI.getTableDetails(row.uuid, selectedNode);
       setSelectedTable(mapTableDetailsToTable(d));
-    } catch {
+    } catch (err) {
+      if (isCanceledError(err)) return;
       showError('Details unavailable', 'Failed to load table metadata', 5000);
     } finally {
       setDetailsLoading(false);
@@ -247,7 +251,7 @@ export function TablesPage() {
       <BackgroundPattern />
 
       <div className="relative z-10 flex h-full">
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar collapsed={sidebarCollapsed} onCollapse={setSidebarCollapsed} />
         </div>
 
