@@ -1,3 +1,6 @@
+up:
+	docker compose up --build app front
+
 # Run all Go tests in Docker (with test databases)
 test:
 	docker compose -f docker-compose.test.yml down

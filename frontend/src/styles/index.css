@@ -9,8 +9,9 @@
    Core Styles (Always Required)
    ======================================== */
 
-/* Global styles, variables, typography, and animations */
-@import url('./globals.css');
+/* Theme, Tailwind tokens, and base typography live in src/index.css.
+   Do not import globals.css here: it contains @theme/@apply and would
+   be processed twice. */
 
 /* Mobile optimizations and responsive utilities */
 @import url('./mobile.css');

@@ -127,6 +127,8 @@ func NewQueryLogHandlerWithRepository(log *logger.Logger, repo QueryLogRepositor
 // @Param        node    query     string  false  "ClickHouse node hostname"
 // @Param        search  query     string  false  "Search query text (LIKE pattern in query column)"
 // @Param        status  query     string  false  "Filter by status: 'completed' (exception_code = 0) or 'failed' (exception_code != 0)"
+// @Param        sort    query     string  false  "Sort by: time, memory, duration, cpu (default time)"
+// @Param        order   query     string  false  "asc or desc (default desc)"
 // @Param        limit   query     int     false  "Items per page (max 10000)"
 // @Param        offset  query     int     false  "Offset for pagination"
 // @Success      200     {object}  models.QueryLogResponse
@@ -443,6 +445,8 @@ func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter
 		return repository.QueryLogFilter{}, err
 	}
 
+	sort, orderDesc := repository.ParseQueryLogSort(c.Query("sort"), c.Query("order"))
+
 	return repository.QueryLogFilter{
 		From:        from,
 		To:          to,
@@ -453,6 +457,8 @@ func (h *QueryLogHandler) parseFilter(c *gin.Context) (repository.QueryLogFilter
 		Limit:       limit,
 		Offset:      offset,
 		RangePreset: preset,
+		Sort:        sort,
+		OrderDesc:   orderDesc,
 	}, nil
 }
 

@@ -78,6 +78,7 @@ sync:
 	t.Setenv("OPS_CLICKHOUSE_DATABASE", "default")
 	t.Setenv("OPS_CLICKHOUSE_METRICS_SCHEMA", "ms")
 	t.Setenv("OPS_CLICKHOUSE_METRICS_TABLE", "mt")
+	t.Setenv(config.EnvMetricsSnapshotEnabled, "")
 
 	cfg, err := config.Load(path)
 	require.NoError(t, err)
@@ -93,4 +94,92 @@ sync:
 	assert.Equal(t, "default", n.Database)
 	assert.Equal(t, "ms", n.MetricsSchema)
 	assert.Equal(t, "mt", n.MetricsTable)
+	assert.True(t, cfg.Sync.IsMetricsSnapshotEnabled())
 }
+
+func TestIsMetricsSnapshotEnabledDefault(t *testing.T) {
+	assert.True(t, config.SyncConfig{}.IsMetricsSnapshotEnabled())
+	disabled := false
+	assert.False(t, config.SyncConfig{MetricsSnapshotEnabled: &disabled}.IsMetricsSnapshotEnabled())
+	enabled := true
+	assert.True(t, config.SyncConfig{MetricsSnapshotEnabled: &enabled}.IsMetricsSnapshotEnabled())
+}
+
+func TestLoadMetricsSnapshotEnabledFromEnv(t *testing.T) {
+	minimalYAML := []byte(`
+server:
+  port: "8080"
+sync:
+  metrics_frequency: "1s"
+`)
+	yamlDisabled := []byte(`
+server:
+  port: "8080"
+sync:
+  metrics_snapshot_enabled: false
+`)
+	yamlEnabled := []byte(`
+server:
+  port: "8080"
+sync:
+  metrics_snapshot_enabled: true
+`)
+
+	writeCfg := func(t *testing.T, content []byte) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "cfg.yaml")
+		require.NoError(t, os.WriteFile(path, content, 0o600))
+		return path
+	}
+
+	t.Run("empty env keeps default enabled", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, "")
+		cfg, err := config.Load(writeCfg(t, minimalYAML))
+		require.NoError(t, err)
+		assert.True(t, cfg.Sync.IsMetricsSnapshotEnabled())
+	})
+
+	t.Run("env false disables omitted yaml", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, "false")
+		cfg, err := config.Load(writeCfg(t, minimalYAML))
+		require.NoError(t, err)
+		assert.False(t, cfg.Sync.IsMetricsSnapshotEnabled())
+	})
+
+	t.Run("env false overrides yaml true", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, "false")
+		cfg, err := config.Load(writeCfg(t, yamlEnabled))
+		require.NoError(t, err)
+		assert.False(t, cfg.Sync.IsMetricsSnapshotEnabled())
+	})
+
+	t.Run("env true overrides yaml false", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, "true")
+		cfg, err := config.Load(writeCfg(t, yamlDisabled))
+		require.NoError(t, err)
+		assert.True(t, cfg.Sync.IsMetricsSnapshotEnabled())
+	})
+
+	t.Run("yaml false without env", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, "")
+		cfg, err := config.Load(writeCfg(t, yamlDisabled))
+		require.NoError(t, err)
+		assert.False(t, cfg.Sync.IsMetricsSnapshotEnabled())
+	})
+
+	t.Run("whitespace false disables", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, " false ")
+		cfg, err := config.Load(writeCfg(t, yamlEnabled))
+		require.NoError(t, err)
+		assert.False(t, cfg.Sync.IsMetricsSnapshotEnabled())
+	})
+
+	t.Run("invalid env", func(t *testing.T) {
+		t.Setenv(config.EnvMetricsSnapshotEnabled, "yes")
+		_, err := config.Load(writeCfg(t, minimalYAML))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), config.EnvMetricsSnapshotEnabled)
+		assert.Contains(t, err.Error(), "expected true or false")
+	})
+}
+

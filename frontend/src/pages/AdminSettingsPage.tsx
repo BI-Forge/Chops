@@ -15,6 +15,7 @@ import { useSidebar } from '../contexts/SidebarContext';
 import type { AdminPermission, AdminRole, AdminUser } from '../types/adminSettings';
 import * as systemRBACAPI from '../services/systemRBACAPI';
 import { formatApiError } from '../services/systemRBACAPI';
+import { isCanceledError } from '../services/api';
 import { formatIsoDate, permissionCodeTitle } from '../utils/adminSettingsFormat';
 import { useAuth } from '../services/AuthContext';
 
@@ -111,7 +112,7 @@ export default function AdminSettingsPage() {
       try {
         await Promise.all([refreshUsers(), refreshRoles(), refreshPermissions()]);
       } catch (e) {
-        if (!cancelled) showError(formatApiError(e));
+        if (!cancelled && !isCanceledError(e)) showError(formatApiError(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -136,6 +137,7 @@ export default function AdminSettingsPage() {
       const detail = await systemRBACAPI.getSystemRole(Number(role.id));
       setSelectedRole(mergeRoleDetail(role, detail));
     } catch (e) {
+      if (isCanceledError(e)) return;
       showError(formatApiError(e));
     } finally {
       setRoleDetailLoading(false);
@@ -234,7 +236,7 @@ export default function AdminSettingsPage() {
       <BackgroundPattern />
 
       <div className="relative z-10 flex h-full overflow-hidden">
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar collapsed={sidebarCollapsed} onCollapse={setSidebarCollapsed} />
         </div>
 

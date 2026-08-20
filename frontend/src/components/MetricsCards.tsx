@@ -3,6 +3,7 @@ import { Cpu, Database, HardDrive, Activity, FileText } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
 import { metricsAPI } from '../services/metricsAPI';
+import { isCanceledError } from '../services/api';
 import type { SystemMetrics } from '../types/metrics';
 
 interface MetricCardProps {
@@ -135,11 +136,14 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
       return;
     }
 
+    let cancelled = false;
+
     const loadMetrics = async () => {
       try {
         setLoading(true);
         // Load initial metrics
         const initialMetrics = await metricsAPI.getCurrentMetrics(selectedNode);
+        if (cancelled) return;
         setMetrics(initialMetrics);
         setLoading(false);
 
@@ -155,10 +159,10 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
           },
           (error) => {
             console.error('SSE error:', error);
+            if (cancelled) return;
             showError('Connection Error', 'Lost connection to metrics stream. Reconnecting...', 5000);
-            // Try to reconnect after delay
             setTimeout(() => {
-              if (selectedNode) {
+              if (!cancelled && selectedNode) {
                 loadMetrics();
               }
             }, 5000);
@@ -166,6 +170,7 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
         );
       } catch (error) {
         console.error('Failed to load metrics:', error);
+        if (cancelled || isCanceledError(error)) return;
         showError('Failed to load metrics', 'Unable to fetch system metrics', 5000);
         setLoading(false);
       }
@@ -175,6 +180,7 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
 
     // Cleanup on unmount or node change
     return () => {
+      cancelled = true;
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;

@@ -7,6 +7,7 @@ import { AutocompleteInputFlex } from '../AutocompleteInputFlex';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 import { CascadingAccessSelector, type AccessScopeRow } from '../CascadingAccessSelector';
 import { usersAPI } from '../../services/usersAPI';
+import { isCanceledError } from '../../services/api';
 import type { User } from './UsersTable';
 
 function sameAccessScopesPayload(a: Array<{ database: string; table: string; column: string; permissions: string[] }>, b: Array<{ database: string; table: string; column: string; permissions: string[] }> | null): boolean {
@@ -220,6 +221,7 @@ export function UserDetailsModal({ isOpen, onClose, user, isNewUser = false, cop
             initialSettingsRef.current = null;
           }
         } catch (err) {
+          if (isCanceledError(err)) return;
           console.error('Failed to load user basic info:', err);
           showError('Failed to load user information');
           // Fallback to user data from props

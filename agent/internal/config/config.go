@@ -135,11 +135,25 @@ type LoggingConfig struct {
 	Format string `yaml:"format"`
 }
 
+const (
+	// EnvMetricsSnapshotEnabled toggles the metrics_snapshot writer. Unset or empty means enabled.
+	EnvMetricsSnapshotEnabled = "OPS_METRICS_SNAPSHOT_ENABLED"
+)
+
 // SyncConfig holds synchronization configuration
 type SyncConfig struct {
-	MetricsFrequency      string `yaml:"metrics_frequency"`       // e.g., "1s", "1m"
-	RetentionDays         int    `yaml:"retention_days"`          // Number of days to keep data
-	ProcessesPollInterval string `yaml:"processes_poll_interval"` // e.g., "2s", "5s" - interval for polling system.processes
+	MetricsFrequency       string `yaml:"metrics_frequency"`        // e.g., "1s", "1m"
+	MetricsSnapshotEnabled *bool  `yaml:"metrics_snapshot_enabled"` // nil/omitted = enabled; env overrides
+	RetentionDays          int    `yaml:"retention_days"`           // Number of days to keep data
+	ProcessesPollInterval  string `yaml:"processes_poll_interval"`  // e.g., "2s", "5s"
+}
+
+// IsMetricsSnapshotEnabled reports whether the metrics snapshot process should run.
+func (s SyncConfig) IsMetricsSnapshotEnabled() bool {
+	if s.MetricsSnapshotEnabled != nil {
+		return *s.MetricsSnapshotEnabled
+	}
+	return true
 }
 
 // Load reads a YAML config file and unmarshals it after os.ExpandEnv (so values may use ${VAR} or $VAR).
@@ -177,7 +191,28 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if err := applyMetricsSnapshotEnabledFromEnv(&config); err != nil {
+		return nil, err
+	}
+
 	return &config, nil
+}
+
+func applyMetricsSnapshotEnabledFromEnv(cfg *Config) error {
+	raw, ok := os.LookupEnv(EnvMetricsSnapshotEnabled)
+	if !ok {
+		return nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: expected true or false", EnvMetricsSnapshotEnabled, raw)
+	}
+	cfg.Sync.MetricsSnapshotEnabled = &enabled
+	return nil
 }
 
 // OverrideWithFlags overrides config values with flag values if provided

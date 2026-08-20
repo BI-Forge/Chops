@@ -51,12 +51,12 @@ export function TransferGuide() {
           </h3>
           <div className="bg-gray-800/40 rounded-lg p-4 ml-7">
             <pre className="text-gray-300 text-sm overflow-x-auto">
-              <code>{`npm install lucide-react recharts`}</code>
+              <code>{`npm install lucide-react echarts`}</code>
             </pre>
           </div>
           <div className="space-y-2 ml-7 mt-3 text-gray-400 text-sm">
             <div>• <span className="text-yellow-400">lucide-react</span> - иконки</div>
-            <div>• <span className="text-yellow-400">recharts</span> - графики</div>
+            <div>• <span className="text-yellow-400">echarts</span> - графики</div>
             <div>• <span className="text-yellow-400">tailwindcss</span> - стили (должен быть установлен)</div>
           </div>
         </div>

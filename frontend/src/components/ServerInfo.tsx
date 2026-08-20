@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { metricsAPI } from '../services/metricsAPI';
+import { isCanceledError } from '../services/api';
 import type { ServerInfo as ServerInfoType } from '../types/metrics';
 import { 
   Server, 
@@ -101,6 +102,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
         setServerInfo(info);
       } catch (error) {
         console.error('Failed to load server info:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load server info', 'Unable to fetch server information', 5000);
         setServerInfo(null);
       } finally {

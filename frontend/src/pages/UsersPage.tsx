@@ -13,6 +13,7 @@ import { useAlert } from '../contexts/AlertContext';
 import { useSidebar } from '../contexts/SidebarContext';
 import { usersAPI } from '../services/usersAPI';
 import { metricsAPI } from '../services/metricsAPI';
+import { isCanceledError } from '../services/api';
 import type { NodeInfo } from '../types/metrics';
 
 export function UsersPage() {
@@ -55,6 +56,7 @@ export function UsersPage() {
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load nodes');
       } finally {
         setLoadingNodes(false);
@@ -87,6 +89,7 @@ export function UsersPage() {
         setUsers(mappedUsers);
       } catch (error) {
         console.error('Failed to load users:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load users');
         setUsers([]);
       } finally {
@@ -163,7 +166,7 @@ export function UsersPage() {
       {/* Content */}
       <div className="relative z-10 flex h-full">
         {/* Desktop Sidebar - Hidden on mobile */}
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar
             collapsed={sidebarCollapsed}
             onCollapse={setSidebarCollapsed}

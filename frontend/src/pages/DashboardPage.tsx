@@ -7,6 +7,7 @@ import { DashboardContent } from '../components/DashboardContent';
 import { useSidebar } from '../contexts/SidebarContext';
 import { useAlert } from '../contexts/AlertContext';
 import { metricsAPI } from '../services/metricsAPI';
+import { isCanceledError } from '../services/api';
 import type { NodeInfo } from '../types/metrics';
 
 export function DashboardPage() {
@@ -36,6 +37,7 @@ export function DashboardPage() {
         }
       } catch (error) {
         console.error('Failed to load nodes:', error);
+        if (isCanceledError(error)) return;
         showError('Failed to load nodes', 'Unable to fetch available nodes from the server', 5000);
       } finally {
         setLoadingNodes(false);
@@ -59,7 +61,7 @@ export function DashboardPage() {
       {/* Content */}
       <div className="relative z-10 flex h-full">
         {/* Desktop Sidebar - Hidden on mobile */}
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar 
             collapsed={sidebarCollapsed} 
             onCollapse={setSidebarCollapsed}

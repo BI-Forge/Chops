@@ -1,6 +1,7 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
-import { AlertProvider } from './contexts/AlertContext'
+import { AlertProvider, useAlert } from './contexts/AlertContext'
 import { SidebarProvider } from './contexts/SidebarContext'
 import { AuthProvider, useAuth } from './services/AuthContext'
 import { LoginPage } from './pages/LoginPage'
@@ -12,6 +13,22 @@ import { TablesPage } from './pages/TablesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import AdminSettingsPage from './pages/AdminSettingsPage'
 import { AlertSystem } from './components/AlertSystem'
+import { beginPageScope } from './utils/pageScope'
+
+// Drop in-flight HTTP from the previous route so the next page starts clean.
+function PageScope() {
+  const location = useLocation()
+  const { clearAlerts } = useAlert()
+
+  useEffect(() => {
+    clearAlerts()
+    return () => {
+      beginPageScope()
+    }
+  }, [location.pathname, clearAlerts])
+
+  return null
+}
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -107,6 +124,7 @@ function App() {
         <SidebarProvider>
           <AuthProvider>
             <Router>
+              <PageScope />
               <AppRoutes />
               <AlertSystem />
             </Router>

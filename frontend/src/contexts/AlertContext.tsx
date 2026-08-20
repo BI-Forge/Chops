@@ -19,6 +19,7 @@ interface AlertContextType {
   error: (title: string, message?: string, duration?: number) => void;
   warning: (title: string, message?: string, duration?: number) => void;
   info: (title: string, message?: string, duration?: number) => void;
+  clearAlerts: () => void;
 }
 
 const AlertContext = createContext<AlertContextType | undefined>(undefined);
@@ -28,6 +29,10 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
 
   const removeAlert = useCallback((id: string) => {
     setAlerts((prev) => prev.filter((alert) => alert.id !== id));
+  }, []);
+
+  const clearAlerts = useCallback(() => {
+    setAlerts([]);
   }, []);
 
   const addAlert = useCallback((alert: Omit<Alert, 'id'>) => {
@@ -68,7 +73,7 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
   }, [error, success, warning, info]);
 
   return (
-    <AlertContext.Provider value={{ alerts, addAlert, removeAlert, success, error, warning, info }}>
+    <AlertContext.Provider value={{ alerts, addAlert, removeAlert, success, error, warning, info, clearAlerts }}>
       {children}
     </AlertContext.Provider>
   );

@@ -121,6 +121,7 @@ Example `.env` (built-in agent config expects **two** ClickHouse nodes):
 OPS_JWT_SECRET_KEY=generate-a-long-random-secret
 OPS_POSTGRES_DSN=postgres://chops:change-me@db:5432/chops?sslmode=disable
 OPS_CLUSTER_NAME=my_cluster
+OPS_METRICS_SNAPSHOT_ENABLED=true
 
 OPS_CLICKHOUSE_NAME=replica-1
 OPS_CLICKHOUSE_HOST=10.0.0.1

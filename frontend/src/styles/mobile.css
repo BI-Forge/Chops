@@ -293,3 +293,28 @@
     transition: none;
   }
 }
+
+/* Unlayered layout visibility. Tailwind .hidden can win over md:block/lg:block
+   when compiled utilities are reordered; these rules sit outside @layer. */
+.desktop-only,
+.desktop-only-flex {
+  display: none;
+}
+
+.mobile-only {
+  display: flex;
+}
+
+@media (min-width: 768px) {
+  .desktop-only {
+    display: block;
+  }
+
+  .desktop-only-flex {
+    display: flex;
+  }
+
+  .mobile-only {
+    display: none;
+  }
+}

@@ -1,6 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import type { LoginRequest, RegisterRequest, TokenResponse, UserInfo } from '../types/auth'
 import { alertUtils } from '../utils/alertUtils'
+import { pageSignal } from '../utils/pageScope'
 
 // Extend AxiosRequestConfig to include retry properties
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
@@ -15,6 +16,32 @@ const api = axios.create({
   },
   timeout: 10000, // 10 second timeout
 })
+
+export function isCanceledError(error: unknown): boolean {
+  return axios.isCancel(error) || (error as AxiosError)?.code === 'ERR_CANCELED'
+}
+
+export async function retryRequest<T>(
+  requestFn: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 500
+): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await requestFn()
+    } catch (error) {
+      lastError = error as Error
+      if (isCanceledError(error) || attempt >= maxRetries - 1) {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, attempt)))
+    }
+  }
+
+  throw lastError || new Error('Request failed after retries')
+}
 
 // Helper function to extract notification message from response data
 const extractNotificationMessage = (data: any): { message?: string; error?: string } => {
@@ -42,6 +69,10 @@ api.interceptors.response.use(
     return response;
   },
   async (error: AxiosError) => {
+    if (isCanceledError(error)) {
+      return Promise.reject(error)
+    }
+
     const config = (error.config || {}) as ExtendedAxiosRequestConfig
     const retryCount = config._retryCount ?? 0
 
@@ -104,6 +135,10 @@ api.interceptors.response.use(
 )
 
 api.interceptors.request.use((config) => {
+  const url = config.url || ''
+  if (!config.signal && !url.startsWith('/auth/')) {
+    config.signal = pageSignal()
+  }
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`

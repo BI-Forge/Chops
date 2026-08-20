@@ -103,14 +103,17 @@ var rootCmd = &cobra.Command{
 		} else {
 			appLogger.Info("ClickHouse database connection initialized successfully")
 
-			// Initialize table synchronization
-			appLogger.Info("Initializing table synchronization...")
-			err = initializeTableSync(cfg, appLogger)
-			if err != nil {
-				appLogger.Errorf("Failed to initialize table synchronization: %v", err)
-				appLogger.Warning("Application will continue running, but table sync is disabled")
+			if cfg.Sync.IsMetricsSnapshotEnabled() {
+				appLogger.Info("Initializing table synchronization...")
+				err = initializeTableSync(cfg, appLogger)
+				if err != nil {
+					appLogger.Errorf("Failed to initialize table synchronization: %v", err)
+					appLogger.Warning("Application will continue running, but table sync is disabled")
+				} else {
+					appLogger.Info("Table synchronization initialized successfully")
+				}
 			} else {
-				appLogger.Info("Table synchronization initialized successfully")
+				appLogger.Info("Metrics snapshot synchronization is disabled")
 			}
 		}
 

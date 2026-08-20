@@ -1,0 +1,54 @@
+# Pull published images from Docker Hub. ClickHouse is not bundled — point OPS_CLICKHOUSE_* at your cluster.
+# The frontend nginx proxies /api to http://app:8080, so the API service must stay named `app`.
+# Pin a release: CHOPS_IMAGE_TAG=v1.0.0 docker compose -f docker-compose.hub.yml up -d
+# PostgreSQL user/password/db must match OPS_POSTGRES_DSN in .env.
+
+services:
+  front:
+    image: alexindacomp/chops-front:${CHOPS_IMAGE_TAG:-latest}
+    container_name: chops_front-hub
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - ch_ops_hub
+
+  app:
+    image: alexindacomp/chops-app:${CHOPS_IMAGE_TAG:-latest}
+    container_name: chops_app-hub
+    env_file: ./.env
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ch_ops_hub
+
+  db:
+    image: postgres:13.11
+    container_name: chops_db-hub
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-12345}
+      POSTGRES_DB: ${POSTGRES_DB:-public}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - chops_pg_hub:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - ch_ops_hub
+
+volumes:
+  chops_pg_hub:
+
+networks:
+  ch_ops_hub:
+    name: ch_ops_hub

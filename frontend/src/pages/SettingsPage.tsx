@@ -11,6 +11,7 @@ import { CustomSelect } from '../components/CustomSelect';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
 import { useSidebar } from '../contexts/SidebarContext';
+import { isCanceledError } from '../services/api';
 import { metricsAPI } from '../services/metricsAPI';
 import { settingsAPI, type DBSettingItem, type DBSettingDetailItem } from '../services/settingsAPI';
 import type { NodeInfo } from '../types/metrics';
@@ -121,7 +122,8 @@ export function SettingsPage() {
           setSelectedNode(available[0].name);
           sessionStorage.setItem('selectedNode', available[0].name);
         }
-      } catch {
+      } catch (err) {
+        if (isCanceledError(err)) return;
         showError('Failed to load nodes', 'Unable to fetch available nodes', 5000);
       } finally {
         setLoadingNodes(false);
@@ -164,7 +166,8 @@ export function SettingsPage() {
         }
         return Array.from(next).sort();
       });
-    } catch {
+    } catch (err) {
+      if (isCanceledError(err)) return;
       showError('Failed to load settings', 'Could not fetch settings from ClickHouse', 5000);
       setSettings([]);
       setListTotal(0);
@@ -259,7 +262,7 @@ export function SettingsPage() {
       <BackgroundPattern />
 
       <div className="relative z-10 flex h-full">
-        <div className="hidden md:block">
+        <div className="desktop-only">
           <Sidebar
             collapsed={sidebarCollapsed}
             onCollapse={setSidebarCollapsed}

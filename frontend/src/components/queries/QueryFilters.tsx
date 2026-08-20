@@ -19,6 +19,10 @@ interface QueryFiltersProps {
     onDateToChange: (value: string) => void;
     recordsPerPage: string;
     onRecordsPerPageChange: (value: string) => void;
+    sortBy: string;
+    onSortByChange: (value: string) => void;
+    sortOrder: string;
+    onSortOrderChange: (value: string) => void;
     onApplyFilters: () => void;
     isApplying: boolean;
 }
@@ -37,11 +41,15 @@ export function QueryFilters({
                                  onDateFromChange,
                                  dateTo,
                                  onDateToChange,
-                                 recordsPerPage,
-                                 onRecordsPerPageChange,
-                                 onApplyFilters,
-                                 isApplying
-                             }: QueryFiltersProps) {
+    recordsPerPage,
+    onRecordsPerPageChange,
+    sortBy,
+    onSortByChange,
+    sortOrder,
+    onSortOrderChange,
+    onApplyFilters,
+    isApplying
+}: QueryFiltersProps) {
     const { theme } = useTheme();
 
     return (
@@ -157,6 +165,34 @@ export function QueryFilters({
                         value={recordsPerPage}
                         onChange={onRecordsPerPageChange}
                         options={['10', '25', '50', '100']}
+                    />
+                </div>
+
+                {/* Sort by */}
+                <div>
+                    <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Sort by</label>
+                    <CustomSelect
+                        value={sortBy}
+                        onChange={onSortByChange}
+                        options={[
+                            { value: 'time', label: 'Time' },
+                            { value: 'memory', label: 'Memory' },
+                            { value: 'duration', label: 'Duration' },
+                            { value: 'cpu', label: 'CPU' },
+                        ]}
+                    />
+                </div>
+
+                {/* Sort order */}
+                <div>
+                    <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Order</label>
+                    <CustomSelect
+                        value={sortOrder}
+                        onChange={onSortOrderChange}
+                        options={[
+                            { value: 'desc', label: 'Descending' },
+                            { value: 'asc', label: 'Ascending' },
+                        ]}
                     />
                 </div>
             </div>
