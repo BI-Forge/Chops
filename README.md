@@ -62,6 +62,9 @@ Typical ports (see `docker-compose.yml`): **frontend 80**, **API 8080**, **Postg
 
 Published images (linux/amd64), tagged `latest` and `vX.Y.Z` when a GitHub tag is created:
 
+- App image: [docker.io/alexindacomp/chops-app](https://hub.docker.com/r/alexindacomp/chops-app)
+- Frontend image: [docker.io/alexindacomp/chops-front](https://hub.docker.com/r/alexindacomp/chops-front)
+
 | Image | Role | Port |
 |-------|------|------|
 | [`alexindacomp/chops-app`](https://hub.docker.com/r/alexindacomp/chops-app) | Go API (`/api/v1`, `/swagger`, `/healthz`) | 8080 |

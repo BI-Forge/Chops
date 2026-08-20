@@ -16,3 +16,4 @@ __wsl.localhost_*
 
 .env
 helm
+docker-compose.hub.yml
