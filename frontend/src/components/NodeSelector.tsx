@@ -78,15 +78,14 @@ export function NodeSelector({
     setIsOpen(!isOpen);
   };
 
-  // For now, we'll assume all nodes are online
-  // In the future, this could be enhanced with status from API
-  type NodeStatus = 'online' | 'offline' | 'warning';
+	type NodeStatus = 'online' | 'offline' | 'warning';
   
-  const getNodeStatus = (node: NodeInfo): NodeStatus => {
-    // For now, all nodes are considered online
-    // In the future, this could check node status from API
-    return 'online';
-  };
+	const getNodeStatus = (node: NodeInfo): NodeStatus => {
+		if (node.available === false) {
+			return 'offline';
+		}
+		return 'online';
+	};
 
   const getStatusIcon = (status: NodeStatus = 'online') => {
     switch (status) {

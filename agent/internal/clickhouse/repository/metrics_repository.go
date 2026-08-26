@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"time"
 
 	"clickhouse-ops/internal/clickhouse/models"
@@ -200,8 +199,28 @@ func (r *MetricsRepository) GetAvailableNodes(ctx context.Context) ([]string, er
 	return nodes, nil
 }
 
-// GetMetricSeries returns aggregated metric values for the requested time range and step.
-// This method loads all metrics data in a single query and then extracts the requested metric type.
+// metricSeriesExpr returns a ClickHouse expression for the given metric type.
+// Expressions are fixed whitelist strings only — never built from user input.
+func metricSeriesExpr(metricType string) (string, error) {
+	switch metricType {
+	case "cpu_load":
+		return `(profile['OSUserTimeNormalized'] + profile['OSSystemTimeNormalized'] + profile['OSIrqTimeNormalized'] + profile['OSSoftIrqTimeNormalized'] + profile['OSGuestTimeNormalized'] + profile['OSStealTimeNormalized'] + profile['OSNiceTimeNormalized']) * 100`, nil
+	case "memory_load":
+		return `if(profile['OSMemoryTotal'] > 0, ((profile['OSMemoryTotal'] - profile['OSMemoryAvailable']) / profile['OSMemoryTotal']) * 100, 0)`, nil
+	case "memory_used_gb":
+		return `(profile['OSMemoryTotal'] - profile['OSMemoryAvailable']) / (1024 * 1024 * 1024)`, nil
+	case "storage_used":
+		return `(profile['DiskTotalSpace'] - profile['DiskFreeSpace'] - profile['DiskKeepFreeSpace']) / (1024 * 1024 * 1024)`, nil
+	case "active_connections":
+		return `profile['TCPConnection'] + profile['MySQLConnection'] + profile['HTTPConnection'] + profile['InterserverConnection'] + profile['PostgreSQLConnection']`, nil
+	case "active_queries":
+		return `profile['Query']`, nil
+	default:
+		return "", fmt.Errorf("unsupported metric type: %s", metricType)
+	}
+}
+
+// GetMetricSeries returns metric values aggregated by step in ClickHouse (avg per bucket).
 func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string, metricType string, from, to time.Time, step time.Duration) ([]models.MetricSeriesPoint, error) {
 	schema, table, err := r.getSchemaAndTable(nodeName)
 	if err != nil {
@@ -213,8 +232,13 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 		return nil, err
 	}
 
-	if step <= 0 {
-		return nil, fmt.Errorf("step must be positive")
+	if step < time.Second {
+		return nil, fmt.Errorf("step must be at least 1 second")
+	}
+
+	metricExpr, err := metricSeriesExpr(metricType)
+	if err != nil {
+		return nil, err
 	}
 
 	tableName := fmt.Sprintf("%s.%s", schema, table)
@@ -222,132 +246,41 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 		return nil, err
 	}
 
-	// Load all data in a single query
+	stepSeconds := uint64(step / time.Second)
 	query := fmt.Sprintf(`
-		SELECT 
-			timestamp,
-			profile
+		SELECT
+			toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket_ts,
+			avg(%s) AS value
 		FROM %s.%s
 		WHERE timestamp >= ?
 			AND timestamp <= ?
-		ORDER BY timestamp
-	`, schema, table)
+		GROUP BY bucket_ts
+		ORDER BY bucket_ts
+	`, metricExpr, schema, table)
 
-	rows, err := conn.Query(ctx, query, from, to)
+	rows, err := conn.Query(ctx, query, stepSeconds, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metric series: %w", err)
 	}
 	defer rows.Close()
 
-	// Process all rows and calculate metrics
-	var samples []sampleData
-
+	points := make([]models.MetricSeriesPoint, 0)
 	for rows.Next() {
-		var s sampleData
-		if err := rows.Scan(&s.timestamp, &s.profile); err != nil {
+		var bucketTS time.Time
+		var value float64
+		if err := rows.Scan(&bucketTS, &value); err != nil {
 			return nil, fmt.Errorf("failed to scan metric point: %w", err)
 		}
-		samples = append(samples, s)
-	}
-
-	if len(samples) == 0 {
-		return []models.MetricSeriesPoint{}, nil
-	}
-
-	// Aggregate samples by time buckets
-	points := r.aggregateSamples(samples, metricType, step)
-
-	return points, nil
-}
-
-// sampleData represents a single metrics sample
-type sampleData struct {
-	timestamp time.Time
-	profile   map[string]float64
-}
-
-// aggregateSamples groups samples by time buckets and calculates metric values
-func (r *MetricsRepository) aggregateSamples(samples []sampleData, metricType string, step time.Duration) []models.MetricSeriesPoint {
-	if len(samples) == 0 {
-		return []models.MetricSeriesPoint{}
-	}
-
-	// Group samples by bucket
-	buckets := make(map[int64][]map[string]float64)
-	for _, sample := range samples {
-		bucketTime := sample.timestamp.Truncate(step).Unix()
-		buckets[bucketTime] = append(buckets[bucketTime], sample.profile)
-	}
-
-	// Calculate metric value for each bucket (average of all samples in bucket)
-	points := make([]models.MetricSeriesPoint, 0, len(buckets))
-	for bucketTime, profiles := range buckets {
-		var sum float64
-		for _, profile := range profiles {
-			value := r.calculateMetricValue(profile, metricType)
-			sum += value
-		}
-		avgValue := sum / float64(len(profiles))
-
-		bucketTimestamp := time.Unix(bucketTime, 0).UTC()
 		points = append(points, models.MetricSeriesPoint{
-			Timestamp: bucketTimestamp.Format(time.RFC3339),
-			Value:     avgValue,
+			Timestamp: bucketTS.UTC().Format(time.RFC3339),
+			Value:     value,
 		})
 	}
-
-	// Sort by timestamp
-	sort.Slice(points, func(i, j int) bool {
-		return points[i].Timestamp < points[j].Timestamp
-	})
-
-	return points
-}
-
-// calculateMetricValue calculates a specific metric value from profile Map.
-func (r *MetricsRepository) calculateMetricValue(profile map[string]float64, metricType string) float64 {
-	switch metricType {
-	case "cpu_load":
-		return (getMetricValue(profile, "OSUserTimeNormalized") +
-			getMetricValue(profile, "OSSystemTimeNormalized") +
-			getMetricValue(profile, "OSIrqTimeNormalized") +
-			getMetricValue(profile, "OSSoftIrqTimeNormalized") +
-			getMetricValue(profile, "OSGuestTimeNormalized") +
-			getMetricValue(profile, "OSStealTimeNormalized") +
-			getMetricValue(profile, "OSNiceTimeNormalized")) * 100
-
-	case "memory_load":
-		memoryTotal := getMetricValue(profile, "OSMemoryTotal")
-		if memoryTotal > 0 {
-			memoryAvailable := getMetricValue(profile, "OSMemoryAvailable")
-			return ((memoryTotal - memoryAvailable) / memoryTotal) * 100
-		}
-		return 0
-
-	case "memory_used_gb":
-		memoryTotal := getMetricValue(profile, "OSMemoryTotal")
-		memoryAvailable := getMetricValue(profile, "OSMemoryAvailable")
-		return (memoryTotal - memoryAvailable) / (1024 * 1024 * 1024)
-
-	case "storage_used":
-		diskTotal := getMetricValue(profile, "DiskTotalSpace")
-		diskFree := getMetricValue(profile, "DiskFreeSpace")
-		diskKeepFree := getMetricValue(profile, "DiskKeepFreeSpace")
-		return (diskTotal - diskFree - diskKeepFree) / (1024 * 1024 * 1024)
-
-	case "active_connections":
-		return getMetricValue(profile, "TCPConnection") +
-			getMetricValue(profile, "MySQLConnection") +
-			getMetricValue(profile, "HTTPConnection") +
-			getMetricValue(profile, "InterserverConnection") +
-			getMetricValue(profile, "PostgreSQLConnection")
-
-	case "active_queries":
-		return getMetricValue(profile, "Query")
-
-	default:
-		return 0
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate metric series: %w", err)
 	}
+
+	return points, nil
 }
 
 // GetServerInfo returns server information including uptime, version, memory and storage for a specific node.

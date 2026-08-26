@@ -356,7 +356,8 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	defer testutil.CleanupTestData(t, dbConn)
 
 	nodeName := "test_node"
-	now := time.Now().UTC().Truncate(time.Second)
+	// Use the previous full minute so both avg samples stay strictly before handler "now".
+	latestBucket := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute)
 
 	// Insert metrics series data into ClickHouse
 	chManager := clickhouse.GetInstance()
@@ -403,12 +404,15 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 		SETTINGS index_granularity = 8192
 	`, schema, table)
 	_ = conn.Exec(ctx, createTableQuery)
+	// Sync truncate so prior suite data does not pollute bucket averages.
+	require.NoError(t, conn.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s.%s", schema, table)))
 
-	// Insert metrics series points
+	// Insert metrics series points (two samples in the latest 1m bucket to exercise avg).
 	points := []fixtures.MetricsSeriesPoint{
-		{Timestamp: now.Add(-2 * time.Minute), CPULoad: 30.0},
-		{Timestamp: now.Add(-time.Minute), CPULoad: 33.0},
-		{Timestamp: now, CPULoad: 36.0},
+		{Timestamp: latestBucket.Add(-2 * time.Minute), CPULoad: 30.0},
+		{Timestamp: latestBucket.Add(-time.Minute), CPULoad: 33.0},
+		{Timestamp: latestBucket.Add(10 * time.Second), CPULoad: 30.0},
+		{Timestamp: latestBucket.Add(20 * time.Second), CPULoad: 42.0},
 	}
 
 	for _, point := range points {
@@ -449,7 +453,14 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, registerResponse.Token)
 
-	req, _ := http.NewRequest("GET", "/api/v1/clickhouse/metrics/series?node="+nodeName+"&metric=cpu_load&period=1h&step=1m", nil)
+	windowFrom := latestBucket.Add(-55 * time.Minute).Format(time.RFC3339)
+	windowTo := latestBucket.Add(30 * time.Second).Format(time.RFC3339)
+	req, _ := http.NewRequest(
+		"GET",
+		fmt.Sprintf("/api/v1/clickhouse/metrics/series?node=%s&metric=cpu_load&from=%s&to=%s",
+			nodeName, windowFrom, windowTo),
+		nil,
+	)
 	req.Header.Set("Authorization", "Bearer "+registerResponse.Token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -460,11 +471,13 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, nodeName, series.Node)
 	assert.Equal(t, "cpu_load", series.Metric)
+	assert.Equal(t, "custom", series.Period)
 	assert.Equal(t, "1m", series.Step)
-	if assert.NotEmpty(t, series.Points) {
-		latest := series.Points[len(series.Points)-1]
-		// CPULoad formula multiplies by 100, so 36% CPU load = 36.0
-		assert.InDelta(t, 36.0, latest.Value, 0.5)
+	if assert.Len(t, series.Points, 3) {
+		assert.InDelta(t, 30.0, series.Points[0].Value, 0.5)
+		assert.InDelta(t, 33.0, series.Points[1].Value, 0.5)
+		// Latest 1m bucket averages 30 and 42.
+		assert.InDelta(t, 36.0, series.Points[2].Value, 0.5)
 	}
 
 	reqWide, _ := http.NewRequest("GET", "/api/v1/clickhouse/metrics/series?node="+nodeName+"&metric=cpu_load&period=7d&step=1h", nil)
@@ -477,6 +490,49 @@ func TestMetricsSeriesEndpoint(t *testing.T) {
 	err = json.Unmarshal(wWide.Body.Bytes(), &wideSeries)
 	require.NoError(t, err)
 	assert.Equal(t, "1h", wideSeries.Step)
+
+	// Absolute multi-day window derives 1h step (ignores client period/step).
+	absWideFrom := latestBucket.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	absWideTo := latestBucket.Add(30 * time.Second).Format(time.RFC3339)
+	reqAbsWide, _ := http.NewRequest(
+		"GET",
+		fmt.Sprintf("/api/v1/clickhouse/metrics/series?node=%s&metric=cpu_load&period=10m&step=1s&from=%s&to=%s",
+			nodeName, absWideFrom, absWideTo),
+		nil,
+	)
+	reqAbsWide.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	wAbsWide := httptest.NewRecorder()
+	router.ServeHTTP(wAbsWide, reqAbsWide)
+	require.Equal(t, http.StatusOK, wAbsWide.Code)
+
+	var absWideSeries models.MetricSeriesResponse
+	err = json.Unmarshal(wAbsWide.Body.Bytes(), &absWideSeries)
+	require.NoError(t, err)
+	assert.Equal(t, "custom", absWideSeries.Period)
+	assert.Equal(t, "1h", absWideSeries.Step)
+
+	// Short absolute window → 1s step; one sample in range.
+	absFrom := latestBucket.Add(-time.Minute).Format(time.RFC3339)
+	absTo := latestBucket.Add(-time.Second).Format(time.RFC3339)
+	reqAbs, _ := http.NewRequest(
+		"GET",
+		fmt.Sprintf("/api/v1/clickhouse/metrics/series?node=%s&metric=cpu_load&period=1h&step=1m&from=%s&to=%s",
+			nodeName, absFrom, absTo),
+		nil,
+	)
+	reqAbs.Header.Set("Authorization", "Bearer "+registerResponse.Token)
+	wAbs := httptest.NewRecorder()
+	router.ServeHTTP(wAbs, reqAbs)
+	require.Equal(t, http.StatusOK, wAbs.Code)
+
+	var absSeries models.MetricSeriesResponse
+	err = json.Unmarshal(wAbs.Body.Bytes(), &absSeries)
+	require.NoError(t, err)
+	assert.Equal(t, "custom", absSeries.Period)
+	assert.Equal(t, "1s", absSeries.Step)
+	if assert.Len(t, absSeries.Points, 1) {
+		assert.InDelta(t, 33.0, absSeries.Points[0].Value, 0.5)
+	}
 }
 
 // TestCORSHeaders tests CORS headers

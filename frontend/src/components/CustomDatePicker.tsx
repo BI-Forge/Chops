@@ -8,9 +8,10 @@ interface CustomDatePickerProps {
   onChange: (value: string) => void;
   placeholder?: string;
   showTime?: boolean;
+  ariaLabel?: string;
 }
 
-export function CustomDatePicker({ value, onChange, placeholder = 'Select date', showTime = false }: CustomDatePickerProps) {
+export function CustomDatePicker({ value, onChange, placeholder = 'Select date', showTime = false, ariaLabel }: CustomDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -52,65 +53,82 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
 
   const selectedDate = selectedDateStr ? new Date(selectedDateStr + 'T00:00:00') : null;
 
+  const updatePosition = () => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropdownHeight = showTime ? 450 : 380;
+    setPosition({
+      top: spaceBelow >= dropdownHeight ? rect.bottom + 4 : Math.max(8, rect.top - dropdownHeight - 4),
+      left: Math.min(rect.left, window.innerWidth - 328),
+      width: Math.max(rect.width, 220),
+    });
+  };
+
+  const handleToggle = () => {
+    if (!isOpen) {
+      updatePosition();
+    }
+    setIsOpen(!isOpen);
+  };
+
   useEffect(() => {
-    const updatePosition = () => {
-      if (buttonRef.current && isOpen) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const dropdownHeight = showTime ? 450 : 380;
+    if (!isOpen) return;
 
-        setPosition({
-          top: spaceBelow >= dropdownHeight ? rect.bottom + 4 : rect.top - dropdownHeight - 4,
-          left: rect.left,
-          width: rect.width,
-        });
-      }
-    };
-
-    updatePosition();
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
-
+    const handleScrollOrResize = () => updatePosition();
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
     return () => {
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
     };
   }, [isOpen, showTime]);
 
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
+        !dropdownRef.current.contains(target) &&
         buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
+        !buttonRef.current.contains(target)
       ) {
+        if (showTime && selectedDateStr) {
+          onChange(`${selectedDateStr}T${time}`);
+        }
         setIsOpen(false);
       }
     };
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
+    // Use click (not mousedown) so day button onClick can commit the value first.
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isOpen, showTime, selectedDateStr, time, onChange]);
 
-  // Close the picker on Enter (acts as Apply)
+  // Close / Apply on Enter (matches footer Apply when showTime)
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        setIsOpen(false);
+      if (event.key !== 'Enter') return;
+      // Don't steal Enter from time input typing
+      const tag = (event.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      event.preventDefault();
+      if (showTime && selectedDateStr) {
+        onChange(`${selectedDateStr}T${time}`);
       }
+      setIsOpen(false);
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, showTime, selectedDateStr, time, onChange]);
 
   const formatDateTime = (dateStr: string, timeStr: string) => {
     if (!dateStr) return '';
     const date = new Date(dateStr + 'T00:00:00');
+    if (Number.isNaN(date.getTime())) return dateStr;
     const dateFormatted = date.toLocaleDateString('en-US', { 
       year: 'numeric', 
       month: 'short', 
@@ -144,18 +162,12 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
       onChange(`${dateStr}T${time}`);
     } else {
       onChange(dateStr);
-    }
-    
-    if (!showTime) {
       setIsOpen(false);
     }
   };
 
   const handleTimeChange = (newTime: string) => {
     setTime(newTime);
-    if (selectedDateStr) {
-      onChange(`${selectedDateStr}T${newTime}`);
-    }
   };
 
   const handlePrevMonth = () => {
@@ -167,6 +179,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
   };
 
   const handleClear = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     onChange('');
     setTime('00:00');
@@ -184,6 +197,15 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
       onChange(dateStr);
     }
     
+    setIsOpen(false);
+  };
+
+  const handleApply = () => {
+    if (!selectedDateStr) {
+      setIsOpen(false);
+      return;
+    }
+    onChange(`${selectedDateStr}T${time}`);
     setIsOpen(false);
   };
 
@@ -228,7 +250,12 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
       days.push(
         <button
           key={day}
-          onClick={() => handleDateSelect(day)}
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDateSelect(day);
+          }}
           className={`aspect-square rounded-lg transition-all duration-200 relative group ${
             selected
               ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-gray-900 shadow-lg scale-105'
@@ -258,7 +285,9 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
     <>
       <button
         ref={buttonRef}
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        aria-label={ariaLabel || placeholder}
+        onClick={handleToggle}
         className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-lg border transition-all duration-200 ${
           isOpen
             ? theme === 'light'
@@ -288,14 +317,22 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
           </span>
         </div>
         {value && (
-          <button
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label="Clear date"
             onClick={handleClear}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                handleClear(e as unknown as React.MouseEvent);
+              }
+            }}
             className={`p-0.5 rounded hover:bg-gray-200/50 transition-colors flex-shrink-0 ${
               theme === 'light' ? 'text-gray-700 hover:text-amber-700' : 'text-gray-400 hover:text-yellow-400'
             }`}
           >
             <X className="w-4 h-4" />
-          </button>
+          </span>
         )}
       </button>
 
@@ -313,12 +350,14 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
               left: `${position.left}px`,
               width: '320px',
             }}
+            onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className={`flex items-center justify-between p-4 border-b ${
               theme === 'light' ? 'border-amber-500/20' : 'border-yellow-500/20'
             }`}>
               <button
+                type="button"
                 onClick={handlePrevMonth}
                 className={`p-2 rounded-lg transition-all duration-200 ${
                   theme === 'light'
@@ -334,6 +373,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
               </div>
               
               <button
+                type="button"
                 onClick={handleNextMonth}
                 className={`p-2 rounded-lg transition-all duration-200 ${
                   theme === 'light'
@@ -390,6 +430,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
                       }`}
                     />
                     <button
+                      type="button"
                       onClick={() => {
                         const now = new Date();
                         const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -414,7 +455,8 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
             }`}>
               {showTime ? (
                 <button
-                  onClick={() => setIsOpen(false)}
+                  type="button"
+                  onClick={handleApply}
                   className={`flex-1 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
                     theme === 'light'
                       ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-500/30'
@@ -425,6 +467,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={handleToday}
                   className={`flex-1 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
                     theme === 'light'
@@ -437,6 +480,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Select date',
               )}
               {value && (
                 <button
+                  type="button"
                   onClick={() => {
                     onChange('');
                     setTime('00:00');

@@ -1,7 +1,9 @@
 import { Filter, Search, Check, Play } from 'lucide-react';
 import { CustomSelect } from '../CustomSelect';
-import { CustomDatePicker } from '../CustomDatePicker';
+import { TimeRangePicker } from '../TimeRangePicker';
 import { useTheme } from '../../contexts/ThemeContext';
+import type { TimeRangeValue } from '../../utils/metricStep';
+import { validateBasicAbsoluteRange } from '../../utils/metricStep';
 
 interface QueryFiltersProps {
     searchQuery: string;
@@ -11,12 +13,8 @@ interface QueryFiltersProps {
     users: string[];
     selectedStatus: string;
     onStatusChange: (value: string) => void;
-    selectedPeriod: string;
-    onPeriodChange: (value: string) => void;
-    dateFrom: string;
-    onDateFromChange: (value: string) => void;
-    dateTo: string;
-    onDateToChange: (value: string) => void;
+    timeRange: TimeRangeValue;
+    onTimeRangeChange: (value: TimeRangeValue) => void;
     recordsPerPage: string;
     onRecordsPerPageChange: (value: string) => void;
     sortBy: string;
@@ -35,12 +33,8 @@ export function QueryFilters({
                                  users,
                                  selectedStatus,
                                  onStatusChange,
-                                 selectedPeriod,
-                                 onPeriodChange,
-                                 dateFrom,
-                                 onDateFromChange,
-                                 dateTo,
-                                 onDateToChange,
+                                 timeRange,
+                                 onTimeRangeChange,
     recordsPerPage,
     onRecordsPerPageChange,
     sortBy,
@@ -126,36 +120,16 @@ export function QueryFilters({
                     />
                 </div>
 
-                {/* Period Filter */}
-                <div>
-                    <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Period</label>
-                    <CustomSelect
-                        value={selectedPeriod}
-                        onChange={onPeriodChange}
-                        options={['15min', '30min', '1h', '2h']}
-                    />
-                </div>
-
-                {/* Date From */}
-                <div>
-                    <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Date From</label>
-                    <CustomDatePicker
-                        value={dateFrom}
-                        onChange={onDateFromChange}
-                        placeholder="Select start date & time"
-                        showTime={true}
-                    />
-                </div>
-
-                {/* Date To */}
-                <div>
-                    <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Date To</label>
-                    <CustomDatePicker
-                        value={dateTo}
-                        onChange={onDateToChange}
-                        placeholder="Select end date & time"
-                        showTime={true}
-                    />
+                {/* Time Range */}
+                <div className="lg:col-span-2">
+                    <label className={`block ${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm mb-2`}>Time range</label>
+                    <div className="w-full [&>button]:w-full [&>button]:max-w-none">
+                        <TimeRangePicker
+                            value={timeRange}
+                            onChange={onTimeRangeChange}
+                            validateRange={validateBasicAbsoluteRange}
+                        />
+                    </div>
                 </div>
 
                 {/* Records per Page */}
@@ -199,4 +173,3 @@ export function QueryFilters({
         </div>
     );
 }
-

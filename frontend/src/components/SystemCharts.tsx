@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AxiosError } from 'axios'
 import {
   AreaChart,
   BarChart3,
-  Calendar,
   Clock,
   Cpu,
   Database,
@@ -15,7 +15,7 @@ import {
   RotateCcw,
   ScanSearch,
 } from 'lucide-react'
-import { CustomSelect } from './CustomSelect'
+import { TimeRangePicker, type TimeRangeValue } from './TimeRangePicker'
 import { TimeSeriesChart } from './charts/TimeSeriesChart'
 import type { ChartRenderType, TimeSeriesChartHandle } from './charts/TimeSeriesChart'
 import { useTheme } from '../contexts/ThemeContext'
@@ -24,6 +24,39 @@ import { metricsAPI } from '../services/metricsAPI'
 import { isCanceledError } from '../services/api'
 import { lastPointValue, seriesToPoints } from '../utils/chartSeries'
 import type { TimeSeriesPoint } from '../utils/chartSeries'
+import { formatDateForAPI } from '../utils/dateFormat'
+import { displayStepForTimeRange, PERIOD_CONFIGURATIONS, validateAbsoluteRange } from '../utils/metricStep'
+
+const DASHBOARD_TIME_RANGE_KEY = 'dashboardTimeRange'
+
+function loadStoredTimeRange(): TimeRangeValue {
+  try {
+    const raw = sessionStorage.getItem(DASHBOARD_TIME_RANGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as TimeRangeValue
+      if (parsed.kind === 'relative' && PERIOD_CONFIGURATIONS[parsed.period]) {
+        return parsed
+      }
+      if (parsed.kind === 'absolute' && parsed.from && parsed.to) {
+        return parsed
+      }
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+  return {
+    kind: 'relative',
+    period: sessionStorage.getItem('dashboardPeriod') || '1d',
+  }
+}
+
+function getChartLoadErrorMessage(error: unknown): string {
+  if (error instanceof AxiosError && error.response?.data && typeof error.response.data === 'object') {
+    const data = error.response.data as { error?: string; message?: string }
+    return data.error || data.message || 'Unable to fetch chart data from the server'
+  }
+  return 'Unable to fetch chart data from the server'
+}
 
 const CHART_COLORS = {
   cpu: '#fbbf24',
@@ -31,17 +64,6 @@ const CHART_COLORS = {
   storage: '#d97706',
   queries: '#f59e0b',
 } as const
-
-const PERIOD_CONFIGURATIONS: Record<string, { apiPeriod: string; step: string; displayStep: string; label: string }> = {
-  '10m': { apiPeriod: '10m', step: '1s', displayStep: '1s', label: 'Last 10 Minutes' },
-  '30m': { apiPeriod: '30m', step: '10s', displayStep: '10s', label: 'Last 30 Minutes' },
-  '1h': { apiPeriod: '1h', step: '1m', displayStep: '1m', label: 'Last 1 Hour' },
-  '6h': { apiPeriod: '6h', step: '5m', displayStep: '5m', label: 'Last 6 Hours' },
-  '12h': { apiPeriod: '12h', step: '5m', displayStep: '5m', label: 'Last 12 Hours' },
-  '1d': { apiPeriod: '1d', step: '30m', displayStep: '30m', label: 'Last 24 Hours' },
-  '3d': { apiPeriod: '3d', step: '1h', displayStep: '1h', label: 'Last 3 Days' },
-  '7d': { apiPeriod: '7d', step: '1h', displayStep: '1h', label: 'Last 7 Days' },
-}
 
 interface ChartCardProps {
   title: string
@@ -252,7 +274,7 @@ const emptySeries = (): ChartSeriesState => ({
 })
 
 export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
-  const [period, setPeriod] = useState(() => sessionStorage.getItem('dashboardPeriod') || '1d')
+  const [timeRange, setTimeRange] = useState<TimeRangeValue>(loadStoredTimeRange)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [series, setSeries] = useState<ChartSeriesState>(emptySeries)
   const [memoryTotalGB, setMemoryTotalGB] = useState(0)
@@ -261,13 +283,15 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
   const { error: showError } = useAlert()
   const loadGen = useRef(0)
 
-  const handlePeriodChange = (newPeriod: string) => {
-    setPeriod(newPeriod)
-    sessionStorage.setItem('dashboardPeriod', newPeriod)
+  const handleTimeRangeChange = (next: TimeRangeValue) => {
+    setTimeRange(next)
+    sessionStorage.setItem(DASHBOARD_TIME_RANGE_KEY, JSON.stringify(next))
+    if (next.kind === 'relative') {
+      sessionStorage.setItem('dashboardPeriod', next.period)
+    }
   }
 
-  const periodConfig = PERIOD_CONFIGURATIONS[period] || PERIOD_CONFIGURATIONS['1d']
-  const interval = periodConfig.displayStep
+  const interval = displayStepForTimeRange(timeRange)
 
   const loadChartData = useCallback(async () => {
     const expected = ++loadGen.current
@@ -278,18 +302,38 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
     }
 
     try {
-      const { apiPeriod, step } = PERIOD_CONFIGURATIONS[period] || PERIOD_CONFIGURATIONS['1d']
       const currentMetrics = await metricsAPI.getCurrentMetrics(selectedNode)
       if (loadGen.current !== expected) return
       setMemoryTotalGB(Math.round(currentMetrics.memory_total_gb))
       setDiskTotalGB(Math.round(currentMetrics.disk_total_gb) || 1000)
 
+      let seriesOpts: { period?: string; step?: string; from?: string; to?: string }
+      if (timeRange.kind === 'absolute') {
+        const rangeError = validateAbsoluteRange(timeRange.from, timeRange.to)
+        if (rangeError) {
+          showError('Invalid date range', rangeError, 5000)
+          setSeries(emptySeries())
+          return
+        }
+        const absoluteFrom = formatDateForAPI(timeRange.from)
+        const absoluteTo = formatDateForAPI(timeRange.to)
+        if (!absoluteFrom || !absoluteTo) {
+          showError('Invalid date range', 'Unable to parse date range', 5000)
+          setSeries(emptySeries())
+          return
+        }
+        seriesOpts = { from: absoluteFrom, to: absoluteTo }
+      } else {
+        const cfg = PERIOD_CONFIGURATIONS[timeRange.period] || PERIOD_CONFIGURATIONS['1d']
+        seriesOpts = { period: cfg.apiPeriod, step: cfg.step }
+      }
+
       const [cpuData, memoryPercentData, memoryGBData, diskData, queriesData] = await Promise.all([
-        metricsAPI.getMetricSeries(selectedNode, 'cpu_load', apiPeriod, step),
-        metricsAPI.getMetricSeries(selectedNode, 'memory_load', apiPeriod, step),
-        metricsAPI.getMetricSeries(selectedNode, 'memory_used_gb', apiPeriod, step),
-        metricsAPI.getMetricSeries(selectedNode, 'storage_used', apiPeriod, step),
-        metricsAPI.getMetricSeries(selectedNode, 'active_queries', apiPeriod, step),
+        metricsAPI.getMetricSeries(selectedNode, 'cpu_load', seriesOpts),
+        metricsAPI.getMetricSeries(selectedNode, 'memory_load', seriesOpts),
+        metricsAPI.getMetricSeries(selectedNode, 'memory_used_gb', seriesOpts),
+        metricsAPI.getMetricSeries(selectedNode, 'storage_used', seriesOpts),
+        metricsAPI.getMetricSeries(selectedNode, 'active_queries', seriesOpts),
       ])
 
       if (loadGen.current !== expected) return
@@ -305,14 +349,14 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
       if (loadGen.current !== expected) return
       if (isCanceledError(error)) return
       console.error('Failed to load chart data:', error)
-      showError('Failed to load charts', 'Unable to fetch chart data from the server', 5000)
+      showError('Failed to load charts', getChartLoadErrorMessage(error), 5000)
       setSeries(emptySeries())
     } finally {
       if (loadGen.current === expected) {
         setIsRefreshing(false)
       }
     }
-  }, [selectedNode, period, showError])
+  }, [selectedNode, timeRange, showError])
 
   useEffect(() => {
     loadChartData()
@@ -336,16 +380,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
         } backdrop-blur-md rounded-xl p-4 border transition-all duration-300`}
       >
         <div className="flex flex-wrap items-center gap-4">
-          <CustomSelect
-            value={period}
-            onChange={handlePeriodChange}
-            options={Object.entries(PERIOD_CONFIGURATIONS).map(([value, config]) => ({
-              value,
-              label: config.label,
-            }))}
-            icon={Calendar}
-            label="Period:"
-          />
+          <TimeRangePicker value={timeRange} onChange={handleTimeRangeChange} />
 
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
             theme === 'light' ? 'bg-gray-100 border border-gray-300' : 'bg-gray-800/60 border border-gray-700/50'

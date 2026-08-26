@@ -15,6 +15,8 @@ import { isCanceledError } from '../services/api';
 import type { QueryLogStatsResponse, Process, QueryLogEntry } from '../services/queryAPI';
 import { metricsAPI } from '../services/metricsAPI';
 import type { NodeInfo } from '../types/metrics';
+import type { TimeRangeValue } from '../utils/metricStep';
+import { loadQueriesTimeRange, QUERIES_TIME_RANGE_KEY, timeRangeToQueryFilter } from '../utils/queryTimeRange';
 
 interface Query {
   id: string;
@@ -68,15 +70,7 @@ export function QueriesPage() {
   const [selectedStatus, setSelectedStatus] = useState(() => {
     return sessionStorage.getItem('queriesSelectedStatus') || 'All Statuses';
   });
-  const [selectedPeriod, setSelectedPeriod] = useState(() => {
-    return sessionStorage.getItem('queriesSelectedPeriod') || '1h';
-  });
-  const [dateFrom, setDateFrom] = useState(() => {
-    return sessionStorage.getItem('queriesDateFrom') || '';
-  });
-  const [dateTo, setDateTo] = useState(() => {
-    return sessionStorage.getItem('queriesDateTo') || '';
-  });
+  const [timeRange, setTimeRange] = useState<TimeRangeValue>(() => loadQueriesTimeRange());
   const [isApplyingFilters, setIsApplyingFilters] = useState(false);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<string>('');
@@ -100,10 +94,8 @@ export function QueriesPage() {
     sessionStorage.setItem('queriesSearchQuery', searchQuery);
     sessionStorage.setItem('queriesSelectedUser', selectedUser);
     sessionStorage.setItem('queriesSelectedStatus', selectedStatus);
-    sessionStorage.setItem('queriesSelectedPeriod', selectedPeriod);
-    sessionStorage.setItem('queriesDateFrom', dateFrom);
-    sessionStorage.setItem('queriesDateTo', dateTo);
-  }, [currentPage, recordsPerPage, sortBy, sortOrder, searchQuery, selectedUser, selectedStatus, selectedPeriod, dateFrom, dateTo]);
+    sessionStorage.setItem(QUERIES_TIME_RANGE_KEY, JSON.stringify(timeRange));
+  }, [currentPage, recordsPerPage, sortBy, sortOrder, searchQuery, selectedUser, selectedStatus, timeRange]);
 
   // Load nodes from API
   useEffect(() => {
@@ -169,15 +161,14 @@ export function QueriesPage() {
     const loadStats = async () => {
       try {
         // Build filter from current filters
-        const periodDates = getPeriodDates(selectedPeriod);
-        const filter: any = {
+        const periodDates = timeRangeToQueryFilter(timeRange);
+        const filter: Record<string, string | number | undefined> = {
           node: selectedNode,
         };
 
-        // Apply period or date range
         if (periodDates.last) {
           filter.last = periodDates.last;
-        } else if (periodDates.from || periodDates.to) {
+        } else {
           if (periodDates.from) filter.from = periodDates.from;
           if (periodDates.to) filter.to = periodDates.to;
         }
@@ -232,7 +223,7 @@ export function QueriesPage() {
         statsEventSourceRef.current = null;
       }
     };
-  }, [selectedNode, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
+  }, [selectedNode, timeRange, selectedUser, selectedStatus, searchQuery]);
 
   // Save selected node to sessionStorage
   const handleNodeSelect = (node: string) => {
@@ -305,70 +296,7 @@ export function QueriesPage() {
   useEffect(() => {
     loadQueryLog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode, currentPage, recordsPerPage, sortBy, sortOrder, selectedPeriod, dateFrom, dateTo, selectedUser, selectedStatus, searchQuery]);
-
-  // Convert date string to RFC3339 format (API expects RFC3339 or 2006-01-02 15:04:05)
-  const formatDateForAPI = (dateStr: string): string => {
-    if (!dateStr) return '';
-    
-    // If already in RFC3339 format, return as is
-    if (dateStr.includes('T') && (dateStr.includes('Z') || dateStr.match(/[+-]\d{2}:\d{2}$/))) {
-      return dateStr;
-    }
-    
-    // Parse the date string
-    let date: Date;
-    if (dateStr.includes('T')) {
-      // Format: YYYY-MM-DDTHH:mm
-      const [datePart, timePart] = dateStr.split('T');
-      const [hours = '00', minutes = '00'] = timePart.split(':');
-      // Create date in local timezone, then convert to UTC
-      date = new Date(`${datePart}T${hours}:${minutes}:00`);
-    } else {
-      // Format: YYYY-MM-DD
-      // Create date at midnight in local timezone, then convert to UTC
-      date = new Date(`${dateStr}T00:00:00`);
-    }
-    
-    // Check if date is valid
-    if (isNaN(date.getTime())) {
-      console.error('Invalid date:', dateStr);
-      return '';
-    }
-    
-    // Convert to RFC3339 format: YYYY-MM-DDTHH:mm:ssZ (UTC)
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-    
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
-  };
-
-  // Convert period to API format (from/to dates or last)
-  const getPeriodDates = (period: string): { from?: string; to?: string; last?: string } => {
-    if (dateFrom || dateTo) {
-      return { 
-        from: dateFrom ? formatDateForAPI(dateFrom) : undefined, 
-        to: dateTo ? formatDateForAPI(dateTo) : undefined 
-      };
-    }
-
-    switch (period) {
-      case '15min':
-        return { last: '15m' };
-      case '30min':
-        return { last: '30m' };
-      case '1h':
-        return { last: '1h' };
-      case '2h':
-        return { last: '2h' };
-      default:
-        return {};
-    }
-  };
+  }, [selectedNode, currentPage, recordsPerPage, sortBy, sortOrder, timeRange, selectedUser, selectedStatus, searchQuery]);
 
   // Load query log with filters
   const loadQueryLog = async () => {
@@ -380,8 +308,8 @@ export function QueriesPage() {
 
     try {
       setLoadingQueryLog(true);
-      const periodDates = getPeriodDates(selectedPeriod);
-      const filter: any = {
+      const periodDates = timeRangeToQueryFilter(timeRange);
+      const filter: Record<string, string | number | undefined> = {
         node: selectedNode,
         limit: parseInt(recordsPerPage),
         offset: (currentPage - 1) * parseInt(recordsPerPage),
@@ -391,7 +319,7 @@ export function QueriesPage() {
 
       if (periodDates.last) {
         filter.last = periodDates.last;
-      } else if (periodDates.from || periodDates.to) {
+      } else {
         if (periodDates.from) filter.from = periodDates.from;
         if (periodDates.to) filter.to = periodDates.to;
       }
@@ -650,9 +578,7 @@ export function QueriesPage() {
                 runningCount={runningQueries.length}
                 completedCount={queryStats.finished}
                 failedCount={queryStats.error}
-                period={selectedPeriod}
-                dateFrom={dateFrom}
-                dateTo={dateTo}
+                timeRange={timeRange}
                 selectedUser={selectedUser}
               />
 
@@ -675,12 +601,11 @@ export function QueriesPage() {
                 users={users}
                 selectedStatus={selectedStatus}
                 onStatusChange={setSelectedStatus}
-                selectedPeriod={selectedPeriod}
-                onPeriodChange={setSelectedPeriod}
-                dateFrom={dateFrom}
-                onDateFromChange={setDateFrom}
-                dateTo={dateTo}
-                onDateToChange={setDateTo}
+                timeRange={timeRange}
+                onTimeRangeChange={(value) => {
+                  setTimeRange(value);
+                  setCurrentPage(1);
+                }}
                 recordsPerPage={recordsPerPage}
                 onRecordsPerPageChange={(value) => {
                   setRecordsPerPage(value);

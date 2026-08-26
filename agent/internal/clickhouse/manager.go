@@ -18,10 +18,14 @@ var (
 
 // Manager manages ClickHouse connection and query execution
 type Manager struct {
-	cluster  *ClusterManager
-	executor *QueryExecutor
-	config   *config.ClickHouseConfig
-	logger   *logger.Logger
+	cluster    *ClusterManager
+	executor   *QueryExecutor
+	config     *config.ClickHouseConfig
+	logger     *logger.Logger
+	onReady    func()
+	ready      bool
+	readyMu    sync.Mutex
+	executorMu sync.Mutex
 }
 
 // GetInstance returns the singleton ClickHouse manager
@@ -34,7 +38,48 @@ func (m *Manager) GetClusterManager() *ClusterManager {
 	return m.cluster
 }
 
-// Connect initializes the ClickHouse manager (should be called once at startup)
+// SetOnReady registers a callback invoked once when ClickHouse becomes usable.
+// If already ready, the callback runs asynchronously immediately.
+func (m *Manager) SetOnReady(fn func()) {
+	if m == nil || fn == nil {
+		return
+	}
+	m.readyMu.Lock()
+	m.onReady = fn
+	alreadyReady := m.ready
+	m.readyMu.Unlock()
+	if alreadyReady {
+		go fn()
+	}
+}
+
+// IsReady reports whether at least one CH connection and the query executor are available.
+func (m *Manager) IsReady() bool {
+	if m == nil || m.cluster == nil {
+		return false
+	}
+	m.executorMu.Lock()
+	ready := m.executor != nil && m.cluster.GetWorkingConnections() > 0
+	m.executorMu.Unlock()
+	return ready
+}
+
+func (m *Manager) fireReady() {
+	m.readyMu.Lock()
+	if m.ready {
+		m.readyMu.Unlock()
+		return
+	}
+	m.ready = true
+	fn := m.onReady
+	m.readyMu.Unlock()
+	if fn != nil {
+		go fn()
+	}
+}
+
+// Connect initializes the ClickHouse manager (should be called once at startup).
+// Returns nil even when no nodes are reachable so HTTP/auth can start; reconnect runs in background.
 func Connect(cfg *config.ClickHouseConfig, log *logger.Logger) error {
 	var err error
 	clickhouseOnce.Do(func() {
@@ -43,31 +88,77 @@ func Connect(cfg *config.ClickHouseConfig, log *logger.Logger) error {
 			logger: log,
 		}
 
-		// Use cluster manager for all connections with retry logic
 		clickhouseInstance.cluster, err = NewClusterManagerWithRetry(cfg, log)
 		if err != nil {
 			return
 		}
 
-		// Get first working connection for executor
-		conn, _, err := clickhouseInstance.cluster.GetConnection()
-		if err != nil {
-			clickhouseInstance.cluster.Close()
+		conn, _, connErr := clickhouseInstance.cluster.GetConnection()
+		if connErr != nil {
+			if log != nil {
+				log.Warningf("No ClickHouse nodes available yet: %v; HTTP server will start and CH will reconnect in background", connErr)
+			}
+			go clickhouseInstance.ensureExecutorLoop()
 			return
 		}
 
-		// Create query executor with cluster connection
-		clickhouseInstance.executor, err = NewQueryExecutor(conn, cfg, log)
-		if err != nil {
-			clickhouseInstance.cluster.Close()
+		executor, execErr := NewQueryExecutor(conn, cfg, log)
+		if execErr != nil {
+			if log != nil {
+				log.Warningf("Failed to create ClickHouse query executor: %v; will retry in background", execErr)
+			}
+			go clickhouseInstance.ensureExecutorLoop()
 			return
 		}
 
-		// Test connection and get version (non-blocking)
+		clickhouseInstance.executorMu.Lock()
+		clickhouseInstance.executor = executor
+		clickhouseInstance.executorMu.Unlock()
+		clickhouseInstance.fireReady()
 		go clickhouseInstance.testConnectionWithRetry()
 	})
 
 	return err
+}
+
+// ensureExecutorLoop waits until a cluster connection is available, then creates the executor.
+func (m *Manager) ensureExecutorLoop() {
+	retryDelay := 5 * time.Second
+	for {
+		m.executorMu.Lock()
+		hasExecutor := m.executor != nil
+		m.executorMu.Unlock()
+		if hasExecutor {
+			m.fireReady()
+			go m.testConnectionWithRetry()
+			return
+		}
+
+		conn, _, err := m.cluster.GetConnection()
+		if err == nil {
+			executor, execErr := NewQueryExecutor(conn, m.config, m.logger)
+			if execErr == nil {
+				m.executorMu.Lock()
+				m.executor = executor
+				m.executorMu.Unlock()
+				if m.logger != nil {
+					m.logger.Info("ClickHouse query executor initialized after reconnect")
+				}
+				m.fireReady()
+				go m.testConnectionWithRetry()
+				return
+			}
+			if m.logger != nil {
+				m.logger.Warningf("Failed to create ClickHouse query executor after reconnect: %v", execErr)
+			}
+		}
+
+		time.Sleep(retryDelay)
+		retryDelay *= 2
+		if retryDelay > 60*time.Second {
+			retryDelay = 60 * time.Second
+		}
+	}
 }
 
 // GetCluster returns the cluster manager
@@ -128,11 +219,11 @@ func (m *Manager) testConnection() error {
 
 // HealthCheck performs a health check on ClickHouse
 func (m *Manager) HealthCheck(ctx context.Context) error {
-	if m.executor == nil {
-		return fmt.Errorf("ClickHouse executor not initialized")
+	if m.cluster == nil {
+		return fmt.Errorf("ClickHouse cluster not initialized")
 	}
 
-	// Check all nodes in cluster
+	// Check all nodes in cluster (works even when executor is not ready yet)
 	results := m.cluster.HealthCheck(ctx)
 	workingNodes := 0
 	for nodeAddr, err := range results {
@@ -146,11 +237,11 @@ func (m *Manager) HealthCheck(ctx context.Context) error {
 	}
 
 	if workingNodes == 0 {
-		// Don't return error, just log it - application should continue running
+		// Don't return error — application should continue running without CH
 		if m.logger != nil {
 			m.logger.Warning("No working ClickHouse nodes available, but application continues running")
 		}
-		return nil // Return nil to prevent application crash
+		return nil
 	}
 
 	if m.logger != nil {
@@ -178,6 +269,11 @@ func (m *Manager) testConnectionWithRetry() {
 	retryDelay := 5 * time.Second
 
 	for {
+		if m.executor == nil {
+			time.Sleep(retryDelay)
+			continue
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := m.executor.Ping(ctx)
 		cancel()

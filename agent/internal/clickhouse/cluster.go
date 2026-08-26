@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 
 	"clickhouse-ops/internal/config"
@@ -15,15 +16,20 @@ import (
 
 // ClusterManager manages connections to multiple ClickHouse nodes
 type ClusterManager struct {
-	nodes        []config.ClickHouseNode
-	conns        []driver.Conn
-	nodeVersions []string // Version of each node
-	config       *config.ClickHouseConfig
-	logger       *logger.Logger
-	current      int // Current node index for round-robin
+	nodes         []config.ClickHouseNode
+	conns         []driver.Conn
+	nodeVersions  []string // Version of each node
+	config        *config.ClickHouseConfig
+	logger        *logger.Logger
+	current       int // Current node index for round-robin
+	mu            sync.RWMutex
+	currentMu     sync.Mutex // protects current for round-robin
+	stopReconnect chan struct{}
+	reconnectOnce sync.Once
 }
 
-// NewClusterManagerWithRetry creates a new cluster manager with infinite retry logic
+// NewClusterManagerWithRetry creates a cluster manager, connects once, and retries failed nodes in background.
+// Startup does not block waiting for ClickHouse availability.
 func NewClusterManagerWithRetry(cfg *config.ClickHouseConfig, log *logger.Logger) (*ClusterManager, error) {
 	// Get connection nodes
 	nodes, err := getConnectionNodes(cfg)
@@ -37,18 +43,20 @@ func NewClusterManagerWithRetry(cfg *config.ClickHouseConfig, log *logger.Logger
 	})
 
 	cm := &ClusterManager{
-		nodes:  nodes,
-		config: cfg,
-		logger: log,
+		nodes:         nodes,
+		config:        cfg,
+		logger:        log,
+		stopReconnect: make(chan struct{}),
 	}
 
 	// Initialize node versions array
 	cm.nodeVersions = make([]string, len(nodes))
 
-	// Initialize connections with infinite retry
-	if err := cm.initializeConnectionsWithRetry(); err != nil {
-		return nil, fmt.Errorf("failed to initialize connections: %w", err)
-	}
+	// One-shot connect; background loop keeps retrying unavailable nodes
+	cm.initializeConnectionsBestEffort()
+	cm.reconnectOnce.Do(func() {
+		go cm.reconnectLoop()
+	})
 
 	return cm, nil
 }
@@ -125,83 +133,136 @@ func (cm *ClusterManager) initializeConnections() error {
 	return nil
 }
 
-// initializeConnectionsWithRetry establishes connections to all nodes with infinite retry
-func (cm *ClusterManager) initializeConnectionsWithRetry() error {
-	cm.conns = make([]driver.Conn, len(cm.nodes))
+// initializeConnectionsBestEffort tries each node once without blocking startup.
+func (cm *ClusterManager) initializeConnectionsBestEffort() {
+	cm.mu.Lock()
+	if cm.conns == nil {
+		cm.conns = make([]driver.Conn, len(cm.nodes))
+	}
+	cm.mu.Unlock()
 
-	// Try to connect to at least one node
-	connected := false
-	retryDelay := 5 * time.Second
+	working := cm.connectMissing()
+	if cm.logger != nil {
+		if working == 0 {
+			cm.logger.Warningf("No ClickHouse nodes available at startup (%d configured); will retry in background", len(cm.nodes))
+		} else {
+			cm.logger.Infof("Cluster manager initialized with %d/%d working connections", working, len(cm.nodes))
+		}
+	}
+}
 
-	for !connected {
-		connected = true
+// missingNodeIndexes returns node indexes with no live connection.
+func (cm *ClusterManager) missingNodeIndexes() []int {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 
-		for i, node := range cm.nodes {
-			if cm.conns[i] != nil {
-				continue // Already connected
-			}
+	missing := make([]int, 0)
+	for i, conn := range cm.conns {
+		if conn == nil {
+			missing = append(missing, i)
+		}
+	}
+	return missing
+}
 
-			conn, err := cm.connectToNode(node)
-			if err != nil {
-				if cm.logger != nil {
-					cm.logger.Errorf("Failed to connect to ClickHouse node '%s' (%s:%d): %v",
-						node.Name, node.Host, node.Port, err)
-				}
-				cm.conns[i] = nil
-				connected = false
-			} else {
-				cm.conns[i] = conn
-
-				// Get and store version
-				version, err := cm.getClickHouseVersion(conn)
-				if err != nil {
-					if cm.logger != nil {
-						cm.logger.Warningf("Failed to get version for node '%s' (%s:%d): %v",
-							node.Name, node.Host, node.Port, err)
-					}
-					cm.nodeVersions[i] = "unknown"
-				} else {
-					cm.nodeVersions[i] = version
-					if cm.logger != nil {
-						cm.logger.Infof("Connected to ClickHouse node '%s' (%s:%d) version %s (priority: %d, weight: %d)",
-							node.Name, node.Host, node.Port, version, node.Priority, node.Weight)
-					}
-				}
-			}
+// connectMissing dials missing nodes outside the lock, then publishes under the lock.
+func (cm *ClusterManager) connectMissing() int {
+	for _, i := range cm.missingNodeIndexes() {
+		if cm.isStopped() {
+			break
 		}
 
-		if !connected {
+		node := cm.nodes[i]
+		conn, version, err := cm.connectToNodeWithVersion(node)
+		if err != nil {
 			if cm.logger != nil {
-				cm.logger.Errorf("No ClickHouse nodes available, retrying in %v... (nodes: %v)", retryDelay,
-					func() []string {
-						var nodeNames []string
-						for _, node := range cm.nodes {
-							nodeNames = append(nodeNames, fmt.Sprintf("'%s' (%s:%d)", node.Name, node.Host, node.Port))
-						}
-						return nodeNames
-					}())
+				cm.logger.Errorf("Failed to connect to ClickHouse node '%s' (%s:%d): %v",
+					node.Name, node.Host, node.Port, err)
 			}
-			time.Sleep(retryDelay)
+			continue
+		}
 
-			// Exponential backoff with cap
+		cm.mu.Lock()
+		if cm.isStoppedLocked() || cm.conns[i] != nil {
+			cm.mu.Unlock()
+			_ = conn.Close()
+			continue
+		}
+		cm.conns[i] = conn
+		cm.nodeVersions[i] = version
+		cm.mu.Unlock()
+
+		if cm.logger != nil {
+			cm.logger.Infof("Connected to ClickHouse node '%s' (%s:%d) version %s (priority: %d, weight: %d)",
+				node.Name, node.Host, node.Port, version, node.Priority, node.Weight)
+		}
+	}
+
+	return cm.GetWorkingConnections()
+}
+
+func (cm *ClusterManager) isStopped() bool {
+	select {
+	case <-cm.stopReconnect:
+		return true
+	default:
+		return false
+	}
+}
+
+func (cm *ClusterManager) isStoppedLocked() bool {
+	return cm.isStopped()
+}
+
+// reconnectLoop retries failed ClickHouse nodes in the background.
+func (cm *ClusterManager) reconnectLoop() {
+	retryDelay := 5 * time.Second
+	timer := time.NewTimer(retryDelay)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-cm.stopReconnect:
+			return
+		case <-timer.C:
+		}
+
+		if cm.isStopped() {
+			return
+		}
+
+		before := cm.GetWorkingConnections()
+		working := cm.connectMissing()
+
+		if cm.isStopped() {
+			return
+		}
+
+		if working == len(cm.nodes) {
+			retryDelay = 30 * time.Second
+		} else {
+			if working > before && cm.logger != nil {
+				cm.logger.Infof("ClickHouse reconnect progress: %d/%d nodes available", working, len(cm.nodes))
+			}
 			retryDelay *= 2
 			if retryDelay > 60*time.Second {
 				retryDelay = 60 * time.Second
 			}
 		}
-	}
 
-	if cm.logger != nil {
-		workingConnections := 0
-		for _, conn := range cm.conns {
-			if conn != nil {
-				workingConnections++
-			}
-		}
-		cm.logger.Infof("Cluster manager initialized with %d/%d working connections",
-			workingConnections, len(cm.nodes))
+		timer.Reset(retryDelay)
 	}
+}
 
+// initializeConnectionsWithRetry is kept for compatibility; delegates to best-effort init + background retry.
+func (cm *ClusterManager) initializeConnectionsWithRetry() error {
+	if cm.stopReconnect == nil {
+		cm.stopReconnect = make(chan struct{})
+	}
+	cm.initializeConnectionsBestEffort()
+	cm.reconnectOnce.Do(func() {
+		go cm.reconnectLoop()
+	})
 	return nil
 }
 
@@ -215,41 +276,45 @@ func (cm *ClusterManager) getClickHouseVersion(conn driver.Conn) (string, error)
 
 // connectToNode creates a connection to a specific node
 func (cm *ClusterManager) connectToNode(node config.ClickHouseNode) (driver.Conn, error) {
-	// Use unified connection method
+	conn, _, err := cm.connectToNodeWithVersion(node)
+	return conn, err
+}
+
+// connectToNodeWithVersion creates and validates a connection, returning the server version.
+func (cm *ClusterManager) connectToNodeWithVersion(node config.ClickHouseNode) (driver.Conn, string, error) {
 	conn, err := OpenConnection(node, cm.config)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	if err := conn.Ping(ctx); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("ping failed for %s:%d: %w", node.Host, node.Port, err)
+		return nil, "", fmt.Errorf("ping failed for %s:%d: %w", node.Host, node.Port, err)
 	}
 
-	// Get and validate version
 	version, err := cm.getClickHouseVersion(conn)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to get version for %s:%d: %w", node.Host, node.Port, err)
+		return nil, "", fmt.Errorf("failed to get version for %s:%d: %w", node.Host, node.Port, err)
 	}
 
-	// Validate version using utils
 	utils := NewValidationUtils(cm.config, cm.logger)
 	if err := utils.ValidateVersionConstraints(version); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("version validation failed for %s:%d (version %s): %w", node.Host, node.Port, version, err)
+		return nil, "", fmt.Errorf("version validation failed for %s:%d (version %s): %w", node.Host, node.Port, version, err)
 	}
 
-	return conn, nil
+	return conn, version, nil
 }
 
 // GetConnection returns a connection using load balancing strategy
 func (cm *ClusterManager) GetConnection() (driver.Conn, int, error) {
-	// Find available connections
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
 	available := make([]int, 0)
 	for i, conn := range cm.conns {
 		if conn != nil {
@@ -261,33 +326,32 @@ func (cm *ClusterManager) GetConnection() (driver.Conn, int, error) {
 		return nil, -1, fmt.Errorf("no available connections")
 	}
 
-	// Use weighted round-robin selection
-	nodeIndex := cm.selectNode(available)
-
-	// Validate node version before returning connection
-	if err := cm.ValidateNodeVersion(nodeIndex); err != nil {
-		// Remove this node from available nodes and try again
-		newAvailable := make([]int, 0)
+	// Try weighted selection, then remaining nodes, until a valid version is found
+	tried := make(map[int]struct{}, len(available))
+	for len(tried) < len(available) {
+		candidates := make([]int, 0, len(available)-len(tried))
 		for _, idx := range available {
-			if idx != nodeIndex {
-				newAvailable = append(newAvailable, idx)
+			if _, seen := tried[idx]; !seen {
+				candidates = append(candidates, idx)
 			}
 		}
+		nodeIndex := cm.selectNode(candidates)
+		tried[nodeIndex] = struct{}{}
 
-		if len(newAvailable) == 0 {
-			return nil, -1, fmt.Errorf("no nodes with valid versions available: %w", err)
+		if err := cm.ValidateNodeVersion(nodeIndex); err != nil {
+			continue
 		}
-
-		// Try with remaining nodes
-		return cm.GetConnection()
+		return cm.conns[nodeIndex], nodeIndex, nil
 	}
 
-	conn := cm.conns[nodeIndex]
-	return conn, nodeIndex, nil
+	return nil, -1, fmt.Errorf("no nodes with valid versions available")
 }
 
 // GetConnectionByNodeName returns a connection for a specific node by name
 func (cm *ClusterManager) GetConnectionByNodeName(nodeName string) (driver.Conn, int, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
 	for i, node := range cm.nodes {
 		if node.Name == nodeName {
 			if i < 0 || i >= len(cm.conns) || cm.conns[i] == nil {
@@ -312,9 +376,11 @@ func (cm *ClusterManager) selectNode(available []int) int {
 	}
 
 	if totalWeight == 0 {
-		// Fallback to simple round-robin
+		cm.currentMu.Lock()
 		cm.current = (cm.current + 1) % len(available)
-		return available[cm.current]
+		idx := available[cm.current]
+		cm.currentMu.Unlock()
+		return idx
 	}
 
 	// Weighted selection
@@ -348,6 +414,9 @@ func (cm *ClusterManager) GetAllNodes() []config.ClickHouseNode {
 
 // GetWorkingConnections returns the number of working connections
 func (cm *ClusterManager) GetWorkingConnections() int {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
 	count := 0
 	for _, conn := range cm.conns {
 		if conn != nil {
@@ -359,6 +428,17 @@ func (cm *ClusterManager) GetWorkingConnections() int {
 
 // Close closes all connections
 func (cm *ClusterManager) Close() error {
+	if cm.stopReconnect != nil {
+		select {
+		case <-cm.stopReconnect:
+		default:
+			close(cm.stopReconnect)
+		}
+	}
+
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
 	var lastErr error
 	for i, conn := range cm.conns {
 		if conn != nil {
@@ -369,6 +449,7 @@ func (cm *ClusterManager) Close() error {
 				}
 				lastErr = err
 			}
+			cm.conns[i] = nil
 		}
 	}
 	return lastErr
@@ -376,22 +457,28 @@ func (cm *ClusterManager) Close() error {
 
 // HealthCheck performs health check on all nodes
 func (cm *ClusterManager) HealthCheck(ctx context.Context) map[string]error {
-	results := make(map[string]error)
+	type nodeConn struct {
+		addr string
+		conn driver.Conn
+	}
 
+	cm.mu.RLock()
+	snapshot := make([]nodeConn, 0, len(cm.conns))
 	for i, conn := range cm.conns {
-		if conn == nil {
-			results[fmt.Sprintf("%s:%d", cm.nodes[i].Host, cm.nodes[i].Port)] =
-				fmt.Errorf("no connection")
+		addr := fmt.Sprintf("%s (%s:%d)", cm.nodes[i].Name, cm.nodes[i].Host, cm.nodes[i].Port)
+		snapshot = append(snapshot, nodeConn{addr: addr, conn: conn})
+	}
+	cm.mu.RUnlock()
+
+	results := make(map[string]error, len(snapshot))
+	for _, item := range snapshot {
+		if item.conn == nil {
+			results[item.addr] = fmt.Errorf("no connection")
 			continue
 		}
-
-		// Test connection with timeout
 		testCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		err := conn.Ping(testCtx)
+		results[item.addr] = item.conn.Ping(testCtx)
 		cancel()
-
-		nodeAddr := fmt.Sprintf("%s (%s:%d)", cm.nodes[i].Name, cm.nodes[i].Host, cm.nodes[i].Port)
-		results[nodeAddr] = err
 	}
 
 	return results
