@@ -1,6 +1,7 @@
 import React from 'react';
-import { Activity, CheckCircle, XCircle, Clock, Calendar, User } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Clock, User } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { formatTimeRangeLabel, type TimeRangeValue } from '../../utils/metricStep';
 
 interface StatCardData {
     title: string;
@@ -10,9 +11,7 @@ interface StatCardData {
     bg: string;
     border: string;
     showPeriod: boolean;
-    period?: string;
-    dateFrom?: string;
-    dateTo?: string;
+    timeRangeLabel?: string;
     user?: string;
 }
 
@@ -20,9 +19,7 @@ interface StatsCardsProps {
     runningCount: number;
     completedCount: number;
     failedCount: number;
-    period: string;
-    dateFrom: string;
-    dateTo: string;
+    timeRange: TimeRangeValue;
     selectedUser: string;
 }
 
@@ -30,38 +27,11 @@ export function StatsCards({
                                runningCount,
                                completedCount,
                                failedCount,
-                               period,
-                               dateFrom,
-                               dateTo,
+                               timeRange,
                                selectedUser
                            }: StatsCardsProps) {
     const { theme } = useTheme();
-
-    // Format period for display
-    const formatPeriod = (period: string): string => {
-        switch (period) {
-            case '15min':
-                return 'Last 15 minutes';
-            case '30min':
-                return 'Last 30 minutes';
-            case '1h':
-                return 'Last 1 hour';
-            case '12h':
-                return 'Last 12 hours';
-            default:
-                return period;
-        }
-    };
-
-    // Format date for display
-    const formatDate = (date: string): string => {
-        if (!date) return '';
-        // If date includes time, just return as is
-        if (date.includes(':')) {
-            return date;
-        }
-        return date;
-    };
+    const timeRangeLabel = formatTimeRangeLabel(timeRange);
 
     const stats: StatCardData[] = [
         {
@@ -82,22 +52,18 @@ export function StatsCards({
             bg: 'bg-yellow-500/20',
             border: 'border-yellow-500/30',
             showPeriod: true,
-            period: formatPeriod(period),
-            dateFrom: dateFrom,
-            dateTo: dateTo,
+            timeRangeLabel,
             user: selectedUser
         },
         {
             title: 'Failed Queries',
             value: failedCount.toString(),
             icon: XCircle,
-            color: 'text-green-400',
-            bg: 'bg-green-500/20',
-            border: 'border-green-500/30',
+            color: 'text-red-400',
+            bg: 'bg-red-500/20',
+            border: 'border-red-500/30',
             showPeriod: true,
-            period: formatPeriod(period),
-            dateFrom: dateFrom,
-            dateTo: dateTo,
+            timeRangeLabel,
             user: selectedUser
         }
     ];
@@ -137,31 +103,14 @@ export function StatsCards({
                                 </div>
                             )}
 
-                            {/* For Completed/Failed Queries - show all filters */}
+                            {/* For Completed/Failed Queries - show time range and user */}
                             {stat.showPeriod && (
                                 <div className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-500'} mt-3 space-y-1`}>
-                                    {/* Period */}
                                     <div className="flex items-center gap-1.5">
                                         <Clock className="w-3 h-3" />
-                                        <span>{stat.period}</span>
+                                        <span>{stat.timeRangeLabel}</span>
                                     </div>
 
-                                    {/* Date Range */}
-                                    {(stat.dateFrom || stat.dateTo) && (
-                                        <div className="flex items-center gap-1.5">
-                                            <Calendar className="w-3 h-3" />
-                                            <span>
-                        {stat.dateFrom && stat.dateTo
-                            ? `${formatDate(stat.dateFrom)} - ${formatDate(stat.dateTo)}`
-                            : stat.dateFrom
-                                ? `From: ${formatDate(stat.dateFrom)}`
-                                : `To: ${formatDate(stat.dateTo)}`
-                        }
-                      </span>
-                                        </div>
-                                    )}
-
-                                    {/* User Filter */}
                                     {stat.user && stat.user !== 'All Users' && (
                                         <div className="flex items-center gap-1.5">
                                             <User className="w-3 h-3" />
@@ -177,4 +126,3 @@ export function StatsCards({
         </div>
     );
 }
-

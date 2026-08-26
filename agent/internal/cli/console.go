@@ -7,10 +7,11 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"clickhouse-ops/internal/clickhouse"
-	"clickhouse-ops/internal/clickhouse/sync"
+	chsync "clickhouse-ops/internal/clickhouse/sync"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/db"
 	"clickhouse-ops/internal/httpserver"
@@ -94,23 +95,36 @@ var rootCmd = &cobra.Command{
 		}
 		appLogger.Info("PostgreSQL database connected successfully")
 
-		// Connect to ClickHouse database (non-blocking with retry)
+		// Connect to ClickHouse database (non-blocking: HTTP starts even if CH is down)
 		appLogger.Info("Initializing ClickHouse database connection...")
 		err = clickhouse.Connect(&cfg.Database.ClickHouse, appLogger)
 		if err != nil {
 			appLogger.Errorf("Failed to initialize ClickHouse database connection: %v", err)
 			appLogger.Warning("Application will continue running, ClickHouse will be retried in background")
 		} else {
-			appLogger.Info("ClickHouse database connection initialized successfully")
+			appLogger.Info("ClickHouse manager initialized")
 
 			if cfg.Sync.IsMetricsSnapshotEnabled() {
-				appLogger.Info("Initializing table synchronization...")
-				err = initializeTableSync(cfg, appLogger)
-				if err != nil {
-					appLogger.Errorf("Failed to initialize table synchronization: %v", err)
-					appLogger.Warning("Application will continue running, but table sync is disabled")
-				} else {
-					appLogger.Info("Table synchronization initialized successfully")
+				var syncOnce sync.Once
+				startSync := func() {
+					syncOnce.Do(func() {
+						appLogger.Info("Initializing table synchronization...")
+						if syncErr := initializeTableSync(cfg, appLogger); syncErr != nil {
+							appLogger.Errorf("Failed to initialize table synchronization: %v", syncErr)
+							appLogger.Warning("Application will continue running, but table sync is disabled")
+							return
+						}
+						appLogger.Info("Table synchronization initialized successfully")
+					})
+				}
+
+				if ch := clickhouse.GetInstance(); ch != nil {
+					if ch.IsReady() {
+						startSync()
+					} else {
+						appLogger.Warning("No ClickHouse nodes reachable yet; metrics sync will start after reconnect")
+						ch.SetOnReady(startSync)
+					}
 				}
 			} else {
 				appLogger.Info("Metrics snapshot synchronization is disabled")
@@ -429,10 +443,10 @@ func initializeTableSync(cfg *config.Config, logger *logger.Logger) error {
 	}
 
 	// Create sync manager
-	syncManager := sync.NewManager(logger, clusterManager)
+	syncManager := chsync.NewManager(logger, clusterManager)
 
 	// Create and register syncers
-	factory := sync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
+	factory := chsync.NewSyncerFactory(cfg.Database.ClickHouse.ClusterName)
 
 	// Parse sync frequency from config
 	metricsInterval := 1 * time.Second // Default

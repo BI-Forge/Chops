@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"clickhouse-ops/internal/api/stream"
@@ -28,6 +29,9 @@ var (
 		"active_connections": {},
 		"active_queries":     {},
 	}
+
+	// maxMetricSeriesPoints caps buckets returned for an absolute from/to window.
+	maxMetricSeriesPoints = 2500
 
 	periodConfigurations = map[string]struct {
 		duration time.Duration
@@ -289,6 +293,21 @@ func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 }
 
 // GetMetricSeries returns aggregated metrics for a period and step suitable for charting.
+// @Summary      Get metric series
+// @Description  Returns aggregated metric points for charts. Relative: period+step (window ending at now). Absolute: from+to (RFC3339); step is derived from range duration; period/step query params are ignored.
+// @Tags         metrics
+// @Security     BearerAuth
+// @Param        node    query  string  true   "Node name"
+// @Param        metric  query  string  false  "Metric type" Enums(cpu_load, memory_load, memory_used_gb, storage_used, active_connections, active_queries) default(cpu_load)
+// @Param        period  query  string  false  "Relative period (selects window+step); ignored when from/to set" Enums(10m, 30m, 1h, 6h, 12h, 1d, 3d, 7d) default(1h)
+// @Param        step    query  string  false  "Aggregation step for relative period; must match period default; ignored when from/to set"
+// @Param        from    query  string  false  "Range start (RFC3339); requires to; step derived from duration"
+// @Param        to      query  string  false  "Range end (RFC3339); requires from; step derived from duration"
+// @Produce      json
+// @Success      200  {object}  models.MetricSeriesResponse
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      500  {object}  models.ErrorResponse
+// @Router       /api/v1/clickhouse/metrics/series [get]
 func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 	nodeName := c.Query("node")
 	if nodeName == "" {
@@ -302,41 +321,70 @@ func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 		return
 	}
 
-	periodKey := c.DefaultQuery("period", "1h")
-	periodCfg, ok := periodConfigurations[periodKey]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported period: %s", periodKey)})
-		return
-	}
+	fromParam := strings.TrimSpace(c.Query("from"))
+	toParam := strings.TrimSpace(c.Query("to"))
+	absolute := fromParam != "" || toParam != ""
 
-	defaultStep, hasDefault := stepStrings[periodCfg.step]
-	if !hasDefault {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("unsupported configured step duration: %s", periodCfg.step)})
-		return
-	}
+	var (
+		periodKey      string
+		stepDuration   time.Duration
+		effectiveStep  string
+		from, to       time.Time
+		err            error
+	)
 
-	stepKey := c.DefaultQuery("step", defaultStep)
-	stepDuration, effectiveStep, err := normalizeStep(stepKey, periodCfg.step)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	if absolute {
+		from, to, err = h.resolveSeriesRange(fromParam, toParam, 0)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		stepDuration, effectiveStep, err = stepForDuration(to.Sub(from))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		periodKey = "custom"
 
-	if h.retentionDays > 0 {
-		maxPeriod := time.Duration(h.retentionDays) * 24 * time.Hour
-		if periodCfg.duration > maxPeriod {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("period %s exceeds retention window of %dd", periodKey, h.retentionDays)})
+		estimated := int(to.Sub(from)/stepDuration) + 1
+		if estimated > maxMetricSeriesPoints {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("requested range with step %s would produce about %d points (max %d); narrow the range", effectiveStep, estimated, maxMetricSeriesPoints),
+			})
+			return
+		}
+	} else {
+		periodKey = c.DefaultQuery("period", "1h")
+		periodCfg, ok := periodConfigurations[periodKey]
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported period: %s", periodKey)})
+			return
+		}
+
+		defaultStep, hasDefault := stepStrings[periodCfg.step]
+		if !hasDefault {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("unsupported configured step duration: %s", periodCfg.step)})
+			return
+		}
+
+		stepKey := c.DefaultQuery("step", defaultStep)
+		stepDuration, effectiveStep, err = normalizeStep(stepKey, periodCfg.step)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		from, to, err = h.resolveSeriesRange("", "", periodCfg.duration)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
 
-	now := time.Now().UTC()
-	from := now.Add(-periodCfg.duration)
-
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	points, err := h.metricsRepo.GetMetricSeries(ctx, nodeName, metricType, from, now, stepDuration)
+	points, err := h.metricsRepo.GetMetricSeries(ctx, nodeName, metricType, from, to, stepDuration)
 	if err != nil {
 		h.logger.Errorf("Failed to load metric series: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load metric series"})
@@ -349,11 +397,90 @@ func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 		Period: periodKey,
 		Step:   effectiveStep,
 		From:   from.Format(time.RFC3339),
-		To:     now.Format(time.RFC3339),
+		To:     to.Format(time.RFC3339),
 		Points: points,
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// stepForDuration picks aggregation step from absolute range length (same ladder as period presets).
+func stepForDuration(d time.Duration) (time.Duration, string, error) {
+	if d <= 0 {
+		return 0, "", fmt.Errorf("duration must be positive")
+	}
+
+	var step time.Duration
+	switch {
+	case d <= 10*time.Minute:
+		step = time.Second
+	case d <= 30*time.Minute:
+		step = 10 * time.Second
+	case d <= time.Hour:
+		step = time.Minute
+	case d <= 6*time.Hour:
+		step = 5 * time.Minute
+	case d <= 12*time.Hour:
+		step = 5 * time.Minute
+	case d <= 24*time.Hour:
+		step = 30 * time.Minute
+	default:
+		step = time.Hour
+	}
+
+	key, ok := stepStrings[step]
+	if !ok {
+		return 0, "", fmt.Errorf("unsupported step duration: %s", step)
+	}
+	return step, key, nil
+}
+
+// resolveSeriesRange returns the chart time window.
+// With neither from nor to: relative window ending at now.
+// With both: absolute window. With only one: error.
+func (h *MetricsHandler) resolveSeriesRange(fromParam, toParam string, periodDuration time.Duration) (time.Time, time.Time, error) {
+	fromParam = strings.TrimSpace(fromParam)
+	toParam = strings.TrimSpace(toParam)
+
+	if fromParam == "" && toParam == "" {
+		if h.retentionDays > 0 {
+			maxPeriod := time.Duration(h.retentionDays) * 24 * time.Hour
+			if periodDuration > maxPeriod {
+				return time.Time{}, time.Time{}, fmt.Errorf("period exceeds retention window of %dd", h.retentionDays)
+			}
+		}
+		now := time.Now().UTC()
+		return now.Add(-periodDuration), now, nil
+	}
+
+	if fromParam == "" || toParam == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("both from and to must be provided together")
+	}
+
+	from, err := parseTimestamp(fromParam)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid from timestamp: %w", err)
+	}
+	to, err := parseTimestamp(toParam)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid to timestamp: %w", err)
+	}
+
+	from = from.UTC().Truncate(time.Second)
+	to = to.UTC().Truncate(time.Second)
+
+	if !from.Before(to) {
+		return time.Time{}, time.Time{}, fmt.Errorf("from must be before to")
+	}
+
+	if h.retentionDays > 0 {
+		maxRange := time.Duration(h.retentionDays) * 24 * time.Hour
+		if to.Sub(from) > maxRange {
+			return time.Time{}, time.Time{}, fmt.Errorf("range exceeds retention window of %dd", h.retentionDays)
+		}
+	}
+
+	return from, to, nil
 }
 
 func normalizeStep(stepKey string, expectedStep time.Duration) (time.Duration, string, error) {

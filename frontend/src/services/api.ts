@@ -7,6 +7,7 @@ import { pageSignal } from '../utils/pageScope'
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
   _retryCount?: number;
   _retry?: boolean;
+  _skipAlert?: boolean;
 }
 
 const api = axios.create({
@@ -78,19 +79,23 @@ api.interceptors.response.use(
 
     // Handle client errors (4xx) - don't retry, show error immediately
     if (error.response && error.response.status >= 400 && error.response.status < 500) {
-      const { message, error: errorField } = extractNotificationMessage(error.response.data);
-      const errorMessage = message || errorField || 'Error';
-      const statusText = error.response.statusText || `Error ${error.response.status}`;
-      alertUtils.error(statusText, errorMessage, 5000);
+      if (!config._skipAlert) {
+        const { message, error: errorField } = extractNotificationMessage(error.response.data);
+        const errorMessage = message || errorField || 'Error';
+        const statusText = error.response.statusText || `Error ${error.response.status}`;
+        alertUtils.error(statusText, errorMessage, 5000);
+      }
       return Promise.reject(error)
     }
 
     // Skip retry if explicitly disabled (e.g., for profile updates to prevent duplicate requests)
     if ((config as any)._skipRetry) {
-      const { message, error: errorField } = extractNotificationMessage(error.response?.data || {});
-      const errorMessage = message || errorField || 'Error';
-      const statusText = error.response?.statusText || `Error ${error.response?.status || 'Unknown'}`;
-      alertUtils.error(statusText, errorMessage, 5000);
+      if (!config._skipAlert) {
+        const { message, error: errorField } = extractNotificationMessage(error.response?.data || {});
+        const errorMessage = message || errorField || 'Error';
+        const statusText = error.response?.statusText || `Error ${error.response?.status || 'Unknown'}`;
+        alertUtils.error(statusText, errorMessage, 5000);
+      }
       return Promise.reject(error);
     }
 
@@ -105,10 +110,12 @@ api.interceptors.response.use(
         return api(config)
       } else {
         // All retries exhausted, show error
-        const { message, error: errorField } = extractNotificationMessage(error.response.data);
-        const errorMessage = message || errorField || 'Error';
-        const statusText = error.response.statusText || `Error ${error.response.status}`;
-        alertUtils.error(statusText, errorMessage, 5000);
+        if (!config._skipAlert) {
+          const { message, error: errorField } = extractNotificationMessage(error.response.data);
+          const errorMessage = message || errorField || 'Error';
+          const statusText = error.response.statusText || `Error ${error.response.status}`;
+          alertUtils.error(statusText, errorMessage, 5000);
+        }
         return Promise.reject(error)
       }
     }
@@ -124,7 +131,9 @@ api.interceptors.response.use(
         return api(config)
       } else {
         // All retries exhausted, show error
-        alertUtils.error('Network Error', 'Error', 5000);
+        if (!config._skipAlert) {
+          alertUtils.error('Network Error', 'Error', 5000);
+        }
         return Promise.reject(error)
       }
     }

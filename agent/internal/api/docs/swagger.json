@@ -17,6 +17,102 @@
     "host": "localhost:8080",
     "basePath": "/api/v1",
     "paths": {
+        "/api/v1/clickhouse/metrics/series": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregated metric points for charts. Relative: period+step (window ending at now). Absolute: from+to (RFC3339); step is derived from range duration; period/step query params are ignored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Get metric series",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Node name",
+                        "name": "node",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "cpu_load",
+                            "memory_load",
+                            "memory_used_gb",
+                            "storage_used",
+                            "active_connections",
+                            "active_queries"
+                        ],
+                        "type": "string",
+                        "default": "cpu_load",
+                        "description": "Metric type",
+                        "name": "metric",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "10m",
+                            "30m",
+                            "1h",
+                            "6h",
+                            "12h",
+                            "1d",
+                            "3d",
+                            "7d"
+                        ],
+                        "type": "string",
+                        "default": "1h",
+                        "description": "Relative period (selects window+step); ignored when from/to set",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Aggregation step for relative period; must match period default; ignored when from/to set",
+                        "name": "step",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Range start (RFC3339); requires to; step derived from duration",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Range end (RFC3339); requires from; step derived from duration",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.MetricSeriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/login": {
             "post": {
                 "description": "Authenticate user and return JWT token",
@@ -898,6 +994,46 @@
                     "type": "string"
                 },
                 "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.MetricSeriesPoint": {
+            "type": "object",
+            "properties": {
+                "timestamp": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "models.MetricSeriesResponse": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "node": {
+                    "type": "string"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.MetricSeriesPoint"
+                    }
+                },
+                "step": {
+                    "type": "string"
+                },
+                "to": {
                     "type": "string"
                 }
             }

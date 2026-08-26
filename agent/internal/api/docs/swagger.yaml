@@ -250,6 +250,32 @@ definitions:
       timestamp:
         type: string
     type: object
+  models.MetricSeriesPoint:
+    properties:
+      timestamp:
+        type: string
+      value:
+        type: number
+    type: object
+  models.MetricSeriesResponse:
+    properties:
+      from:
+        type: string
+      metric:
+        type: string
+      node:
+        type: string
+      period:
+        type: string
+      points:
+        items:
+          $ref: '#/definitions/models.MetricSeriesPoint'
+        type: array
+      step:
+        type: string
+      to:
+        type: string
+    type: object
   models.TokenResponse:
     properties:
       expires_in:
@@ -293,6 +319,76 @@ info:
   title: ClickHouse Operations API
   version: "1.0"
 paths:
+  /api/v1/clickhouse/metrics/series:
+    get:
+      description: Returns aggregated metric points for charts. Relative: period+step
+        (window ending at now). Absolute: from+to (RFC3339); step is derived from
+        range duration; period/step query params are ignored.
+      parameters:
+      - description: Node name
+        in: query
+        name: node
+        required: true
+        type: string
+      - default: cpu_load
+        description: Metric type
+        enum:
+        - cpu_load
+        - memory_load
+        - memory_used_gb
+        - storage_used
+        - active_connections
+        - active_queries
+        in: query
+        name: metric
+        type: string
+      - default: 1h
+        description: Relative period (selects window+step); ignored when from/to set
+        enum:
+        - 10m
+        - 30m
+        - 1h
+        - 6h
+        - 12h
+        - 1d
+        - 3d
+        - 7d
+        in: query
+        name: period
+        type: string
+      - description: Aggregation step for relative period; must match period default;
+          ignored when from/to set
+        in: query
+        name: step
+        type: string
+      - description: Range start (RFC3339); requires to; step derived from duration
+        in: query
+        name: from
+        type: string
+      - description: Range end (RFC3339); requires from; step derived from duration
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.MetricSeriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get metric series
+      tags:
+      - metrics
   /api/v1/auth/login:
     post:
       consumes:

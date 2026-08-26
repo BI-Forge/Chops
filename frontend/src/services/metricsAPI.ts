@@ -82,18 +82,30 @@ export const metricsAPI = {
   getMetricSeries: async (
     node: string,
     metric: string,
-    period: string,
-    step: string
+    options: {
+      period?: string
+      step?: string
+      from?: string
+      to?: string
+    }
   ): Promise<MetricSeriesResponse> => {
     return retryRequest(async () => {
+      const params: Record<string, string> = {
+        node,
+        metric,
+      }
+      if (options.from && options.to) {
+        params.from = options.from
+        params.to = options.to
+      } else {
+        if (options.period) params.period = options.period
+        if (options.step) params.step = options.step
+      }
       const response = await api.get<MetricSeriesResponse>('/clickhouse/metrics/series', {
-        params: {
-          node,
-          metric,
-          period,
-          step,
-        },
-      })
+        params,
+        // Caller shows a single chart-level error; avoid 5 duplicate toasts on Promise.all.
+        _skipAlert: true,
+      } as Parameters<typeof api.get>[1])
       return response.data
     })
   },

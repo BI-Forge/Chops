@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"clickhouse-ops/internal/api/v1/models"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/tests/api/testutil"
 
@@ -286,5 +288,118 @@ func TestMetricsHandlerGetMetricSeriesMissingRequiredParams(t *testing.T) {
 
 		// Should return 200 with default values
 		assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusBadRequest || w.Code == http.StatusInternalServerError)
+	})
+}
+
+func TestMetricsHandlerGetMetricSeriesWithFromTo(t *testing.T) {
+	_, _, router := testutil.SetupTestEnvironmentWithDB(t)
+	if router == nil {
+		return
+	}
+
+	token := testutil.RegisterTestUser(t, router, "test_metrics_series_from_to")
+	from := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+	to := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+
+	t.Run("both from and to derives step from duration", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		fromTS := now.Add(-2 * time.Hour)
+		toTS := now.Add(-time.Hour) // exactly 1h → 1m step
+		// Client sends mismatched period/step; server must derive step from ~1h duration → 1m.
+		url := "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&period=10m&step=1s&from=" +
+			fromTS.Format(time.RFC3339) + "&to=" + toTS.Format(time.RFC3339)
+		req, err := testutil.MakeAuthenticatedRequest("GET", url, token, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var series models.MetricSeriesResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &series))
+		assert.Equal(t, "test_node", series.Node)
+		assert.Equal(t, "cpu_load", series.Metric)
+		assert.Equal(t, "custom", series.Period)
+		assert.Equal(t, "1m", series.Step)
+		assert.Equal(t, fromTS.Format(time.RFC3339), series.From)
+		assert.Equal(t, toTS.Format(time.RFC3339), series.To)
+	})
+
+	t.Run("absolute without period uses duration step", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		fromTS := now.Add(-15 * time.Minute)
+		toTS := now
+		url := "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&from=" +
+			fromTS.Format(time.RFC3339) + "&to=" + toTS.Format(time.RFC3339)
+		req, err := testutil.MakeAuthenticatedRequest("GET", url, token, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var series models.MetricSeriesResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &series))
+		assert.Equal(t, "custom", series.Period)
+		assert.Equal(t, "10s", series.Step)
+	})
+
+	t.Run("short absolute range uses 1s step", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		fromTS := now.Add(-5 * time.Minute)
+		toTS := now
+		url := "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&from=" +
+			fromTS.Format(time.RFC3339) + "&to=" + toTS.Format(time.RFC3339)
+		req, err := testutil.MakeAuthenticatedRequest("GET", url, token, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var series models.MetricSeriesResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &series))
+		assert.Equal(t, "1s", series.Step)
+	})
+
+	t.Run("only from", func(t *testing.T) {
+		url := "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&from=" + from
+		req, err := testutil.MakeAuthenticatedRequest("GET", url, token, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "both from and to")
+	})
+
+	t.Run("from after to", func(t *testing.T) {
+		url := "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&from=" + to + "&to=" + from
+		req, err := testutil.MakeAuthenticatedRequest("GET", url, token, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "from must be before to")
+	})
+
+	t.Run("week absolute range uses 1h step", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		wideFrom := now.Add(-7 * 24 * time.Hour)
+		wideTo := now
+		url := "/api/v1/clickhouse/metrics/series?node=test_node&metric=cpu_load&period=10m&step=1s&from=" +
+			wideFrom.Format(time.RFC3339) + "&to=" + wideTo.Format(time.RFC3339)
+		req, err := testutil.MakeAuthenticatedRequest("GET", url, token, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var series models.MetricSeriesResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &series))
+		assert.Equal(t, "custom", series.Period)
+		assert.Equal(t, "1h", series.Step)
 	})
 }

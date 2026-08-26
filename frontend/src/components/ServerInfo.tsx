@@ -174,11 +174,29 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
               <h2 className={theme === 'light' ? 'text-amber-700 mb-1' : 'text-yellow-400 mb-1'}>Database Server Information</h2>
               <div className="flex items-center gap-3 text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-green-400">Online</span>
+                  {serverInfo ? (
+                    <>
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                      <span className="text-green-400">Online</span>
+                    </>
+                  ) : selectedNode && !loading ? (
+                    <>
+                      <div className="w-2 h-2 bg-red-500 rounded-full" />
+                      <span className="text-red-400">Offline</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`w-2 h-2 rounded-full ${loading ? 'bg-yellow-500 animate-pulse' : 'bg-gray-500'}`} />
+                      <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>
+                        {loading ? 'Checking...' : 'Unknown'}
+                      </span>
+                    </>
+                  )}
                 </div>
                 <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-500'}>•</span>
-                <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>Healthy</span>
+                <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>
+                  {serverInfo ? 'Healthy' : selectedNode && !loading ? 'Unavailable' : '—'}
+                </span>
                 <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-500'}>•</span>
                 <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>{selectedNode || 'No node selected'}</span>
               </div>
