@@ -2,9 +2,7 @@
 
 Self-hosted web application for **monitoring and operating ClickHouse** clusters. A Go **REST API** (`/api/v1`) backs a **React (Vite)** UI; the app stores its own users, roles, and permissions in **PostgreSQL** and talks to one or more **ClickHouse** instances over the native protocol.
 
-## Maintainer
-
-Chops is **created and maintained by BI Forge LLC**.
+**https://chops.biforge.solutions/**
 
 ## What it does (feature overview)
 
