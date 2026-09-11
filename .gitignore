@@ -1,5 +1,6 @@
 .idea
 .cursor
+.docs
 
 # WSL-specific paths and directories
 *wsl.localhost*
