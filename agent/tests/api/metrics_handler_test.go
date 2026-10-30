@@ -140,8 +140,8 @@ func TestMetricsHandlerGetCurrentMetricsWithNonExistentNode(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Should return 404 or 500 depending on implementation
-	assert.True(t, w.Code == http.StatusNotFound || w.Code == http.StatusInternalServerError)
+	// An unknown node is a failure, not the "no recent metrics" 404.
+	assert.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 }
 
 func TestMetricsHandlerGetMetricSeriesWithDifferentMetrics(t *testing.T) {

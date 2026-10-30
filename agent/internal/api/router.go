@@ -324,6 +324,7 @@ func setupMetricsRoutes(protected *gin.RouterGroup, handlers *handlersContainer)
 		metrics.GET("/current", middleware.RequirePermission(rbac.PermClickhouseMetricsCurrent), handlers.MetricsHandler.GetCurrentMetrics)
 		metrics.GET("/stream", middleware.RequirePermission(rbac.PermClickhouseMetricsStream), handlers.MetricsHandler.StreamMetrics)
 		metrics.GET("/series", middleware.RequirePermission(rbac.PermClickhouseMetricsSeries), handlers.MetricsHandler.GetMetricSeries)
+		metrics.GET("/series/batch", middleware.RequirePermission(rbac.PermClickhouseMetricsSeries), handlers.MetricsHandler.GetMetricSeriesBatch)
 		metrics.GET("/server-info", middleware.RequirePermission(rbac.PermClickhouseMetricsServerInfo), handlers.MetricsHandler.GetServerInfo)
 	}
 }

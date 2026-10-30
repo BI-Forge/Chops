@@ -2,12 +2,13 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"clickhouse-ops/internal/clickhouse/repository"
 	chmodels "clickhouse-ops/internal/clickhouse/models"
+	"clickhouse-ops/internal/clickhouse/repository"
 	"clickhouse-ops/internal/logger"
 )
 
@@ -76,7 +77,7 @@ func (p *MetricsPublisher) Stop() {
 }
 
 func (p *MetricsPublisher) runNodePublisher(ctx context.Context, node string) {
-	p.publishOnce(node)
+	noRecent := p.publishOnce(node, false)
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
 
@@ -85,18 +86,35 @@ func (p *MetricsPublisher) runNodePublisher(ctx context.Context, node string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.publishOnce(node)
+			noRecent = p.publishOnce(node, noRecent)
 		}
 	}
 }
 
-func (p *MetricsPublisher) publishOnce(node string) {
+// publishOnce fetches and publishes one metrics snapshot. wasNoRecent is the
+// previous "no recent metrics" state; the new state is returned so that this
+// expected condition is logged only on transitions instead of on every poll.
+//
+// The no-recent event is still published on every poll: it is an in-memory
+// broadcast, it lets subscribers that connect later (or that dropped an event
+// because their buffer was full) learn the current state within one poll
+// interval, and the SSE handler de-duplicates it per connection.
+func (p *MetricsPublisher) publishOnce(node string, wasNoRecent bool) bool {
 	queryCtx, cancel := context.WithTimeout(context.Background(), p.queryTimeout)
 	metrics, err := p.repo.GetLatestMetrics(queryCtx, node)
 	cancel()
 
-	if err != nil && p.logger != nil {
-		p.logger.Errorf("Failed to fetch metrics for node %s: %v", node, err)
+	isNoRecent := errors.Is(err, repository.ErrNoRecentMetrics)
+	noRecent := nextNoRecentState(wasNoRecent, err)
+	if p.logger != nil {
+		switch {
+		case noRecent && !wasNoRecent:
+			p.logger.Warningf("No recent metrics for node %s: %v", node, err)
+		case !noRecent && wasNoRecent:
+			p.logger.Infof("Metrics for node %s are available again", node)
+		case err != nil && !isNoRecent:
+			p.logger.Errorf("Failed to fetch metrics for node %s: %v", node, err)
+		}
 	}
 
 	var payload interface{}
@@ -110,6 +128,29 @@ func (p *MetricsPublisher) publishOnce(node string) {
 		Err:         err,
 		BroadcastAt: time.Now().UTC(),
 	})
+
+	return noRecent
+}
+
+// nextNoRecentState returns the "no recent metrics" state after a poll that
+// ended with err. Only a successful poll clears the state; unrelated errors
+// (timeouts, connection failures) keep the previous state so that the
+// recovery is still detected once metrics come back.
+func nextNoRecentState(wasNoRecent bool, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, repository.ErrNoRecentMetrics):
+		return true
+	default:
+		return wasNoRecent
+	}
+}
+
+// IsNoRecentMetrics reports whether the event signals the expected
+// "node has no metrics in the recent window" state rather than a failure.
+func IsNoRecentMetrics(event Event) bool {
+	return errors.Is(event.Err, repository.ErrNoRecentMetrics)
 }
 
 // MetricsTopic returns a broadcaster topic for the node metrics stream.

@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Cpu, Database, HardDrive, Activity, FileText } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAlert } from '../contexts/AlertContext';
-import { metricsAPI } from '../services/metricsAPI';
+import { metricsAPI, isNoRecentMetricsError, NO_RECENT_DATA_MESSAGE } from '../services/metricsAPI';
 import { isCanceledError } from '../services/api';
 import type { SystemMetrics } from '../types/metrics';
 
@@ -122,71 +122,140 @@ interface MetricsCardsProps {
   selectedNode?: string;
 }
 
+// Reconnect backoff after a transport failure: 5s, 10s, 20s, ... capped at 60s.
+const STREAM_RECONNECT_BASE_DELAY_MS = 5000;
+const STREAM_RECONNECT_MAX_DELAY_MS = 60000;
+
 export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [loading, setLoading] = useState(true);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  // The node has no snapshot in the last 10 minutes (/current 404 or SSE `no_data`).
+  const [noRecentMetrics, setNoRecentMetrics] = useState(false);
   const { theme } = useTheme();
   const { error: showError } = useAlert();
 
-  // Load initial metrics and setup SSE stream
+  // Load initial metrics and keep them live via the SSE stream
   useEffect(() => {
+    setMetrics(null);
+    setNoRecentMetrics(false);
     if (!selectedNode) {
       setLoading(false);
       return;
     }
+    setLoading(true);
 
     let cancelled = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // One alert per failure streak; reset when metrics arrive again.
+    let errorAlerted = false;
+    // Consecutive reconnects without a `metrics`/`no_data` event; drives the backoff.
+    let reconnectAttempts = 0;
+    const controller = new AbortController();
 
-    const loadMetrics = async () => {
-      try {
-        setLoading(true);
-        // Load initial metrics
-        const initialMetrics = await metricsAPI.getCurrentMetrics(selectedNode);
-        if (cancelled) return;
-        setMetrics(initialMetrics);
-        setLoading(false);
+    const alertOnce = (title: string, message: string) => {
+      if (errorAlerted) return;
+      errorAlerted = true;
+      showError(title, message, 5000);
+    };
 
-        // Setup SSE stream for real-time updates
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
+    // Only stream events prove the stream works: they end the outage (alert + backoff).
+    // A successful /current alone does not, since the stream may still be failing.
+    const markStreamHealthy = () => {
+      errorAlerted = false;
+      reconnectAttempts = 0;
+    };
 
-        eventSourceRef.current = metricsAPI.streamMetrics(
-          selectedNode,
-          (updatedMetrics) => {
-            setMetrics(updatedMetrics);
-          },
-          (error) => {
-            console.error('SSE error:', error);
-            if (cancelled) return;
-            showError('Connection Error', 'Lost connection to metrics stream. Reconnecting...', 5000);
-            setTimeout(() => {
-              if (!cancelled && selectedNode) {
-                loadMetrics();
-              }
-            }, 5000);
-          }
-        );
-      } catch (error) {
-        console.error('Failed to load metrics:', error);
-        if (cancelled || isCanceledError(error)) return;
-        showError('Failed to load metrics', 'Unable to fetch system metrics', 5000);
-        setLoading(false);
+    const showMetrics = (next: SystemMetrics) => {
+      setMetrics(next);
+      setNoRecentMetrics(false);
+      setLoading(false);
+    };
+
+    const showNoRecentMetrics = () => {
+      setMetrics(null);
+      setNoRecentMetrics(true);
+      setLoading(false);
+    };
+
+    const closeStream = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
       }
     };
 
-    loadMetrics();
+    const scheduleReconnect = () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const delay = Math.min(
+        STREAM_RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempts,
+        STREAM_RECONNECT_MAX_DELAY_MS
+      );
+      reconnectAttempts += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const openStream = () => {
+      closeStream();
+      eventSource = metricsAPI.streamMetrics(
+        selectedNode,
+        (updatedMetrics) => {
+          if (cancelled) return;
+          markStreamHealthy();
+          showMetrics(updatedMetrics);
+        },
+        (error, source) => {
+          if (cancelled) return;
+          console.error('SSE error:', error);
+          if (source === 'connection') {
+            alertOnce('Connection Error', 'Lost connection to metrics stream. Reconnecting...');
+            closeStream();
+            scheduleReconnect();
+          } else {
+            alertOnce('Metrics stream error', error.message);
+          }
+        },
+        () => {
+          if (cancelled) return;
+          markStreamHealthy();
+          showNoRecentMetrics();
+        }
+      );
+    };
+
+    // Initial snapshot, then the stream. The stream is opened even when there is no recent
+    // snapshot, so the cards recover as soon as `metrics` events resume.
+    const connect = async () => {
+      try {
+        const initialMetrics = await metricsAPI.getCurrentMetricsQuiet(selectedNode, controller.signal);
+        if (cancelled) return;
+        showMetrics(initialMetrics);
+      } catch (error) {
+        if (cancelled || isCanceledError(error)) return;
+        if (isNoRecentMetricsError(error)) {
+          showNoRecentMetrics();
+        } else {
+          console.error('Failed to load metrics:', error);
+          alertOnce('Failed to load metrics', 'Unable to fetch system metrics');
+          setLoading(false);
+        }
+      }
+      if (!cancelled) openStream();
+    };
+
+    connect();
 
     // Cleanup on unmount or node change
     return () => {
       cancelled = true;
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
+      controller.abort();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      closeStream();
     };
-  }, [selectedNode]);
+  }, [selectedNode, showError]);
 
   // Prepare metrics data for display
   const metricsData = metrics ? [
@@ -234,6 +303,19 @@ export function MetricsCards({ selectedNode = '' }: MetricsCardsProps) {
     return (
       <div className={`${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} text-center py-8`}>
         Please select a node to view metrics
+      </div>
+    );
+  }
+
+  if (noRecentMetrics) {
+    return (
+      <div
+        role="status"
+        className={`${
+          theme === 'light' ? 'bg-white/90 border-amber-500/30 text-gray-600' : 'bg-gray-900/40 border-yellow-500/20 text-gray-400'
+        } backdrop-blur-md rounded-xl border p-4 sm:p-6 min-h-[9rem] flex items-center justify-center text-center`}
+      >
+        {NO_RECENT_DATA_MESSAGE}
       </div>
     );
   }

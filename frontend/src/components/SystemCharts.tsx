@@ -265,6 +265,9 @@ interface ChartSeriesState {
   queries: TimeSeriesPoint[]
 }
 
+// Fetched in one batch request (single backend scan) instead of one request per metric.
+const CHART_METRICS = ['cpu_load', 'memory_load', 'memory_used_gb', 'storage_used', 'active_queries']
+
 const emptySeries = (): ChartSeriesState => ({
   cpu: [],
   memory: [],
@@ -282,6 +285,7 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
   const { theme } = useTheme()
   const { error: showError } = useAlert()
   const loadGen = useRef(0)
+  const loadAbort = useRef<AbortController | null>(null)
 
   const handleTimeRangeChange = (next: TimeRangeValue) => {
     setTimeRange(next)
@@ -293,75 +297,92 @@ export function SystemCharts({ selectedNode = '' }: SystemChartsProps) {
 
   const interval = displayStepForTimeRange(timeRange)
 
+  // Totals belong to a node: drop the previous node's values so a failed totals lookup
+  // falls back to the defaults instead of another node's axis limits.
+  useEffect(() => {
+    setMemoryTotalGB(0)
+    setDiskTotalGB(1000)
+  }, [selectedNode])
+
   const loadChartData = useCallback(async () => {
     const expected = ++loadGen.current
+    // Abort the superseded load's requests so the backend stops scanning for them.
+    loadAbort.current?.abort()
+    loadAbort.current = null
     if (!selectedNode) {
       setSeries(emptySeries())
       setIsRefreshing(false)
       return
     }
 
-    try {
-      const currentMetrics = await metricsAPI.getCurrentMetrics(selectedNode)
-      if (loadGen.current !== expected) return
-      setMemoryTotalGB(Math.round(currentMetrics.memory_total_gb))
-      setDiskTotalGB(Math.round(currentMetrics.disk_total_gb) || 1000)
-
-      let seriesOpts: { period?: string; step?: string; from?: string; to?: string }
-      if (timeRange.kind === 'absolute') {
-        const rangeError = validateAbsoluteRange(timeRange.from, timeRange.to)
-        if (rangeError) {
-          showError('Invalid date range', rangeError, 5000)
-          setSeries(emptySeries())
-          return
-        }
-        const absoluteFrom = formatDateForAPI(timeRange.from)
-        const absoluteTo = formatDateForAPI(timeRange.to)
-        if (!absoluteFrom || !absoluteTo) {
-          showError('Invalid date range', 'Unable to parse date range', 5000)
-          setSeries(emptySeries())
-          return
-        }
-        seriesOpts = { from: absoluteFrom, to: absoluteTo }
-      } else {
-        const cfg = PERIOD_CONFIGURATIONS[timeRange.period] || PERIOD_CONFIGURATIONS['1d']
-        seriesOpts = { period: cfg.apiPeriod, step: cfg.step }
-      }
-
-      const [cpuData, memoryPercentData, memoryGBData, diskData, queriesData] = await Promise.all([
-        metricsAPI.getMetricSeries(selectedNode, 'cpu_load', seriesOpts),
-        metricsAPI.getMetricSeries(selectedNode, 'memory_load', seriesOpts),
-        metricsAPI.getMetricSeries(selectedNode, 'memory_used_gb', seriesOpts),
-        metricsAPI.getMetricSeries(selectedNode, 'storage_used', seriesOpts),
-        metricsAPI.getMetricSeries(selectedNode, 'active_queries', seriesOpts),
-      ])
-
-      if (loadGen.current !== expected) return
-
-      setSeries({
-        cpu: seriesToPoints(cpuData.points, (v) => Math.round(v)),
-        memory: seriesToPoints(memoryPercentData.points, (v) => Math.round(v)),
-        memoryGB: seriesToPoints(memoryGBData.points, (v) => Math.round(v * 10) / 10),
-        storage: seriesToPoints(diskData.points, (v) => Math.round(v * 10) / 10),
-        queries: seriesToPoints(queriesData.points, (v) => Math.round(v)),
-      })
-    } catch (error) {
-      if (loadGen.current !== expected) return
-      if (isCanceledError(error)) return
-      console.error('Failed to load chart data:', error)
-      showError('Failed to load charts', getChartLoadErrorMessage(error), 5000)
-      setSeries(emptySeries())
-    } finally {
-      if (loadGen.current === expected) {
+    let seriesOpts: { period?: string; step?: string; from?: string; to?: string }
+    if (timeRange.kind === 'absolute') {
+      const rangeError = validateAbsoluteRange(timeRange.from, timeRange.to)
+      if (rangeError) {
+        showError('Invalid date range', rangeError, 5000)
+        setSeries(emptySeries())
         setIsRefreshing(false)
+        return
       }
+      const absoluteFrom = formatDateForAPI(timeRange.from)
+      const absoluteTo = formatDateForAPI(timeRange.to)
+      if (!absoluteFrom || !absoluteTo) {
+        showError('Invalid date range', 'Unable to parse date range', 5000)
+        setSeries(emptySeries())
+        setIsRefreshing(false)
+        return
+      }
+      seriesOpts = { from: absoluteFrom, to: absoluteTo }
+    } else {
+      const cfg = PERIOD_CONFIGURATIONS[timeRange.period] || PERIOD_CONFIGURATIONS['1d']
+      seriesOpts = { period: cfg.apiPeriod, step: cfg.step }
     }
+
+    const controller = new AbortController()
+    loadAbort.current = controller
+
+    // Totals only set the Memory/Storage y-axis limits. /current returns nothing when the
+    // node has no snapshot in the last 10 minutes, so it is optional: run it alongside
+    // the series and keep the current totals if it fails.
+    const [totalsResult, batchResult] = await Promise.allSettled([
+      metricsAPI.getCurrentMetricsQuiet(selectedNode, controller.signal),
+      metricsAPI.getMetricSeriesBatch(selectedNode, CHART_METRICS, seriesOpts, controller.signal),
+    ])
+
+    if (loadGen.current !== expected) return
+    if (loadAbort.current === controller) loadAbort.current = null
+
+    if (totalsResult.status === 'fulfilled') {
+      setMemoryTotalGB(Math.round(totalsResult.value.memory_total_gb))
+      setDiskTotalGB(Math.round(totalsResult.value.disk_total_gb) || 1000)
+    } else if (!isCanceledError(totalsResult.reason)) {
+      console.warn('Chart totals unavailable, keeping current axis limits:', totalsResult.reason)
+    }
+
+    if (batchResult.status === 'fulfilled') {
+      const batch = batchResult.value
+      const pointsOf = (metric: string) => batch.series?.[metric] ?? []
+      setSeries({
+        cpu: seriesToPoints(pointsOf('cpu_load'), (v) => Math.round(v)),
+        memory: seriesToPoints(pointsOf('memory_load'), (v) => Math.round(v)),
+        memoryGB: seriesToPoints(pointsOf('memory_used_gb'), (v) => Math.round(v * 10) / 10),
+        storage: seriesToPoints(pointsOf('storage_used'), (v) => Math.round(v * 10) / 10),
+        queries: seriesToPoints(pointsOf('active_queries'), (v) => Math.round(v)),
+      })
+    } else if (!isCanceledError(batchResult.reason)) {
+      console.error('Failed to load chart data:', batchResult.reason)
+      showError('Failed to load charts', getChartLoadErrorMessage(batchResult.reason), 5000)
+      setSeries(emptySeries())
+    }
+    setIsRefreshing(false)
   }, [selectedNode, timeRange, showError])
 
   useEffect(() => {
     loadChartData()
     return () => {
       loadGen.current += 1
+      loadAbort.current?.abort()
+      loadAbort.current = null
     }
   }, [loadChartData])
 
