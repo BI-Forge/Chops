@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { metricsAPI } from '../services/metricsAPI';
+import axios from 'axios';
+import { metricsAPI, isNoRecentMetricsError, NO_RECENT_DATA_MESSAGE } from '../services/metricsAPI';
 import { isCanceledError } from '../services/api';
 import type { ServerInfo as ServerInfoType } from '../types/metrics';
 import { 
@@ -77,6 +78,9 @@ function InfoCard({ label, value, icon, status, copyable }: InfoCardProps) {
   );
 }
 
+// While the node has no recent snapshot, server info is re-fetched quietly at this interval.
+const NO_RECENT_DATA_POLL_MS = 30000;
+
 interface ServerInfoProps {
   selectedNode?: string;
 }
@@ -85,33 +89,66 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
   const [expandedSection, setExpandedSection] = useState<string | null>('general');
   const [serverInfo, setServerInfo] = useState<ServerInfoType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [noRecentData, setNoRecentData] = useState(false);
   const { theme } = useTheme();
   const { error: showError } = useAlert();
   
   // Load server info when node changes
   useEffect(() => {
+    setNoRecentData(false);
     if (!selectedNode) {
       setServerInfo(null);
+      setLoading(false);
       return;
     }
 
-    const loadServerInfo = async () => {
+    const controller = new AbortController();
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const schedulePoll = () => {
+      pollTimer = setTimeout(() => {
+        pollTimer = null;
+        loadServerInfo(true);
+      }, NO_RECENT_DATA_POLL_MS);
+    };
+
+    // `quiet` re-fetches run only in the no-recent-data state: no loading indicator and no
+    // alerts; any failure keeps the state and schedules the next attempt.
+    const loadServerInfo = async (quiet = false) => {
       try {
-        setLoading(true);
-        const info = await metricsAPI.getServerInfo(selectedNode);
+        if (!quiet) setLoading(true);
+        const info = await metricsAPI.getServerInfo(selectedNode, controller.signal);
+        if (controller.signal.aborted) return;
         setServerInfo(info);
+        setNoRecentData(false);
       } catch (error) {
-        console.error('Failed to load server info:', error);
-        if (isCanceledError(error)) return;
-        showError('Failed to load server info', 'Unable to fetch server information', 5000);
+        if (isCanceledError(error) || controller.signal.aborted) return;
+        if (quiet) {
+          schedulePoll();
+          return;
+        }
         setServerInfo(null);
+        if (isNoRecentMetricsError(error)) {
+          setNoRecentData(true);
+          schedulePoll();
+          return;
+        }
+        console.error('Failed to load server info:', error);
+        const serverMessage = axios.isAxiosError(error)
+          ? error.response?.data?.message || error.response?.data?.error
+          : undefined;
+        showError('Failed to load server info', serverMessage || 'Unable to fetch server information', 5000);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     loadServerInfo();
-  }, [selectedNode]);
+    return () => {
+      controller.abort();
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, [selectedNode, showError]);
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
@@ -173,20 +210,25 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
             <div>
               <h2 className={theme === 'light' ? 'text-amber-700 mb-1' : 'text-yellow-400 mb-1'}>Database Server Information</h2>
               <div className="flex items-center gap-3 text-sm">
-                <div className="flex items-center gap-2">
+                <div role="status" className="flex items-center gap-2">
                   {serverInfo ? (
                     <>
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                      <div aria-hidden="true" className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                       <span className="text-green-400">Online</span>
+                    </>
+                  ) : selectedNode && !loading && noRecentData ? (
+                    <>
+                      <div aria-hidden="true" className="w-2 h-2 bg-gray-500 rounded-full" />
+                      <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>No recent data</span>
                     </>
                   ) : selectedNode && !loading ? (
                     <>
-                      <div className="w-2 h-2 bg-red-500 rounded-full" />
+                      <div aria-hidden="true" className="w-2 h-2 bg-red-500 rounded-full" />
                       <span className="text-red-400">Offline</span>
                     </>
                   ) : (
                     <>
-                      <div className={`w-2 h-2 rounded-full ${loading ? 'bg-yellow-500 animate-pulse' : 'bg-gray-500'}`} />
+                      <div aria-hidden="true" className={`w-2 h-2 rounded-full ${loading ? 'bg-yellow-500 animate-pulse' : 'bg-gray-500'}`} />
                       <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>
                         {loading ? 'Checking...' : 'Unknown'}
                       </span>
@@ -195,7 +237,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
                 </div>
                 <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-500'}>•</span>
                 <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>
-                  {serverInfo ? 'Healthy' : selectedNode && !loading ? 'Unavailable' : '—'}
+                  {serverInfo ? 'Healthy' : selectedNode && !loading && !noRecentData ? 'Unavailable' : '—'}
                 </span>
                 <span className={theme === 'light' ? 'text-gray-500' : 'text-gray-500'}>•</span>
                 <span className={theme === 'light' ? 'text-gray-700' : 'text-gray-400'}>{selectedNode || 'No node selected'}</span>
@@ -256,7 +298,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
               ) : (
                 <div className="col-span-2 flex items-center justify-center py-4">
                   <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
-                    {selectedNode ? 'No data available' : 'Select a node to view server information'}
+                    {!selectedNode ? 'Select a node to view server information' : noRecentData ? NO_RECENT_DATA_MESSAGE : 'No data available'}
                   </div>
                 </div>
               )}
@@ -331,7 +373,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
               ) : (
                 <div className="col-span-4 flex items-center justify-center py-4">
                   <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
-                    {selectedNode ? 'No data available' : 'Select a node to view resources'}
+                    {!selectedNode ? 'Select a node to view resources' : noRecentData ? NO_RECENT_DATA_MESSAGE : 'No data available'}
                   </div>
                 </div>
               )}
@@ -392,7 +434,7 @@ export function ServerInfo({ selectedNode }: ServerInfoProps) {
               ) : (
                 <div className="col-span-4 flex items-center justify-center py-4">
                   <div className={`${theme === 'light' ? 'text-gray-700' : 'text-gray-400'} text-sm`}>
-                    {selectedNode ? 'No data available' : 'Select a node to view network information'}
+                    {!selectedNode ? 'Select a node to view network information' : noRecentData ? NO_RECENT_DATA_MESSAGE : 'No data available'}
                   </div>
                 </div>
               )}

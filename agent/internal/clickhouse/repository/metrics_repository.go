@@ -2,14 +2,20 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"clickhouse-ops/internal/clickhouse/models"
 	"clickhouse-ops/internal/config"
 	"clickhouse-ops/internal/pkg/bytesfmt"
 )
+
+// ErrNoRecentMetrics is returned when a node has no metrics rows within the
+// freshness window (last 10 minutes). It is a normal state, not a failure.
+var ErrNoRecentMetrics = errors.New("no metrics in the last 10 minutes")
 
 // MetricsRepository mediates metrics reads from ClickHouse metrics_snapshot table.
 type MetricsRepository struct {
@@ -157,6 +163,7 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName strin
 			timestamp,
 			profile
 		FROM %s.%s
+		WHERE timestamp >= now() - INTERVAL 10 MINUTE
 		ORDER BY timestamp DESC
 		LIMIT 1
 	`, schema, table)
@@ -168,7 +175,10 @@ func (r *MetricsRepository) GetLatestMetrics(ctx context.Context, nodeName strin
 	defer rows.Close()
 
 	if !rows.Next() {
-		return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read metrics rows: %w", err)
+		}
+		return nil, fmt.Errorf("node %s: %w", nodeName, ErrNoRecentMetrics)
 	}
 
 	var timestamp time.Time
@@ -222,6 +232,21 @@ func metricSeriesExpr(metricType string) (string, error) {
 
 // GetMetricSeries returns metric values aggregated by step in ClickHouse (avg per bucket).
 func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string, metricType string, from, to time.Time, step time.Duration) ([]models.MetricSeriesPoint, error) {
+	series, err := r.GetMetricSeriesBatch(ctx, nodeName, []string{metricType}, from, to, step)
+	if err != nil {
+		return nil, err
+	}
+	return series[metricType], nil
+}
+
+// GetMetricSeriesBatch returns several metric series aggregated by step (avg per bucket)
+// using a single scan of the metrics table. metricTypes must be non-empty and contain no
+// duplicates; every requested metric is present in the result (possibly with no points).
+func (r *MetricsRepository) GetMetricSeriesBatch(ctx context.Context, nodeName string, metricTypes []string, from, to time.Time, step time.Duration) (map[string][]models.MetricSeriesPoint, error) {
+	if len(metricTypes) == 0 {
+		return nil, fmt.Errorf("at least one metric type is required")
+	}
+
 	schema, table, err := r.getSchemaAndTable(nodeName)
 	if err != nil {
 		return nil, err
@@ -236,9 +261,20 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 		return nil, fmt.Errorf("step must be at least 1 second")
 	}
 
-	metricExpr, err := metricSeriesExpr(metricType)
-	if err != nil {
-		return nil, err
+	seen := make(map[string]struct{}, len(metricTypes))
+	selectExprs := make([]string, 0, len(metricTypes))
+	for i, metricType := range metricTypes {
+		if _, dup := seen[metricType]; dup {
+			return nil, fmt.Errorf("duplicate metric type: %s", metricType)
+		}
+		seen[metricType] = struct{}{}
+
+		metricExpr, err := metricSeriesExpr(metricType)
+		if err != nil {
+			return nil, err
+		}
+		// Column aliases are positional (v0, v1, ...) so no metric name reaches SQL text.
+		selectExprs = append(selectExprs, fmt.Sprintf("avg(%s) AS v%d", metricExpr, i))
 	}
 
 	tableName := fmt.Sprintf("%s.%s", schema, table)
@@ -250,13 +286,13 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 	query := fmt.Sprintf(`
 		SELECT
 			toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket_ts,
-			avg(%s) AS value
+			%s
 		FROM %s.%s
 		WHERE timestamp >= ?
 			AND timestamp <= ?
 		GROUP BY bucket_ts
 		ORDER BY bucket_ts
-	`, metricExpr, schema, table)
+	`, strings.Join(selectExprs, ",\n\t\t\t"), schema, table)
 
 	rows, err := conn.Query(ctx, query, stepSeconds, from, to)
 	if err != nil {
@@ -264,23 +300,36 @@ func (r *MetricsRepository) GetMetricSeries(ctx context.Context, nodeName string
 	}
 	defer rows.Close()
 
-	points := make([]models.MetricSeriesPoint, 0)
+	series := make(map[string][]models.MetricSeriesPoint, len(metricTypes))
+	for _, metricType := range metricTypes {
+		series[metricType] = make([]models.MetricSeriesPoint, 0)
+	}
+
+	var bucketTS time.Time
+	values := make([]float64, len(metricTypes))
+	dest := make([]any, 0, len(metricTypes)+1)
+	dest = append(dest, &bucketTS)
+	for i := range values {
+		dest = append(dest, &values[i])
+	}
+
 	for rows.Next() {
-		var bucketTS time.Time
-		var value float64
-		if err := rows.Scan(&bucketTS, &value); err != nil {
+		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("failed to scan metric point: %w", err)
 		}
-		points = append(points, models.MetricSeriesPoint{
-			Timestamp: bucketTS.UTC().Format(time.RFC3339),
-			Value:     value,
-		})
+		ts := bucketTS.UTC().Format(time.RFC3339)
+		for i, metricType := range metricTypes {
+			series[metricType] = append(series[metricType], models.MetricSeriesPoint{
+				Timestamp: ts,
+				Value:     values[i],
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate metric series: %w", err)
 	}
 
-	return points, nil
+	return series, nil
 }
 
 // GetServerInfo returns server information including uptime, version, memory and storage for a specific node.
@@ -305,6 +354,7 @@ func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) 
 			timestamp,
 			profile
 		FROM %s.%s
+		WHERE timestamp >= now() - INTERVAL 10 MINUTE
 		ORDER BY timestamp DESC
 		LIMIT 1
 	`, schema, table)
@@ -316,7 +366,10 @@ func (r *MetricsRepository) GetServerInfo(ctx context.Context, nodeName string) 
 	defer rows.Close()
 
 	if !rows.Next() {
-		return nil, fmt.Errorf("no metrics found for node: %s", nodeName)
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read metrics rows: %w", err)
+		}
+		return nil, fmt.Errorf("node %s: %w", nodeName, ErrNoRecentMetrics)
 	}
 
 	var timestamp time.Time

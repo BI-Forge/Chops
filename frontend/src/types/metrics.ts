@@ -38,6 +38,17 @@ export interface MetricSeriesResponse {
   points: MetricSeriesPoint[]
 }
 
+export interface MetricSeriesBatchResponse {
+  node: string
+  metrics: string[]
+  period: string
+  step: string
+  from: string
+  to: string
+  // One entry per requested metric; empty array when there is no data.
+  series: Record<string, MetricSeriesPoint[]>
+}
+
 export interface ServerInfo {
   node_name: string
   uptime: number

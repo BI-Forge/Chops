@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -32,6 +33,11 @@ var (
 
 	// maxMetricSeriesPoints caps buckets returned for an absolute from/to window.
 	maxMetricSeriesPoints = 2500
+
+	// Series query deadline: base + per full day of range, capped (see seriesQueryTimeout).
+	seriesQueryBaseTimeout   = 10 * time.Second
+	seriesQueryTimeoutPerDay = 5 * time.Second
+	seriesQueryMaxTimeout    = 55 * time.Second
 
 	periodConfigurations = map[string]struct {
 		duration time.Duration
@@ -189,7 +195,7 @@ func (h *MetricsHandler) GetAvailableNodes(c *gin.Context) {
 
 // StreamMetrics streams metrics via Server-Sent Events (SSE)
 // @Summary      Stream metrics via SSE
-// @Description  Streams current system metrics for a specific node every second
+// @Description  Streams current system metrics for a specific node every second ("metrics" events). If the node has no metrics in the last 10 minutes, a single "no_data" event {"node","error"} is sent until metrics resume.
 // @Tags         metrics
 // @Param        node  query  string  true  "Node name"
 // @Param        token  query  string  false  "JWT token (alternative to Authorization header for SSE)"
@@ -232,6 +238,11 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 	c.SSEvent("message", gin.H{"status": "connected", "node": nodeName})
 	c.Writer.Flush()
 
+	// noData tracks whether this connection has already been told that the
+	// node has no recent metrics. The publisher repeats the state on every
+	// poll; the client gets exactly one "no_data" event per transition.
+	noData := false
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -241,6 +252,20 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 			if !ok {
 				h.logger.Infof("Metrics stream closed for node: %s", nodeName)
 				return
+			}
+			if stream.IsNoRecentMetrics(event) {
+				if noData {
+					continue
+				}
+				noDataJSON, err := json.Marshal(metricsNoDataEvent{Node: nodeName, Error: event.Err.Error()})
+				if err != nil {
+					h.logger.Errorf("Failed to marshal no_data event: %v", err)
+					continue
+				}
+				noData = true
+				c.SSEvent("no_data", string(noDataJSON))
+				c.Writer.Flush()
+				continue
 			}
 			if event.Err != nil {
 				c.SSEvent("error", gin.H{"error": fmt.Sprintf("Failed to get metrics: %v", event.Err)})
@@ -258,10 +283,18 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 				continue
 			}
 
+			noData = false
 			c.SSEvent("metrics", string(metricsJSON))
 			c.Writer.Flush()
 		}
 	}
+}
+
+// metricsNoDataEvent is the payload of the "no_data" SSE event sent when the
+// node has no metrics in the recent window.
+type metricsNoDataEvent struct {
+	Node  string `json:"node"`
+	Error string `json:"error"`
 }
 
 // GetCurrentMetrics returns current metrics (one-time request)
@@ -271,6 +304,9 @@ func (h *MetricsHandler) StreamMetrics(c *gin.Context) {
 // @Param        node  query  string  true  "Node name"
 // @Produce      json
 // @Success      200  {object}  clickhouse/models.SystemMetrics
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      404  {object}  models.ErrorResponse  "No metrics in the last 10 minutes"
+// @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/v1/clickhouse/metrics/current [get]
 func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 	nodeName := c.Query("node")
@@ -283,6 +319,10 @@ func (h *MetricsHandler) GetCurrentMetrics(c *gin.Context) {
 	defer cancel()
 
 	metrics, err := h.metricsRepo.GetLatestMetrics(ctx, nodeName)
+	if errors.Is(err, repository.ErrNoRecentMetrics) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		h.logger.Errorf("Failed to get metrics for node %s: %v", nodeName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get metrics: %v", err)})
@@ -321,70 +361,16 @@ func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 		return
 	}
 
-	fromParam := strings.TrimSpace(c.Query("from"))
-	toParam := strings.TrimSpace(c.Query("to"))
-	absolute := fromParam != "" || toParam != ""
-
-	var (
-		periodKey      string
-		stepDuration   time.Duration
-		effectiveStep  string
-		from, to       time.Time
-		err            error
-	)
-
-	if absolute {
-		from, to, err = h.resolveSeriesRange(fromParam, toParam, 0)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		stepDuration, effectiveStep, err = stepForDuration(to.Sub(from))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		periodKey = "custom"
-
-		estimated := int(to.Sub(from)/stepDuration) + 1
-		if estimated > maxMetricSeriesPoints {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("requested range with step %s would produce about %d points (max %d); narrow the range", effectiveStep, estimated, maxMetricSeriesPoints),
-			})
-			return
-		}
-	} else {
-		periodKey = c.DefaultQuery("period", "1h")
-		periodCfg, ok := periodConfigurations[periodKey]
-		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported period: %s", periodKey)})
-			return
-		}
-
-		defaultStep, hasDefault := stepStrings[periodCfg.step]
-		if !hasDefault {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("unsupported configured step duration: %s", periodCfg.step)})
-			return
-		}
-
-		stepKey := c.DefaultQuery("step", defaultStep)
-		stepDuration, effectiveStep, err = normalizeStep(stepKey, periodCfg.step)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		from, to, err = h.resolveSeriesRange("", "", periodCfg.duration)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
+	window, status, err := h.resolveSeriesWindow(c)
+	if err != nil {
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), seriesQueryTimeout(window.to.Sub(window.from)))
 	defer cancel()
 
-	points, err := h.metricsRepo.GetMetricSeries(ctx, nodeName, metricType, from, to, stepDuration)
+	points, err := h.metricsRepo.GetMetricSeries(ctx, nodeName, metricType, window.from, window.to, window.step)
 	if err != nil {
 		h.logger.Errorf("Failed to load metric series: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load metric series"})
@@ -394,14 +380,179 @@ func (h *MetricsHandler) GetMetricSeries(c *gin.Context) {
 	response := models.MetricSeriesResponse{
 		Node:   nodeName,
 		Metric: metricType,
-		Period: periodKey,
-		Step:   effectiveStep,
-		From:   from.Format(time.RFC3339),
-		To:     to.Format(time.RFC3339),
+		Period: window.periodKey,
+		Step:   window.effectiveStep,
+		From:   window.from.Format(time.RFC3339),
+		To:     window.to.Format(time.RFC3339),
 		Points: points,
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// GetMetricSeriesBatch returns several aggregated metric series computed by a single ClickHouse query.
+// @Summary      Get several metric series in one request
+// @Description  Same window/step rules as /metrics/series, but returns series for every metric listed in `metrics` (comma-separated, no duplicates), computed in one table scan. Relative: period+step (window ending at now). Absolute: from+to (RFC3339); step is derived from range duration; period/step query params are ignored.
+// @Tags         metrics
+// @Security     BearerAuth
+// @Param        node     query  string  true   "Node name"
+// @Param        metrics  query  string  true   "Comma-separated metric types: cpu_load, memory_load, memory_used_gb, storage_used, active_connections, active_queries"
+// @Param        period   query  string  false  "Relative period (selects window+step); ignored when from/to set" Enums(10m, 30m, 1h, 6h, 12h, 1d, 3d, 7d) default(1h)
+// @Param        step     query  string  false  "Aggregation step for relative period; must match period default; ignored when from/to set"
+// @Param        from     query  string  false  "Range start (RFC3339); requires to; step derived from duration"
+// @Param        to       query  string  false  "Range end (RFC3339); requires from; step derived from duration"
+// @Produce      json
+// @Success      200  {object}  models.MetricSeriesBatchResponse
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      500  {object}  models.ErrorResponse
+// @Router       /api/v1/clickhouse/metrics/series/batch [get]
+func (h *MetricsHandler) GetMetricSeriesBatch(c *gin.Context) {
+	nodeName := c.Query("node")
+	if nodeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "node parameter is required"})
+		return
+	}
+
+	metricTypes, err := parseMetricTypesList(c.Query("metrics"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	window, status, err := h.resolveSeriesWindow(c)
+	if err != nil {
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), seriesQueryTimeout(window.to.Sub(window.from)))
+	defer cancel()
+
+	series, err := h.metricsRepo.GetMetricSeriesBatch(ctx, nodeName, metricTypes, window.from, window.to, window.step)
+	if err != nil {
+		h.logger.Errorf("Failed to load metric series batch: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load metric series"})
+		return
+	}
+
+	response := models.MetricSeriesBatchResponse{
+		Node:    nodeName,
+		Metrics: metricTypes,
+		Period:  window.periodKey,
+		Step:    window.effectiveStep,
+		From:    window.from.Format(time.RFC3339),
+		To:      window.to.Format(time.RFC3339),
+		Series:  series,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// parseMetricTypesList parses a comma-separated list of whitelisted metric types.
+// Order is preserved; empty items, unknown metrics and duplicates are rejected.
+func parseMetricTypesList(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("metrics parameter is required")
+	}
+
+	parts := strings.Split(raw, ",")
+	if len(parts) > len(allowedMetricTypes) {
+		return nil, fmt.Errorf("too many metrics requested (max %d)", len(allowedMetricTypes))
+	}
+
+	metricTypes := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		metricType := strings.TrimSpace(part)
+		if metricType == "" {
+			return nil, fmt.Errorf("metrics parameter contains an empty item")
+		}
+		if _, ok := allowedMetricTypes[metricType]; !ok {
+			return nil, fmt.Errorf("unsupported metric type: %s", metricType)
+		}
+		if _, dup := seen[metricType]; dup {
+			return nil, fmt.Errorf("duplicate metric type: %s", metricType)
+		}
+		seen[metricType] = struct{}{}
+		metricTypes = append(metricTypes, metricType)
+	}
+
+	return metricTypes, nil
+}
+
+// seriesWindow is the resolved time window and aggregation step for a series request.
+type seriesWindow struct {
+	periodKey     string
+	step          time.Duration
+	effectiveStep string
+	from, to      time.Time
+}
+
+// resolveSeriesWindow resolves period/step or from/to query params into a series window.
+// On error it returns the HTTP status to respond with.
+func (h *MetricsHandler) resolveSeriesWindow(c *gin.Context) (seriesWindow, int, error) {
+	fromParam := strings.TrimSpace(c.Query("from"))
+	toParam := strings.TrimSpace(c.Query("to"))
+	absolute := fromParam != "" || toParam != ""
+
+	var (
+		w   seriesWindow
+		err error
+	)
+
+	if absolute {
+		w.from, w.to, err = h.resolveSeriesRange(fromParam, toParam, 0)
+		if err != nil {
+			return seriesWindow{}, http.StatusBadRequest, err
+		}
+		w.step, w.effectiveStep, err = stepForDuration(w.to.Sub(w.from))
+		if err != nil {
+			return seriesWindow{}, http.StatusInternalServerError, err
+		}
+		w.periodKey = "custom"
+
+		estimated := int(w.to.Sub(w.from)/w.step) + 1
+		if estimated > maxMetricSeriesPoints {
+			return seriesWindow{}, http.StatusBadRequest, fmt.Errorf("requested range with step %s would produce about %d points (max %d); narrow the range", w.effectiveStep, estimated, maxMetricSeriesPoints)
+		}
+		return w, http.StatusOK, nil
+	}
+
+	w.periodKey = c.DefaultQuery("period", "1h")
+	periodCfg, ok := periodConfigurations[w.periodKey]
+	if !ok {
+		return seriesWindow{}, http.StatusBadRequest, fmt.Errorf("unsupported period: %s", w.periodKey)
+	}
+
+	defaultStep, hasDefault := stepStrings[periodCfg.step]
+	if !hasDefault {
+		return seriesWindow{}, http.StatusInternalServerError, fmt.Errorf("unsupported configured step duration: %s", periodCfg.step)
+	}
+
+	stepKey := c.DefaultQuery("step", defaultStep)
+	w.step, w.effectiveStep, err = normalizeStep(stepKey, periodCfg.step)
+	if err != nil {
+		return seriesWindow{}, http.StatusBadRequest, err
+	}
+
+	w.from, w.to, err = h.resolveSeriesRange("", "", periodCfg.duration)
+	if err != nil {
+		return seriesWindow{}, http.StatusBadRequest, err
+	}
+
+	return w, http.StatusOK, nil
+}
+
+// seriesQueryTimeout scales the series query deadline with the requested range:
+// a 7d window scans ~600k snapshot rows (1s sync interval) and can take well over 10s.
+// Capped below the ClickHouse max_execution_time (60s) and nginx's default 60s proxy timeout.
+func seriesQueryTimeout(rangeDuration time.Duration) time.Duration {
+	timeout := seriesQueryBaseTimeout + time.Duration(rangeDuration/(24*time.Hour))*seriesQueryTimeoutPerDay
+	if timeout > seriesQueryMaxTimeout {
+		return seriesQueryMaxTimeout
+	}
+	return timeout
 }
 
 // stepForDuration picks aggregation step from absolute range length (same ladder as period presets).
@@ -514,6 +665,7 @@ func normalizeStep(stepKey string, expectedStep time.Duration) (time.Duration, s
 // @Produce      json
 // @Success      200  {object}  clickhouse/models.ServerInfo
 // @Failure      400  {object}  models.ErrorResponse
+// @Failure      404  {object}  models.ErrorResponse  "No metrics in the last 10 minutes"
 // @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/v1/clickhouse/metrics/server-info [get]
 func (h *MetricsHandler) GetServerInfo(c *gin.Context) {
@@ -530,6 +682,13 @@ func (h *MetricsHandler) GetServerInfo(c *gin.Context) {
 	defer cancel()
 
 	info, err := h.metricsRepo.GetServerInfo(ctx, nodeName)
+	if errors.Is(err, repository.ErrNoRecentMetrics) {
+		c.JSON(http.StatusNotFound, apiSystemModels.ErrorResponse{
+			Error:   "No recent metrics",
+			Message: err.Error(),
+		})
+		return
+	}
 	if err != nil {
 		h.logger.Errorf("Failed to get server info for node %s: %v", nodeName, err)
 		c.JSON(http.StatusInternalServerError, apiSystemModels.ErrorResponse{
